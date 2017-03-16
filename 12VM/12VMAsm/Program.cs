@@ -425,7 +425,7 @@ namespace _12VMAsm
                         }
                         else
                         {
-                            throw new FormatException($"Invalid lable: \"{line}\"");
+                            throw new FormatException($"Invalid label: \"{line}\"");
                         }
                     }
                     else
@@ -450,6 +450,8 @@ namespace _12VMAsm
 
             foreach (var file in files)
             {
+                offset = 0;
+
                 foreach (var proc in file.Value.Procs)
                 {
                     Dictionary<string, int?> local_labels = new Dictionary<string, int?>();
@@ -558,7 +560,7 @@ namespace _12VMAsm
 
             foreach (var asem in assembledProcs)
             {
-                Console.WriteLine($"Proc {asem.Key} at offset: {offset}");
+                Console.WriteLine($"Proc {asem.Key} at offset: {offset:X}");
 
                 procOffests[asem.Key] = offset;
                 offset += asem.Value.Count;
@@ -571,7 +573,22 @@ namespace _12VMAsm
                 proc.Value.CopyTo(compiledInstructions, procOffests[proc.Key]);
             }
 
-            //TODO: Place all files in the right place
+            // Is there a way to know a proc length before converting it to bits?
+            // Yes there is, would this take a lot of work?
+            // Possibly not.
+            // We could even push the splitting the load instructions for lables and long litterals back to the parsing. 
+            // Or even perprocessing.
+
+            // Should we use a dictionary to delegate the solving of label positions.
+            // This could help solve the problem with local labels.
+            // There needs to be a solution for differentiating a using of a label and a label definition. (Different instruction type?)
+            // Having a different instruction type would make this a lot easier.
+            
+            //TODO: Use the procOffsets to resolve labels
+            // There needs to be a good way to handle local labels
+            // Offsets shifted 12 bits left? Sounds like the best solution.
+            // It limits us to a max offset of 15. Should we just shift 8?
+            // This allows offsets of 255. That's more acceptable.
 
             return compiledInstructions;
 
