@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.IO;
+using System.Diagnostics;
 
 namespace _12VMAsm
 {
@@ -15,6 +16,7 @@ namespace _12VMAsm
             Nop,
             Load_addr,
             Load_lit,
+            Load_lit_l,
             Load_sp,
             Store_pc,
             Store_sp,
@@ -47,7 +49,7 @@ namespace _12VMAsm
         {
             Instruction,
             Litteral,
-            Label,
+            Label
         }
 
         struct Token
@@ -80,6 +82,18 @@ namespace _12VMAsm
                 Usings = usigns;
                 Constants = constants;
                 Procs = procs;
+            }
+        }
+
+        struct LibFile
+        {
+            public readonly short[] Instructions;
+            public readonly Dictionary<string, int> ProcOffsets;
+
+            public LibFile(short[] instructions, Dictionary<string, int> procOffsets)
+            {
+                Instructions = instructions;
+                ProcOffsets = procOffsets;
             }
         }
 
@@ -121,6 +135,7 @@ namespace _12VMAsm
             { "nop", Opcode.Nop },
             { "load.addr", Opcode.Load_addr },
             { "load.lit", Opcode.Load_lit },
+            { "load.lit.l", Opcode.Load_lit_l },
             { "load.sp", Opcode.Load_sp },
             { "store.pc", Opcode.Store_pc },
             { "store.sp", Opcode.Store_sp },
@@ -303,21 +318,21 @@ namespace _12VMAsm
             Console.WriteLine();
             Console.WriteLine("Assembling...");
             
-            short[] instructions = Assemble(files);
+            LibFile libFile = Assemble(files);
 
             Console.WriteLine("Result: ");
             Console.WriteLine();
 
             Console.ForegroundColor = ConsoleColor.White;
 
-            const int instPerLine = 4;
+            const int instPerLine = 3;
 
-            for (int i = 0; i < instructions.Length; i++)
+            for (int i = 0; i < libFile.Instructions.Length; i++)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.Write("{0:X6}: ", i);
                 Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("{0:X3}{1,-10}", instructions[i], "(" + (Opcode)instructions[i] + ")");
+                Console.Write("{0:X4}{1,-12}", libFile.Instructions[i], "(" + (Opcode)libFile.Instructions[i] + ")");
 
                 if ((i + 1) % instPerLine == 0)
                 {
@@ -326,6 +341,61 @@ namespace _12VMAsm
             }
 
             Console.ForegroundColor = conColor;
+
+            Console.WriteLine();
+            Console.WriteLine();
+            Console.Write("File name?: ");
+
+            string name = Console.ReadLine();
+
+            FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12lib"));
+
+            if (resFile.Exists)
+            {
+                Console.WriteLine("File already exsists! Replace (y/n)? ");
+                if (char.ToLower(Console.ReadLine()[0]) != 'y')
+                {
+                    goto noFile;
+                }
+            }
+            
+            using (FileStream stream = File.Open(resFile.FullName, FileMode.Create))
+            {
+                void AppendToFile(string str)
+                {
+                    byte[] bytes = Encoding.UTF8.GetBytes(str);
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+
+                byte[] ToBytes(short num)
+                {
+                    byte[] b = new byte[2];
+                    b[0] = (byte)(num >> 8);
+                    b[1] = (byte)(num & 255);
+                    return b;
+                }
+
+                AppendToFile("{");
+
+                foreach (var proc in libFile.ProcOffsets)
+                {
+                    AppendToFile($"{proc.Key},{proc.Value}");
+                }
+
+                AppendToFile("}");
+
+                byte[] inst = libFile.Instructions.Select(i => ToBytes(i)).Aggregate((sum, barr) => sum.Concat(barr).ToArray());
+
+                stream.Write(inst, 0, inst.Length);
+
+                stream.Flush();
+            }
+
+            Process.Start(dirInf.FullName);
+
+            return;
+
+            noFile:
 
             Console.ReadKey();
         }
@@ -440,7 +510,7 @@ namespace _12VMAsm
             return new AsemFile(usings, constants, procs);
         }
 
-        static short[] Assemble(Dictionary<string, AsemFile> files)
+        static LibFile Assemble(Dictionary<string, AsemFile> files)
         {
             Dictionary<string, List<short>> assembledProcs = new Dictionary<string, List<short>>();
 
@@ -448,13 +518,21 @@ namespace _12VMAsm
 
             Dictionary<string, int> procOffests = new Dictionary<string, int>();
 
+            Dictionary<string, Dictionary<string, int>> proc_label_instructions = new Dictionary<string, Dictionary<string, int>>();
+            
+            Dictionary<string, Dictionary<int, string>> proc_label_uses = new Dictionary<string, Dictionary<int, string>>();
+
             foreach (var file in files)
             {
                 offset = 0;
 
                 foreach (var proc in file.Value.Procs)
                 {
-                    Dictionary<string, int?> local_labels = new Dictionary<string, int?>();
+                    Console.WriteLine($"Assembling proc {proc.Key}");
+                    Console.WriteLine();
+
+                    Dictionary<string, int> local_labels = new Dictionary<string, int>();
+                    Dictionary<int, string> local_label_uses = new Dictionary<int, string>();
 
                     List<short> instructions = new List<short>();
 
@@ -478,8 +556,19 @@ namespace _12VMAsm
                             case TokenType.Instruction:
                                 switch (current.Opcode ?? Opcode.Nop)
                                 {
-                                    case Opcode.Load_addr:
                                     case Opcode.Load_lit:
+                                        instructions.Add((short)current.Opcode);
+                                        if (peek.Type == TokenType.Label)
+                                        {
+                                            local_label_uses[instructions.Count] = peek.Value;
+                                            instructions.Add(0);
+                                            instructions.Add(0);
+                                        }
+                                        instructions.Add(0x1000);
+                                        tokens.MoveNext();
+                                        break;
+                                    case Opcode.Load_lit_l:
+                                    case Opcode.Load_addr:
                                     case Opcode.Store_pc:
                                     case Opcode.Call_pc:
                                         if (current.Equals(peek) == false && (peek.Type == TokenType.Litteral || peek.Type == TokenType.Label))
@@ -490,15 +579,20 @@ namespace _12VMAsm
 
                                             if (peek.Type == TokenType.Label)
                                             {
-                                                
-
+                                                instructions.Add((short) op);
+                                                local_label_uses[instructions.Count] = peek.Value;
+                                                instructions.Add(0);
+                                                instructions.Add(0);
                                                 //FIXME!! We need to know where labels are located in memory to do this!
-                                                Console.ForegroundColor = ConsoleColor.Red;
-                                                Console.WriteLine($"Could not parse label \"{peek.Value}\"");
+                                                Console.ForegroundColor = ConsoleColor.DarkGreen;
+                                                Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
                                                 Console.ForegroundColor = conColor;
                                             }
                                             else if (peek.Type == TokenType.Litteral)
                                             {
+                                                // FIXME: This should be one opcode with two value instructions after
+                                                
+                                                /*
                                                 short[] value = new short[0];
                                                 if (num.IsMatch(peek.Value))
                                                 {
@@ -514,6 +608,11 @@ namespace _12VMAsm
                                                     instructions.Add((short)op);
                                                     instructions.Add(val);
                                                 }
+                                                */
+
+                                                instructions.Add((short)op);
+                                                instructions.Add(0);
+                                                instructions.Add(0);
                                             }
 
                                             tokens.MoveNext();
@@ -528,6 +627,19 @@ namespace _12VMAsm
                                     case Opcode.Jmp_nz:
                                     case Opcode.Jmp_cz:
                                     case Opcode.Jmp_fz:
+                                        instructions.Add((short)current.Opcode);
+                                        // TODO: Reference this point as a label
+                                        if (peek.Type == TokenType.Label)
+                                        {
+                                            local_label_uses[instructions.Count] = peek.Value;
+                                            Console.ForegroundColor = ConsoleColor.DarkGreen;
+                                            Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
+                                            Console.ForegroundColor = conColor;
+                                        }
+
+                                        instructions.Add(0);
+                                        instructions.Add(0);
+
                                         tokens.MoveNext();
                                         break;
                                     default:
@@ -539,24 +651,32 @@ namespace _12VMAsm
                                 Console.WriteLine($"Litteral {current.Value}");
                                 break;
                             case TokenType.Label:
-                                // Add lable to table?
-                                local_labels[current.Value] = offset + instructions.Count;
+                                local_labels[current.Value] = instructions.Count;
 
-                                Console.WriteLine($"{proc.Key} lable {current.Value} index: {offset + instructions.Count:X}");
+                                Console.ForegroundColor = ConsoleColor.DarkCyan;
+                                Console.WriteLine($"Found label def {current.Value} at index: {instructions.Count:X}");
+                                Console.ForegroundColor = conColor;
                                 break;
                         }
-
+                        
                         current = tokens.Current;
                     }
+
+                    offset = instructions.Count;
                     
-                    
+                    proc_label_instructions[proc.Key] = local_labels;
+
+                    proc_label_uses[proc.Key] = local_label_uses;
+
                     assembledProcs[proc.Key] = instructions;
 
-                    offset += instructions.Count;
+                    Console.WriteLine("----------------------");
                 }
             }
 
             offset = 0;
+
+            Console.WriteLine();
 
             foreach (var asem in assembledProcs)
             {
@@ -566,6 +686,38 @@ namespace _12VMAsm
                 offset += asem.Value.Count;
             }
 
+            Console.WriteLine();
+
+            foreach (var proc in assembledProcs)
+            {
+                foreach (var use in proc_label_uses[proc.Key])
+                {
+                    // FIXME: Offsets bigger than 4096
+                    if (proc_label_instructions[proc.Key].TryGetValue(use.Value, out int lbl_offset))
+                    {
+                        proc.Value[use.Key + 1] = (short) (lbl_offset + procOffests[proc.Key]);
+                        Console.ForegroundColor = ConsoleColor.DarkCyan;
+                        Console.WriteLine($"{use.Value,-12} matched local at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {lbl_offset + procOffests[proc.Key]:X6}");
+                        Console.ForegroundColor = conColor;
+                    }
+                    else if (procOffests.TryGetValue(use.Value, out int proc_offset))
+                    {
+                        proc.Value[use.Key + 1] = (short)proc_offset;
+                        Console.ForegroundColor = ConsoleColor.DarkMagenta;
+                        Console.WriteLine($"{use.Value,-12} matched call  at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {proc_offset:X6}");
+                        Console.ForegroundColor = conColor;
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"Could not solve label! {use.Value} in proc {proc.Key}");
+                        Console.ForegroundColor = conColor;
+                    }
+                }
+            }
+
+            Console.WriteLine();
+            
             short[] compiledInstructions = new short[offset];
 
             foreach (var proc in assembledProcs)
@@ -573,24 +725,7 @@ namespace _12VMAsm
                 proc.Value.CopyTo(compiledInstructions, procOffests[proc.Key]);
             }
 
-            // Is there a way to know a proc length before converting it to bits?
-            // Yes there is, would this take a lot of work?
-            // Possibly not.
-            // We could even push the splitting the load instructions for lables and long litterals back to the parsing. 
-            // Or even perprocessing.
-
-            // Should we use a dictionary to delegate the solving of label positions.
-            // This could help solve the problem with local labels.
-            // There needs to be a solution for differentiating a using of a label and a label definition. (Different instruction type?)
-            // Having a different instruction type would make this a lot easier.
-            
-            //TODO: Use the procOffsets to resolve labels
-            // There needs to be a good way to handle local labels
-            // Offsets shifted 12 bits left? Sounds like the best solution.
-            // It limits us to a max offset of 15. Should we just shift 8?
-            // This allows offsets of 255. That's more acceptable.
-
-            return compiledInstructions;
+            return new LibFile(compiledInstructions, procOffests);
 
             //return assembledProcs.OrderBy(a => procOffests.Keys.ToList().IndexOf(a.Key)).Select(asmProc => asmProc.Value.AsEnumerable()).Aggregate((l1, l2) => l1.Concat(l2)).ToArray();
         }
