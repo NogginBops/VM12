@@ -89,11 +89,13 @@ namespace _12VMAsm
         {
             public readonly short[] Instructions;
             public readonly Dictionary<string, int> ProcOffsets;
+            public readonly List<int> LabelUses;
 
-            public LibFile(short[] instructions, Dictionary<string, int> procOffsets)
+            public LibFile(short[] instructions, Dictionary<string, int> procOffsets, List<int> labelUses)
             {
                 Instructions = instructions;
                 ProcOffsets = procOffsets;
+                LabelUses = labelUses;
             }
         }
 
@@ -377,12 +379,15 @@ namespace _12VMAsm
 
                 AppendToFile("{");
 
-                foreach (var proc in libFile.ProcOffsets)
-                {
-                    AppendToFile($"{proc.Key},{proc.Value}");
-                }
-
+                AppendToFile(string.Join(",", libFile.ProcOffsets.Select(p => $"{p.Key},{p.Value}")));
+                
                 AppendToFile("}");
+
+                AppendToFile("[");
+
+                AppendToFile(string.Join(",", libFile.LabelUses));
+
+                AppendToFile("]");
 
                 byte[] inst = libFile.Instructions.Select(i => ToBytes(i)).Aggregate((sum, barr) => sum.Concat(barr).ToArray());
 
@@ -392,9 +397,7 @@ namespace _12VMAsm
             }
 
             Process.Start(dirInf.FullName);
-
-            return;
-
+            
             noFile:
 
             Console.ReadKey();
@@ -725,9 +728,14 @@ namespace _12VMAsm
                 proc.Value.CopyTo(compiledInstructions, procOffests[proc.Key]);
             }
 
-            return new LibFile(compiledInstructions, procOffests);
+            List<int> lableUses = new List<int>();
 
-            //return assembledProcs.OrderBy(a => procOffests.Keys.ToList().IndexOf(a.Key)).Select(asmProc => asmProc.Value.AsEnumerable()).Aggregate((l1, l2) => l1.Concat(l2)).ToArray();
+            foreach (var lable_use in proc_label_uses)
+            {
+                lableUses.AddRange(lable_use.Value.Keys.Select(l => l + procOffests[lable_use.Key]));
+            }
+
+            return new LibFile(compiledInstructions, procOffests, lableUses);
         }
     }
 }
