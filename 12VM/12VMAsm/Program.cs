@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using System.IO;
 using System.Diagnostics;
 
-namespace _12VMAsm
+namespace VM12Asm
 {
     class Program
     {
