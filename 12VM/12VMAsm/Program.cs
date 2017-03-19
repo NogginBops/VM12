@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.IO;
 using System.Diagnostics;
 
@@ -16,7 +15,6 @@ namespace _12VMAsm
             Nop,
             Load_addr,
             Load_lit,
-            Load_lit_l,
             Load_sp,
             Store_pc,
             Store_sp,
@@ -43,6 +41,7 @@ namespace _12VMAsm
             Jmp_nz,
             Jmp_cz,
             Jmp_fz,
+            Hlt = 0xFFF,
         }
         
         enum TokenType
@@ -81,7 +80,7 @@ namespace _12VMAsm
             {
                 Usings = usigns;
                 Constants = constants;
-                Procs = procs;
+                Procs = procs.OrderBy(proc => proc.Key == "start" ? 1 : 0).ToDictionary(kpv => kpv.Key, kpv => kpv.Value);
             }
         }
 
@@ -101,6 +100,10 @@ namespace _12VMAsm
 
         const int _12BIT_MASK = 0x0FFF;
 
+        const int ROM_OFFSET = 0x44B_000;
+
+        const short ROM_OFFSET_UPPER_BITS = 0x44B;
+        
         static Dictionary<Regex, string> preprocessorConversions = new Dictionary<Regex, string>()
         {
             { new Regex(";.*"), "" },
@@ -137,7 +140,6 @@ namespace _12VMAsm
             { "nop", Opcode.Nop },
             { "load.addr", Opcode.Load_addr },
             { "load.lit", Opcode.Load_lit },
-            { "load.lit.l", Opcode.Load_lit_l },
             { "load.sp", Opcode.Load_sp },
             { "store.pc", Opcode.Store_pc },
             { "store.sp", Opcode.Store_sp },
@@ -164,12 +166,18 @@ namespace _12VMAsm
             { "jmp.nz", Opcode.Jmp_nz },
             { "jmp.cz", Opcode.Jmp_cz },
             { "jmp.fz", Opcode.Jmp_fz },
+
+            { "hlt", Opcode.Hlt }
         };
 
         static ConsoleColor conColor = Console.ForegroundColor;
 
         static void Main(string[] args)
         {
+            // TODO: Read input from args!
+
+            Console.ForegroundColor = conColor;
+
             string file = null;
 
             do
@@ -179,6 +187,10 @@ namespace _12VMAsm
                 file = Console.ReadLine();
 
             } while (File.Exists(file) == false);
+
+            Console.Write("Executable (y/n): ");
+
+            bool executable = char.ToLower(Console.ReadLine()[0]) == 'y';
 
             string[] lines = File.ReadAllLines(file);
 
@@ -198,6 +210,8 @@ namespace _12VMAsm
 
             Console.WriteLine("Parsing...");
 
+            AsemFile asmFile = Parse(newLines);
+
             #region Usings
 
             Dictionary<string, AsemFile> files = new Dictionary<string, AsemFile>();
@@ -208,9 +222,7 @@ namespace _12VMAsm
             DirectoryInfo dirInf = fileInf.Directory;
             
             FileInfo[] dirFiles = dirInf.GetFiles($".{Path.DirectorySeparatorChar}*.12asm", SearchOption.AllDirectories);
-
-            AsemFile asmFile = Parse(newLines);
-
+            
             foreach (var use in asmFile.Usings.Values)
             {
                 remainingUsings.Push(use);
@@ -237,18 +249,28 @@ namespace _12VMAsm
                 asmFile = Parse(newLines);
 
                 files[use] = asmFile;
+
+                foreach (var u in asmFile.Usings)
+                {
+                    if (files.ContainsKey(u.Key) == false)
+                    {
+                        remainingUsings.Push(u.Value);
+                    }
+                }
             }
 
             foreach (var f in files)
             {
                 Console.WriteLine(f);
             }
+
             #endregion
 
             #region Print_Files
 
             foreach (var asm in files)
             {
+                Console.ForegroundColor = conColor;
                 Console.WriteLine();
                 Console.WriteLine($"--------------------- {asm.Key} ---------------------");
                 Console.WriteLine();
@@ -320,9 +342,9 @@ namespace _12VMAsm
             Console.WriteLine();
             Console.WriteLine("Assembling...");
             
-            LibFile libFile = Assemble(files);
+            LibFile libFile = Assemble(files, executable);
 
-            Console.WriteLine("Result: ");
+            Console.WriteLine($"Result ({libFile.Instructions.Length} words): ");
             Console.WriteLine();
 
             Console.ForegroundColor = ConsoleColor.White;
@@ -332,9 +354,9 @@ namespace _12VMAsm
             for (int i = 0; i < libFile.Instructions.Length; i++)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("{0:X6}: ", i);
+                Console.Write("{0:X6}: ", i + (executable ? ROM_OFFSET : 0));
                 Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("{0:X4}{1,-12}", libFile.Instructions[i], "(" + (Opcode)libFile.Instructions[i] + ")");
+                Console.Write("{0:X3}{1,-12}", libFile.Instructions[i], "(" + (Opcode)libFile.Instructions[i] + ")");
 
                 if ((i + 1) % instPerLine == 0)
                 {
@@ -350,7 +372,7 @@ namespace _12VMAsm
 
             string name = Console.ReadLine();
 
-            FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12lib"));
+            FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + (executable ? ".12exe" : ".12lib")));
 
             if (resFile.Exists)
             {
@@ -377,17 +399,22 @@ namespace _12VMAsm
                     return b;
                 }
 
-                AppendToFile("{");
+                if (executable == false)
+                {
 
-                AppendToFile(string.Join(",", libFile.ProcOffsets.Select(p => $"{p.Key},{p.Value}")));
-                
-                AppendToFile("}");
+                    AppendToFile("{");
 
-                AppendToFile("[");
+                    AppendToFile(string.Join(",", libFile.ProcOffsets.Select(p => $"{p.Key},{p.Value}")));
 
-                AppendToFile(string.Join(",", libFile.LabelUses));
+                    AppendToFile("}");
 
-                AppendToFile("]");
+                    AppendToFile("[");
+
+                    AppendToFile(string.Join(",", libFile.LabelUses));
+
+                    AppendToFile("]");
+
+                }
 
                 byte[] inst = libFile.Instructions.Select(i => ToBytes(i)).Aggregate((sum, barr) => sum.Concat(barr).ToArray());
 
@@ -513,7 +540,7 @@ namespace _12VMAsm
             return new AsemFile(usings, constants, procs);
         }
 
-        static LibFile Assemble(Dictionary<string, AsemFile> files)
+        static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable)
         {
             Dictionary<string, List<short>> assembledProcs = new Dictionary<string, List<short>>();
 
@@ -560,24 +587,33 @@ namespace _12VMAsm
                                 switch (current.Opcode ?? Opcode.Nop)
                                 {
                                     case Opcode.Load_lit:
-                                        instructions.Add((short)current.Opcode);
                                         if (peek.Type == TokenType.Label)
                                         {
                                             local_label_uses[instructions.Count] = peek.Value;
                                             instructions.Add(0);
                                             instructions.Add(0);
                                         }
-                                        instructions.Add(0x1000);
+                                        else if (peek.Type == TokenType.Litteral)
+                                        {
+                                            short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+
+                                            foreach (var val in value.Reverse())
+                                            {
+                                                instructions.Add((short) current.Opcode);
+                                                instructions.Add(val);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            throw new FormatException($"{current.Opcode} can only be followed by a label or litteral!");
+                                        }
                                         tokens.MoveNext();
                                         break;
-                                    case Opcode.Load_lit_l:
                                     case Opcode.Load_addr:
                                     case Opcode.Store_pc:
                                     case Opcode.Call_pc:
                                         if (current.Equals(peek) == false && (peek.Type == TokenType.Litteral || peek.Type == TokenType.Label))
                                         {
-                                            // TOOD: check if litteral or lable is more than 12 bits
-
                                             Opcode op = current.Opcode ?? Opcode.Nop;
 
                                             if (peek.Type == TokenType.Label)
@@ -586,36 +622,23 @@ namespace _12VMAsm
                                                 local_label_uses[instructions.Count] = peek.Value;
                                                 instructions.Add(0);
                                                 instructions.Add(0);
-                                                //FIXME!! We need to know where labels are located in memory to do this!
+
                                                 Console.ForegroundColor = ConsoleColor.DarkGreen;
                                                 Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
                                                 Console.ForegroundColor = conColor;
                                             }
                                             else if (peek.Type == TokenType.Litteral)
                                             {
-                                                // FIXME: This should be one opcode with two value instructions after
+                                                short[] value = ParseLitteral(peek.Value, file.Value.Constants);
                                                 
-                                                /*
-                                                short[] value = new short[0];
-                                                if (num.IsMatch(peek.Value))
+                                                if (value.Length > 2)
                                                 {
-                                                    //value = ParseLitteral(peek.Value);
+                                                    throw new FormatException("The litteral {} does not fit in 24-bits! {} only takes 24-bit arguments!");
                                                 }
-                                                else if (file.Value.Constants.TryGetValue(peek.Value, out string val_str))
-                                                {
-                                                    //value = ParseLitteral(val_str);
-                                                }
-
-                                                foreach (var val in value)
-                                                {
-                                                    instructions.Add((short)op);
-                                                    instructions.Add(val);
-                                                }
-                                                */
-
+                                                
                                                 instructions.Add((short)op);
-                                                instructions.Add(0);
-                                                instructions.Add(0);
+                                                instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
+                                                instructions.Add(value[0]);
                                             }
 
                                             tokens.MoveNext();
@@ -631,18 +654,25 @@ namespace _12VMAsm
                                     case Opcode.Jmp_cz:
                                     case Opcode.Jmp_fz:
                                         instructions.Add((short)current.Opcode);
-                                        // TODO: Reference this point as a label
                                         if (peek.Type == TokenType.Label)
                                         {
                                             local_label_uses[instructions.Count] = peek.Value;
                                             Console.ForegroundColor = ConsoleColor.DarkGreen;
                                             Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
                                             Console.ForegroundColor = conColor;
+                                            instructions.Add(0);
+                                            instructions.Add(0);
                                         }
-
-                                        instructions.Add(0);
-                                        instructions.Add(0);
-
+                                        else if (peek.Type == TokenType.Litteral)
+                                        {
+                                            short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                            instructions.Add(value[1]);
+                                            instructions.Add(value[0]);
+                                        }
+                                        else
+                                        {
+                                            throw new FormatException($"{current.Opcode} must be followed by a label or litteral!");
+                                        }
                                         tokens.MoveNext();
                                         break;
                                     default:
@@ -695,17 +725,20 @@ namespace _12VMAsm
             {
                 foreach (var use in proc_label_uses[proc.Key])
                 {
-                    // FIXME: Offsets bigger than 4096
                     if (proc_label_instructions[proc.Key].TryGetValue(use.Value, out int lbl_offset))
                     {
-                        proc.Value[use.Key + 1] = (short) (lbl_offset + procOffests[proc.Key]);
+                        short[] offset_inst = IntToShortArray(lbl_offset + procOffests[proc.Key] + (executable ? ROM_OFFSET : 0));
+                        proc.Value[use.Key] = offset_inst[1];
+                        proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkCyan;
                         Console.WriteLine($"{use.Value,-12} matched local at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {lbl_offset + procOffests[proc.Key]:X6}");
                         Console.ForegroundColor = conColor;
                     }
                     else if (procOffests.TryGetValue(use.Value, out int proc_offset))
                     {
-                        proc.Value[use.Key + 1] = (short)proc_offset;
+                        short[] offset_inst = IntToShortArray(proc_offset + (executable ? ROM_OFFSET : 0));
+                        proc.Value[use.Key] = offset_inst[1];
+                        proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkMagenta;
                         Console.WriteLine($"{use.Value,-12} matched call  at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {proc_offset:X6}");
                         Console.ForegroundColor = conColor;
@@ -736,6 +769,58 @@ namespace _12VMAsm
             }
 
             return new LibFile(compiledInstructions, procOffests, lableUses);
+        }
+
+        static short[] ParseLitteral(string litteral, Dictionary<string, string> constants)
+        {
+            short[] value = new short[0];
+            if (num.IsMatch(litteral))
+            {
+                value = ParseNumber(litteral);
+            }
+            else if (constants.TryGetValue(litteral, out string val_str))
+            {
+                value = ParseNumber(val_str);
+            }
+
+            return value;
+        }
+
+        static short[] ParseNumber(string litteral)
+        {
+            litteral = litteral.Replace("_", "");
+
+            int value = 0;
+            if (litteral.StartsWith("0x"))
+            {
+                value = Convert.ToInt32(litteral.Substring(2), 16);
+            }
+            else if (litteral.StartsWith("8x"))
+            {
+                value = Convert.ToInt32(litteral.Substring(2), 8);
+            }
+            else
+            {
+                value = Convert.ToInt32(litteral, 10);
+            }
+
+            List<short> ret = new List<short>();
+
+            int itt = 0;
+            do
+            {
+                ret.Add((short)((value >> (12 * itt)) & _12BIT_MASK));
+            } while ((value >> (12 * itt++)) >= 4096);
+
+            return ret.ToArray();
+        }
+
+        static short[] IntToShortArray(int i)
+        {
+            short[] res = new short[2];
+            res[0] = (short) (i & _12BIT_MASK);
+            res[1] = (short)((i >> 12) & _12BIT_MASK);
+            return res;
         }
     }
 }
