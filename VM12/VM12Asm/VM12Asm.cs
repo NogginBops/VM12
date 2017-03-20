@@ -79,22 +79,22 @@ namespace VM12Asm
             { new Regex(";.*"), "" },
             { new Regex("#reg.*"), "" },
             { new Regex("#endreg.*"), "" },
-            { new Regex("shl"), "sh.l" },
-            { new Regex("shr"), "sh.r" },
-            { new Regex("fadd"), "add.f" },
-            { new Regex("fneg"), "neg.f" },
-            { new Regex("jz"), "jmp.z" },
-            { new Regex("jnz"), "jmp.nz" },
-            { new Regex("jcz"), "jmp.cz" },
-            { new Regex("jfz"), "jmp.fz" },
+            { new Regex("(?<!:)\\bshl\\b"), "sh.l" },
+            { new Regex("(?<!:)\\bshr\\b"), "sh.r" },
+            { new Regex("(?<!:)\\bfadd\\b"), "add.f" },
+            { new Regex("(?<!:)\\bfneg\\b"), "neg.f" },
+            { new Regex("(?<!:)\\bjz\\b"), "jmp.z" },
+            { new Regex("(?<!:)\\bjnz\\b"), "jmp.nz" },
+            { new Regex("(?<!:)\\bjcz\\b"), "jmp.cz" },
+            { new Regex("(?<!:)\\bjfz\\b"), "jmp.fz" },
             { new Regex("::\\[SP\\]"), "call.sp" },
             { new Regex("::(?!\\s)"), "call.pc :" },
-            { new Regex("load\\s+@"), "load.addr " },
-            { new Regex("load\\s+#"), "load.lit " },
-            { new Regex("load\\s+:"), "load.lit :" },
-            { new Regex("load\\s+\\[SP\\]"), "load.sp" },
-            { new Regex("store\\s+\\[SP\\]"), "store.sp" },
-            { new Regex("store\\s+@"), "store.pc " }
+            { new Regex("(?<!:)\\bload\\s+@"), "load.addr " },
+            { new Regex("(?<!:)\\bload\\s+#"), "load.lit " },
+            { new Regex("(?<!:)\\bload\\s+:"), "load.lit :" },
+            { new Regex("(?<!:)\\bload\\s+\\[SP\\]"), "load.sp" },
+            { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
+            { new Regex("(?<!:)\\bstore\\s+@"), "store.pc " }
         };
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
@@ -187,6 +187,8 @@ namespace VM12Asm
 
             bool hold = false;
 
+            bool open = false;
+
             while (enumerator.MoveNext())
             {
                 switch (enumerator.Current)
@@ -200,11 +202,24 @@ namespace VM12Asm
                     case "-h":
                         hold = true;
                         break;
+                    case "-p":
+                        open = true;
+                        break;
                     default:
                         break;
                 }
             }
+
+            /*
+            file = @"C:\Users\juliu\Google Drive\12VM\StdMath.12asm";
             
+            executable = false;
+
+            overwrite = true;
+
+            open = false;
+            */
+
             string[] lines = File.ReadAllLines(file);
 
             Console.WriteLine();
@@ -389,7 +404,7 @@ namespace VM12Asm
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.Write("{0:X6}: ", i + (executable ? ROM_OFFSET : 0));
                 Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("{0:X3}{1,-12}", libFile.Instructions[i] & 0xFFF, "(" + (Opcode)libFile.Instructions[i] + ")");
+                Console.Write("{0:X3}{1,-12}", libFile.Instructions[i] & 0xFFF, "(" + (Opcode)(libFile.Instructions[i] & 0xFFF) + ")");
 
                 if ((i + 1) % instPerLine == 0)
                 {
@@ -452,7 +467,10 @@ namespace VM12Asm
                 //stream.Flush();
             }
 
-            Process.Start(dirInf.FullName);
+            if (open)
+            {
+                Process.Start(dirInf.FullName);
+            }
 
             noFile:
 
@@ -648,7 +666,7 @@ namespace VM12Asm
                                         {
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
 
-                                            foreach (var val in value.Reverse())
+                                            foreach (var val in value)
                                             {
                                                 instructions.Add((short) current.Opcode);
                                                 instructions.Add(val);

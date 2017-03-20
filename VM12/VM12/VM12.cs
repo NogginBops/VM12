@@ -16,11 +16,28 @@ namespace VM12
         public const int VRAM_START = RAM_SIZE;
         public const int ROM_START = RAM_SIZE + VRAM_SIZE;
 
+        public const int MEM_SIZE = RAM_SIZE + VRAM_SIZE + ROM_SIZE;
+
         public readonly short[] RAM = new short[RAM_SIZE];
 
         public readonly short[] VRAM = new short[VRAM_SIZE];
 
         public readonly short[] ROM = new short[ROM_SIZE];
+        
+        public void GetRAM(short[] ram, int index)
+        {
+            Array.Copy(RAM, index, ram, 0, ram.Length);
+        }
+
+        public void GetVRAM(short[] vram, int index)
+        {
+            Array.Copy(VRAM, index, vram, 0, vram.Length);
+        }
+
+        public void GetROM(short[] rom, int index)
+        {
+            Array.Copy(ROM, index, rom, 0, rom.Length);
+        }
 
         public void SetROM(short[] ROM)
         {
@@ -60,7 +77,7 @@ namespace VM12
                 }
                 else if (i < ROM_START + ROM_SIZE)
                 {
-                    throw new ArgumentException("Cannot modify ROM!");
+                    throw new ArgumentException($"Cannot modify ROM! At index {i:X}");
                 }
                 else
                 {
@@ -70,9 +87,44 @@ namespace VM12
         }
     }
 
+    struct ReadOnlyMemory
+    {
+        readonly Memory mem;
+
+        public ReadOnlyMemory(Memory mem)
+        {
+            this.mem = mem;
+        }
+
+        public void GetRAM(short[] ram, int index)
+        {
+            mem.GetRAM(ram, index);
+        }
+
+        public void GetVRAM(short[] vram, int index)
+        {
+            mem.GetVRAM(vram, index);
+        }
+
+        public void GetROM(short[] rom, int index)
+        {
+            mem.GetROM(rom, index);
+        }
+
+        public short this[int i]
+        {
+            get => mem[i];
+        }
+    }
+
     class VM12
     {
+        public const int SCREEN_WIDTH = 640;
+        public const int SCREEN_HEIGHT = 480;
+
         Memory memory = new Memory();
+
+        public ReadOnlyMemory ReadMemory => new ReadOnlyMemory(memory);
 
         bool carry = false;
 
@@ -92,12 +144,12 @@ namespace VM12
         {
             while (StopRunning != true)
             {
+                Opcode op = (Opcode)(memory[PC] & 0x0FFF);
+
                 if ((memory[PC] & 0xF000) != 0)
                 {
                     ;
                 }
-
-                Opcode op = (Opcode)(memory[PC] & 0x0FFF);
 
                 switch (op)
                 {
@@ -198,6 +250,7 @@ namespace VM12
                         break;
                     case Opcode.And:
                         memory[SP - 1] = (short)(memory[SP] & memory[SP - 1]);
+                        SP--;
                         PC++;
                         break;
                     case Opcode.Inc:
