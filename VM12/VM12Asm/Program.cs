@@ -43,12 +43,14 @@ namespace VM12Asm
             public readonly Dictionary<string, string> Usings;
             public readonly Dictionary<string, string> Constants;
             public readonly Dictionary<string, List<Token>> Procs;
+            public readonly Dictionary<string, List<int>> Breakpoints;
 
-            public AsemFile(Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, List<Token>> procs)
+            public AsemFile(Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, List<Token>> procs, Dictionary<string, List<int>> breakpoints)
             {
                 Usings = usigns;
                 Constants = constants;
                 Procs = procs.OrderBy(proc => proc.Key == "start" ? 1 : 0).ToDictionary(kpv => kpv.Key, kpv => kpv.Value);
+                Breakpoints = breakpoints;
             }
         }
 
@@ -269,15 +271,22 @@ namespace VM12Asm
                     Console.WriteLine();
                 }
 
-                const string indent = "    ";
+                const string indent = "\t";
 
                 foreach (var proc in asm.Value.Procs)
                 {
                     Console.ForegroundColor = ConsoleColor.DarkMagenta;
                     Console.WriteLine(proc.Key);
 
+                    int i = 0;
                     foreach (var token in proc.Value)
                     {
+                        if (asm.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breaks) && breaks.Contains(i))
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.Write("¤");
+                        }
+
                         Console.ForegroundColor = ConsoleColor.DarkYellow;
                         Console.Write(indent + token.Type + "\t");
                         switch (token.Type)
@@ -299,6 +308,8 @@ namespace VM12Asm
                                 Console.WriteLine("!!ERROR!!");
                                 break;
                         }
+
+                        i++;
                     }
                 }
             }
@@ -384,11 +395,19 @@ namespace VM12Asm
 
                 }
 
-                byte[] inst = libFile.Instructions.Select(i => ToBytes(i)).Aggregate((sum, barr) => sum.Concat(barr).ToArray());
+                using (BinaryWriter bw = new BinaryWriter(stream))
+                {
+                    foreach (short s in libFile.Instructions)
+                    {
+                        bw.Write(s);
+                    }
+                }
 
-                stream.Write(inst, 0, inst.Length);
+                //byte[] inst = libFile.Instructions.Select(i => ToBytes(i)).Aggregate((sum, barr) => sum.Concat(barr).ToArray());
 
-                stream.Flush();
+                //stream.Write(inst, 0, inst.Length);
+
+                //stream.Flush();
             }
 
             Process.Start(dirInf.FullName);
@@ -420,20 +439,31 @@ namespace VM12Asm
             Dictionary<string, string> usings = new Dictionary<string, string>();
             Dictionary<string, string> constants = new Dictionary<string, string>();
             Dictionary<string, List<Token>> procs = new Dictionary<string, List<Token>>();
+            Dictionary<string, List<int>> breakpoints = new Dictionary<string, List<int>>();
 
             string currProcName = null;
             List<Token> currProc = new List<Token>();
 
             foreach (var it_line in lines)
             {
-                string line = it_line.Trim();
+                if (it_line[0] == '¤')
+                {
+                    if (breakpoints.ContainsKey(currProcName) == false)
+                    {
+                        breakpoints[currProcName] = new List<int>();
+                    }
+
+                    breakpoints[currProcName].Add(currProc.Count);
+                }
+
+                string line = it_line.Trim(new[]{ ' ', '\t', '¤' });
 
                 if (line.Length < 0)
                 {
                     continue;
                 }
 
-                if (char.IsWhiteSpace(it_line, 0))
+                if (char.IsWhiteSpace(it_line, 0) || it_line[0] == '¤')
                 {
                     line = " " + line;
                 }
@@ -505,7 +535,7 @@ namespace VM12Asm
 
             procs[currProcName] = currProc;
 
-            return new AsemFile(usings, constants, procs);
+            return new AsemFile(usings, constants, procs, breakpoints);
         }
 
         static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable)
@@ -718,6 +748,15 @@ namespace VM12Asm
                         Console.ForegroundColor = conColor;
                     }
                 }
+
+                // FIXME: Go through all breakpoints
+                if (false)
+                {
+                    foreach (int break_offset in breaks)
+                    {
+                        proc.Value[break_offset] |= 0x7000;
+                    }
+                }
             }
 
             Console.WriteLine();
@@ -758,29 +797,46 @@ namespace VM12Asm
         {
             litteral = litteral.Replace("_", "");
 
-            int value = 0;
+            short[] ret;
+            
             if (litteral.StartsWith("0x"))
             {
-                value = Convert.ToInt32(litteral.Substring(2), 16);
+                litteral = litteral.Substring(2);
+                litteral = new string('0', litteral.Length % 3) + litteral;
+                ret = Enumerable.Range(0, litteral.Length)
+                    .GroupBy(x => x / 3)
+                    .Select(g => g.Select(i => litteral[i]))
+                    .Select(s => String.Concat(s))
+                    .Select(s => Convert.ToInt16(s, 16))
+                    .Reverse()
+                    .ToArray();
             }
             else if (litteral.StartsWith("8x"))
             {
-                value = Convert.ToInt32(litteral.Substring(2), 8);
+                litteral = litteral.Substring(2);
+                litteral = new string('0', litteral.Length % 4) + litteral;
+                ret = Enumerable.Range(0, litteral.Length)
+                    .GroupBy(x => x / 4)
+                    .Select(g => g.Select(i => litteral[i]))
+                    .Select(s => String.Concat(s))
+                    .Select(s => Convert.ToInt16(s, 8))
+                    .Reverse()
+                    .ToArray();
             }
             else
             {
-                value = Convert.ToInt32(litteral, 10);
+                List<short> values = new List<short>();
+                int value = Convert.ToInt32(litteral, 10);
+                int itt = 0;
+                do
+                {
+                    values.Add((short)((value >> (12 * itt)) & _12BIT_MASK));
+                } while ((value >> (12 * itt++)) >= 4096);
+
+                ret = values.ToArray();
             }
-
-            List<short> ret = new List<short>();
-
-            int itt = 0;
-            do
-            {
-                ret.Add((short)((value >> (12 * itt)) & _12BIT_MASK));
-            } while ((value >> (12 * itt++)) >= 4096);
-
-            return ret.ToArray();
+            
+            return ret;
         }
 
         static short[] IntToShortArray(int i)

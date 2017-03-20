@@ -77,7 +77,7 @@ namespace VM12
         bool carry = false;
 
         int PC = Memory.ROM_START;
-        int SP = 2;
+        int SP = 1;
 
         bool StopRunning = false;
 
@@ -92,11 +92,17 @@ namespace VM12
         {
             while (StopRunning != true)
             {
-                Opcode op = (Opcode)memory[PC];
+                if ((memory[PC] & 0xF000) != 0)
+                {
+                    ;
+                }
+
+                Opcode op = (Opcode)(memory[PC] & 0x0FFF);
 
                 switch (op)
                 {
                     case Opcode.Nop:
+                        PC++;
                         break;
                     case Opcode.Load_addr:
                         int load_address = ToInt(memory[++PC], memory[++PC]);
@@ -110,6 +116,7 @@ namespace VM12
                     case Opcode.Load_sp:
                         int load_sp_address = ToInt(memory[SP--], memory[SP--]);
                         memory[++SP] = memory[load_sp_address];
+                        PC++;
                         break;
                     case Opcode.Store_pc:
                         int store_pc_address = ToInt(memory[++PC], memory[++PC]);
@@ -119,6 +126,7 @@ namespace VM12
                     case Opcode.Store_sp:
                         int store_sp_address = ToInt(memory[SP], memory[SP - 1]);
                         memory[store_sp_address] = memory[SP - 2];
+                        PC++;
                         break;
                     case Opcode.Call_sp:
                         returnStack.Push(PC + 1);
@@ -134,21 +142,26 @@ namespace VM12
                     case Opcode.Dup:
                         memory[SP + 1] = memory[SP];
                         SP++;
+                        PC++;
                         break;
                     case Opcode.Over:
                         memory[SP + 1] = memory[SP - 1];
                         SP++;
+                        PC++;
                         break;
                     case Opcode.Swap:
                         short swap_temp = memory[SP];
                         memory[SP] = memory[SP - 1];
                         memory[SP - 1] = swap_temp;
+                        PC++;
                         break;
                     case Opcode.Drop:
                         SP--;
+                        PC++;
                         break;
                     case Opcode.Reclaim:
                         SP++;
+                        PC++;
                         break;
                     case Opcode.Add:
                         // TODO: The sign might not work here!
@@ -156,36 +169,46 @@ namespace VM12
                         carry = add_temp > 0xFFF;
                         memory[SP - 1] = (short)(add_temp & 0xFFF);
                         SP--;
+                        PC++;
                         break;
                     case Opcode.Sh_l:
                         int shl_temp = memory[SP] << 1;
                         carry = shl_temp > 0xFFF;
                         memory[SP] = (short)(shl_temp & 0xFFF);
+                        PC++;
                         break;
                     case Opcode.Sh_r:
                         int shr_temp = memory[SP];
                         carry = (shr_temp & 0x1) > 1;
                         memory[SP] = (short)(shr_temp >> 1);
+                        PC++;
                         break;
                     case Opcode.Not:
                         memory[SP] = (short) ~memory[SP];
+                        PC++;
                         break;
                     case Opcode.Neg:
+                        memory[SP] = (short) -memory[SP];
+                        PC++;
                         break;
                     case Opcode.Xor:
                         memory[SP - 1] = (short) (memory[SP] ^ memory[SP - 1]);
                         SP--;
+                        PC++;
                         break;
                     case Opcode.And:
                         memory[SP - 1] = (short)(memory[SP] & memory[SP - 1]);
+                        PC++;
                         break;
                     case Opcode.Inc:
-                        memory[SP] = memory[SP]++;
+                        memory[SP] = ++memory[SP];
+                        PC++;
                         break;
                     case Opcode.Add_f:
                         throw new NotImplementedException();
                     case Opcode.Neg_f:
                         memory[SP] = (short) (memory[SP] ^ 0x800);
+                        PC++;
                         break;
                     case Opcode.Jmp:
                         int jmp_address = ToInt(memory[++PC], memory[++PC]);
@@ -234,7 +257,7 @@ namespace VM12
 
         static int ToInt(short upper, short lower)
         {
-            return (short)(upper << 12) | lower;
+            return (((ushort)upper << 12) | (ushort)lower);
         }
     }
 }
