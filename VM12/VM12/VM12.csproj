@@ -82,5 +82,11 @@
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VM12Asm\VM12Asm.csproj">
+      <Project>{0bda1018-a90e-4429-86e4-fadd2d141260}</Project>
+      <Name>VM12Asm</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

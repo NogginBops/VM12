@@ -6,8 +6,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{0BDA1018-A90E-4429-86E4-FADD2D141260}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>_12VMAsm</RootNamespace>
-    <AssemblyName>12VMAsm</AssemblyName>
+    <RootNamespace>VM12Asm</RootNamespace>
+    <AssemblyName>VM12Asm</AssemblyName>
     <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -45,7 +45,7 @@
     <Compile Include="..\Opcode.cs">
       <Link>Opcode.cs</Link>
     </Compile>
-    <Compile Include="Program.cs" />
+    <Compile Include="VM12Asm.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

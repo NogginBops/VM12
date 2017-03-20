@@ -25,6 +25,15 @@ namespace VM12
             {
                 FileInfo inf = new FileInfo(dialog.FileName);
 
+                if (inf.Extension == "12asm")
+                {
+                    //TODO: Assemble file!
+
+                    VM12Asm.VM12Asm.Main($"\"{inf.FullName}\" ", inf.Name, "-e", "-o");
+
+                    inf = new FileInfo(Path.GetFileNameWithoutExtension(inf.FullName) + ".12exe");
+                }
+
                 short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
 
                 using (BinaryReader br = new BinaryReader(File.OpenRead(dialog.FileName)))

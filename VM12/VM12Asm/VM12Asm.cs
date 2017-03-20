@@ -10,7 +10,7 @@ using VM12;
 
 namespace VM12Asm
 {
-    partial class Program
+    public class VM12Asm
     {
         enum TokenType
         {
@@ -142,14 +142,13 @@ namespace VM12Asm
 
         static ConsoleColor conColor = Console.ForegroundColor;
 
-        static void Main(string[] args)
+        public static void Main(params string[] args)
         {
-            // TODO: Read input from args!
-
             Console.ForegroundColor = conColor;
 
             string file = null;
 
+            /*
             do
             {
                 Console.Write("Input file: ");
@@ -157,11 +156,55 @@ namespace VM12Asm
                 file = Console.ReadLine();
 
             } while (File.Exists(file) == false);
+            */
 
-            Console.Write("Executable (y/n): ");
+            IEnumerator<string> enumerator = args.AsEnumerable().GetEnumerator();
 
-            bool executable = char.ToLower(Console.ReadLine()[0]) == 'y';
+            if (enumerator.MoveNext())
+            {
+                file = args[0];
+            }
+            else
+            {
+                Console.WriteLine("No source!");
+                return;
+            }
 
+            string name;
+            if (enumerator.MoveNext())
+            {
+               name = args[1];
+            }
+            else
+            {
+                Console.WriteLine("No destination!");
+                return;
+            }
+            
+            bool executable = false;
+
+            bool overwrite = false;
+
+            bool hold = false;
+
+            while (enumerator.MoveNext())
+            {
+                switch (enumerator.Current)
+                {
+                    case "-e":
+                        executable = true;
+                        break;
+                    case "-o":
+                        overwrite = true;
+                        break;
+                    case "-h":
+                        hold = true;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            
             string[] lines = File.ReadAllLines(file);
 
             Console.WriteLine();
@@ -321,7 +364,12 @@ namespace VM12Asm
             Console.WriteLine();
             Console.WriteLine("Assembling...");
             
-            LibFile libFile = Assemble(files, executable);
+            LibFile libFile = Assemble(files, executable, out bool success);
+
+            if (success == false)
+            {
+                goto noFile;
+            }
 
             Console.WriteLine($"Result ({libFile.Instructions.Length} words): ");
             Console.WriteLine();
@@ -332,10 +380,16 @@ namespace VM12Asm
 
             for (int i = 0; i < libFile.Instructions.Length; i++)
             {
+                if ((libFile.Instructions[i] & 0xF000) != 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write("¤");
+                }
+
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.Write("{0:X6}: ", i + (executable ? ROM_OFFSET : 0));
                 Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("{0:X3}{1,-12}", libFile.Instructions[i], "(" + (Opcode)libFile.Instructions[i] + ")");
+                Console.Write("{0:X3}{1,-12}", libFile.Instructions[i] & 0xFFF, "(" + (Opcode)libFile.Instructions[i] + ")");
 
                 if ((i + 1) % instPerLine == 0)
                 {
@@ -346,14 +400,10 @@ namespace VM12Asm
             Console.ForegroundColor = conColor;
 
             Console.WriteLine();
-            Console.WriteLine();
-            Console.Write("File name?: ");
-
-            string name = Console.ReadLine();
 
             FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + (executable ? ".12exe" : ".12lib")));
 
-            if (resFile.Exists)
+            if (resFile.Exists && !overwrite)
             {
                 Console.WriteLine("File already exsists! Replace (y/n)? ");
                 if (char.ToLower(Console.ReadLine()[0]) != 'y')
@@ -369,15 +419,7 @@ namespace VM12Asm
                     byte[] bytes = Encoding.UTF8.GetBytes(str);
                     stream.Write(bytes, 0, bytes.Length);
                 }
-
-                byte[] ToBytes(short num)
-                {
-                    byte[] b = new byte[2];
-                    b[0] = (byte)(num >> 8);
-                    b[1] = (byte)(num & 255);
-                    return b;
-                }
-
+                
                 if (executable == false)
                 {
 
@@ -411,10 +453,13 @@ namespace VM12Asm
             }
 
             Process.Start(dirInf.FullName);
-            
+
             noFile:
 
-            Console.ReadKey();
+            if (hold)
+            {
+                Console.ReadKey();
+            }
         }
 
         static string[] PreProcess(string[] lines)
@@ -538,7 +583,7 @@ namespace VM12Asm
             return new AsemFile(usings, constants, procs, breakpoints);
         }
 
-        static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable)
+        static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable, out bool success)
         {
             Dictionary<string, List<short>> assembledProcs = new Dictionary<string, List<short>>();
 
@@ -549,6 +594,14 @@ namespace VM12Asm
             Dictionary<string, Dictionary<string, int>> proc_label_instructions = new Dictionary<string, Dictionary<string, int>>();
             
             Dictionary<string, Dictionary<int, string>> proc_label_uses = new Dictionary<string, Dictionary<int, string>>();
+
+            if (executable && files.Values.SelectMany(f => f.Procs.Keys).Any(p => p == ":start") == false)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("An executable needs to contain a :start proc!");
+                success = false;
+                return default(LibFile);
+            }
 
             foreach (var file in files)
             {
@@ -749,16 +802,15 @@ namespace VM12Asm
                     }
                 }
 
-                // FIXME: Go through all breakpoints
-                if (false)
+                if (files.Select(f => f.Value).SelectMany(f => f.Breakpoints).ToDictionary(kvs => kvs.Key, kvs => kvs.Value).TryGetValue(proc.Key, out List<int> breaks))
                 {
-                    foreach (int break_offset in breaks)
+                    foreach (var brek in breaks)
                     {
-                        proc.Value[break_offset] |= 0x7000;
+                        proc.Value[brek] |= 0x7000;
                     }
                 }
             }
-
+            
             Console.WriteLine();
             
             short[] compiledInstructions = new short[offset];
@@ -774,6 +826,8 @@ namespace VM12Asm
             {
                 lableUses.AddRange(lable_use.Value.Keys.Select(l => l + procOffests[lable_use.Key]));
             }
+
+            success = true;
 
             return new LibFile(compiledInstructions, procOffests, lableUses);
         }
