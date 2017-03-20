@@ -64,7 +64,7 @@ namespace VM12
             Graphics graphics = e.Graphics;
 
             read_mem.GetVRAM(vram, 0);
-
+            
             for (int x = 0; x < VM12.SCREEN_WIDTH; x++)
             {
                 for (int y = 0; y < VM12.SCREEN_HEIGHT; y++)
@@ -76,7 +76,7 @@ namespace VM12
                     int b = (val >> 8) & 0xF;
 
                     Color c = Color.FromArgb(r, g, b);
-
+                    
                     bitmap.SetPixel(x, y, c);
                 }
             }

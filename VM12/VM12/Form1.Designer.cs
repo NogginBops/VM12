@@ -80,7 +80,7 @@
             // 
             // refreshTimer
             // 
-            this.refreshTimer.Interval = 16;
+            this.refreshTimer.Enabled = true;
             this.refreshTimer.Tick += new System.EventHandler(this.refreshTimer_Tick);
             // 
             // Form1
@@ -90,6 +90,7 @@
             this.ClientSize = new System.Drawing.Size(931, 499);
             this.Controls.Add(this.panel1);
             this.Controls.Add(this.menuStrip);
+            this.DoubleBuffered = true;
             this.MainMenuStrip = this.menuStrip;
             this.Name = "Form1";
             this.Text = "Form1";
