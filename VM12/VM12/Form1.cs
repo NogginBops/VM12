@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -17,13 +18,17 @@ namespace VM12
 
         ReadOnlyMemory read_mem;
 
-        Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT);
+        Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT, PixelFormat.Format24bppRgb);
+
+        byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
         short[] vram = new short[Memory.VRAM_SIZE];
 
         public Form1()
         {
             InitializeComponent();
+
+            this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
 
             OpenFileDialog dialog = new OpenFileDialog();
 
@@ -58,35 +63,42 @@ namespace VM12
                 thread.Start();
             }
         }
-
-        private void panel1_Paint(object sender, PaintEventArgs e)
+        
+        private void RefreshTimer_Tick(object sender, EventArgs e)
         {
-            Graphics graphics = e.Graphics;
-
-            read_mem.GetVRAM(vram, 0);
-            
-            for (int x = 0; x < VM12.SCREEN_WIDTH; x++)
+            if (read_mem.HasMemory)
             {
-                for (int y = 0; y < VM12.SCREEN_HEIGHT; y++)
+                read_mem.GetVRAM(vram, 0);
+                
+                BitmapData bData = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.ReadWrite, bitmap.PixelFormat);
+
+                byte bitsPerPixel = 24;
+
+                int size = bData.Stride * bData.Height;
+                
+                System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
+
+                for (int i = 0; i < size; i += bitsPerPixel / 8)
                 {
-                    short val = read_mem[x + (y * VM12.SCREEN_WIDTH)];
+                    int index = i / bitsPerPixel;
 
-                    int r = val & 0xF;
-                    int g = (val >> 4) & 0xF;
-                    int b = (val >> 8) & 0xF;
+                    short val = vram[index];
 
-                    Color c = Color.FromArgb(r, g, b);
-                    
-                    bitmap.SetPixel(x, y, c);
+                    byte r = (byte)((val & 0xF) * 16);
+                    byte g = (byte)(((val >> 4) & 0xF) * 16);
+                    byte b = (byte)(((val >> 8) & 0xF) * 16);
+
+                    data[i] = r;
+                    data[i + 1] = g;
+                    data[i + 2] = b;
                 }
+
+                System.Runtime.InteropServices.Marshal.Copy(data, 0, bData.Scan0, data.Length);
+
+                bitmap.UnlockBits(bData);
             }
 
-            graphics.DrawImage(bitmap, e.ClipRectangle);
-        }
-
-        private void refreshTimer_Tick(object sender, EventArgs e)
-        {
-            panel1.Invalidate();
+            pictureBox1.Image = bitmap;
         }
     }
 }

@@ -91,6 +91,8 @@ namespace VM12
     {
         readonly Memory mem;
 
+        public bool HasMemory => mem != null;
+
         public ReadOnlyMemory(Memory mem)
         {
             this.mem = mem;
@@ -110,7 +112,7 @@ namespace VM12
         {
             mem.GetROM(rom, index);
         }
-
+        
         public short this[int i]
         {
             get => mem[i];
@@ -176,7 +178,7 @@ namespace VM12
                         memory[store_pc_address] = memory[SP];
                         break;
                     case Opcode.Store_sp:
-                        int store_sp_address = ToInt(memory[SP], memory[SP - 1]);
+                        int store_sp_address = ToInt(memory[SP - 1], memory[SP]);
                         memory[store_sp_address] = memory[SP - 2];
                         PC++;
                         break;
@@ -231,7 +233,7 @@ namespace VM12
                         break;
                     case Opcode.Sh_r:
                         int shr_temp = memory[SP];
-                        carry = (shr_temp & 0x1) > 1;
+                        carry = (shr_temp & 0x1) >= 1;
                         memory[SP] = (short)(shr_temp >> 1);
                         PC++;
                         break;
@@ -254,7 +256,9 @@ namespace VM12
                         PC++;
                         break;
                     case Opcode.Inc:
-                        memory[SP] = ++memory[SP];
+                        int mem_val = memory[SP] + 1;
+                        carry = mem_val > 0xFFF;
+                        memory[SP] = (short) mem_val;
                         PC++;
                         break;
                     case Opcode.Add_f:

@@ -515,7 +515,7 @@ namespace VM12Asm
                     {
                         breakpoints[currProcName] = new List<int>();
                     }
-
+                    
                     breakpoints[currProcName].Add(currProc.Count);
                 }
 
@@ -666,10 +666,16 @@ namespace VM12Asm
                                         {
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
 
-                                            foreach (var val in value)
+                                            foreach (var val in value.Reverse())
                                             {
                                                 instructions.Add((short) current.Opcode);
                                                 instructions.Add(val);
+                                            }
+
+                                            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Write out all breakpoint to understand this better!
+                                            if (file.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breakpoints))
+                                            {
+                                                file.Value.Breakpoints[proc.Key] = breakpoints.Select(b => { int a = b >= instructions.Count ? b + value.Length : b; Console.WriteLine($"Shifted {proc.Key} breakpoint with {value.Length} from {b} to {a}"); return a; }).ToList();
                                             }
                                         }
                                         else
@@ -824,6 +830,7 @@ namespace VM12Asm
                 {
                     foreach (var brek in breaks)
                     {
+                        // FIXME: When loads are extended these values need to be updated!
                         proc.Value[brek] |= 0x7000;
                     }
                 }
