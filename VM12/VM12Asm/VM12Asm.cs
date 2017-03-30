@@ -145,54 +145,28 @@ namespace VM12Asm
         public static void Main(params string[] args)
         {
             Console.ForegroundColor = conColor;
-
-            string file = null;
-
-            /*
-            do
-            {
-                Console.Write("Input file: ");
-
-                file = Console.ReadLine();
-
-            } while (File.Exists(file) == false);
-            */
-
-            IEnumerator<string> enumerator = args.AsEnumerable().GetEnumerator();
-
-            if (enumerator.MoveNext())
-            {
-                file = args[0];
-            }
-            else
-            {
-                Console.WriteLine("No source!");
-                return;
-            }
-
-            string name;
-            if (enumerator.MoveNext())
-            {
-               name = args[1];
-            }
-            else
-            {
-                Console.WriteLine("No destination!");
-                return;
-            }
             
-            bool executable = false;
-
+            IEnumerator<string> enumerator = args.AsEnumerable().GetEnumerator();
+            
+            string file = null;
+            string name = null;
+            bool executable = true;
             bool overwrite = false;
-
             bool hold = false;
-
             bool open = false;
 
             while (enumerator.MoveNext())
             {
                 switch (enumerator.Current)
                 {
+                    case "-src":
+                        enumerator.MoveNext();
+                        file = enumerator.Current;
+                        break;
+                    case "-dst":
+                        enumerator.MoveNext();
+                        name = enumerator.Current;
+                        break;
                     case "-e":
                         executable = true;
                         break;
@@ -210,15 +184,17 @@ namespace VM12Asm
                 }
             }
 
-            /*
-            file = @"C:\Users\juliu\Google Drive\12VM\StdMath.12asm";
-            
-            executable = false;
+            while (File.Exists(file) == false)
+            {
+                Console.Write("Input file: ");
+                file = Console.ReadLine();
+            }
 
-            overwrite = true;
-
-            open = false;
-            */
+            while (name == null || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                Console.Write("Destination filename: ");
+                name = Console.ReadLine();
+            }
 
             string[] lines = File.ReadAllLines(file);
 
@@ -459,12 +435,6 @@ namespace VM12Asm
                         bw.Write(s);
                     }
                 }
-
-                //byte[] inst = libFile.Instructions.Select(i => ToBytes(i)).Aggregate((sum, barr) => sum.Concat(barr).ToArray());
-
-                //stream.Write(inst, 0, inst.Length);
-
-                //stream.Flush();
             }
 
             if (open)
@@ -516,7 +486,8 @@ namespace VM12Asm
                         breakpoints[currProcName] = new List<int>();
                     }
                     
-                    breakpoints[currProcName].Add(currProc.Count);
+                    // FIXME: We are filtering out all lables and litterals, this means we need to shift the breakpoints in relevant instructions!
+                    breakpoints[currProcName].Add(currProc.Where(t => t.Type == TokenType.Instruction).Count());
                 }
 
                 string line = it_line.Trim(new[]{ ' ', '\t', '¤' });
@@ -665,6 +636,23 @@ namespace VM12Asm
                                         else if (peek.Type == TokenType.Litteral)
                                         {
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                            
+                                            // Shift breakpoints before adding instructions
+                                            if (file.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breakpoints))
+                                            {
+                                                file.Value.Breakpoints[proc.Key] = breakpoints.Select(b => {
+                                                    if (b > instructions.Count)
+                                                    {
+                                                        int a = b + (value.Length * 2) - 1;
+                                                        Console.WriteLine($"Shifted {proc.Key} breakpoint with {a - b} from {b} to {a}");
+                                                        return a;
+                                                    }
+                                                    else
+                                                    {
+                                                        return b;
+                                                    }
+                                                }).ToList();
+                                            }
 
                                             foreach (var val in value.Reverse())
                                             {
@@ -672,11 +660,7 @@ namespace VM12Asm
                                                 instructions.Add(val);
                                             }
 
-                                            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Write out all breakpoint to understand this better!
-                                            if (file.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breakpoints))
-                                            {
-                                                file.Value.Breakpoints[proc.Key] = breakpoints.Select(b => { int a = b >= instructions.Count ? b + value.Length : b; Console.WriteLine($"Shifted {proc.Key} breakpoint with {value.Length} from {b} to {a}"); return a; }).ToList();
-                                            }
+                                            Console.WriteLine($"Parsed load litteral with litteral {peek.Value}!");
                                         }
                                         else
                                         {
