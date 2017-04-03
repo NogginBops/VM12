@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Diagnostics;
 
 namespace VM12
 {
@@ -160,6 +161,8 @@ namespace VM12
 
         bool StopRunning = false;
 
+        public bool Stopped => StopRunning;
+
         Stack<int> returnStack = new Stack<int>();
         
         public VM12(short[] ROM)
@@ -169,6 +172,10 @@ namespace VM12
 
         public void Start()
         {
+            Thread hTimeThread = new Thread(HTimer);
+
+            hTimeThread.Start();
+
             while (StopRunning != true)
             {
                 if (interrupts.Count > 0)
@@ -354,6 +361,24 @@ namespace VM12
         static int ToInt(short upper, short lower)
         {
             return (((ushort)upper << 12) | (ushort)lower);
+        }
+
+        private int TimerInterval = 0;
+
+        private void HTimer()
+        {
+            Stopwatch sw = new Stopwatch();
+
+            sw.Start();
+
+            while (StopRunning == false)
+            {
+                Interrupt(new Interrupt(InterruptType.h_Timer, null));
+
+                SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
+
+                sw.Restart();
+            }
         }
     }
 }

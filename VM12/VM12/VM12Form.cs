@@ -27,7 +27,7 @@ namespace VM12
         public VM12Form()
         {
             InitializeComponent();
-
+            
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
 
             OpenFileDialog dialog = new OpenFileDialog();
