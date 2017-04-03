@@ -1,11 +1,32 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
 using System.Threading;
 
 namespace VM12
 {
+    enum InterruptType : int
+    {
+        h_Timer = 0xFFF_FF0,
+        v_Blank = 0xFFF_FE0,
+        keyboard = 0xFFF_FD0,
+        mouse = 0xFFF_FC0,
+    }
+
+    struct Interrupt
+    {
+        public readonly InterruptType Type;
+        public readonly short[] Args;
+
+        public Interrupt(InterruptType type, short[] args)
+        {
+            Type = type;
+            Args = args;
+        }
+    }
+
     class Memory
     {
         public const int RAM_SIZE = 4194304;
@@ -127,6 +148,10 @@ namespace VM12
         Memory memory = new Memory();
 
         public ReadOnlyMemory ReadMemory => new ReadOnlyMemory(memory);
+        
+        ConcurrentQueue<Interrupt> interrupts = new ConcurrentQueue<Interrupt>();
+
+        public void Interrupt(Interrupt interrupt) => interrupts.Enqueue(interrupt);
 
         bool carry = false;
 
@@ -146,8 +171,27 @@ namespace VM12
         {
             while (StopRunning != true)
             {
-                Opcode op = (Opcode)(memory[PC] & 0x0FFF);
+                Opcode op = Opcode.Nop;
 
+                if (interrupts.Count > 0)
+                {
+                    if (interrupts.TryDequeue(out Interrupt interrupt))
+                    {
+                        returnStack.Push(PC);
+                        PC = (int)interrupt.Type;
+
+                        //TODO: Push arguemnts!
+                    }
+                    else
+                    {
+                        throw new Exception("Could not read interrupt instruction");
+                    }
+                }
+                else
+                {
+                    op = (Opcode)(memory[PC] & 0x0FFF);
+                }
+                
                 if ((memory[PC] & 0xF000) != 0)
                 {
                     ;

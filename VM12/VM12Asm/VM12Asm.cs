@@ -44,13 +44,15 @@ namespace VM12Asm
             public readonly Dictionary<string, string> Constants;
             public readonly Dictionary<string, List<Token>> Procs;
             public readonly Dictionary<string, List<int>> Breakpoints;
+            public readonly Dictionary<string, int> ProcLoactaions;
 
-            public AsemFile(Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, List<Token>> procs, Dictionary<string, List<int>> breakpoints)
+            public AsemFile(Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, List<Token>> procs, Dictionary<string, List<int>> breakpoints, Dictionary<string, int> procLocations)
             {
                 Usings = usigns;
                 Constants = constants;
-                Procs = procs.OrderBy(proc => proc.Key == "start" ? 1 : 0).ToDictionary(kpv => kpv.Key, kpv => kpv.Value);
+                Procs = procs; //.OrderBy(proc => proc.Key == "start" ? 1 : 0).ToDictionary(kpv => kpv.Key, kpv => kpv.Value);
                 Breakpoints = breakpoints;
+                ProcLoactaions = procLocations;
             }
         }
 
@@ -102,6 +104,8 @@ namespace VM12Asm
         static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(0x[0-9A-Fa-f_]+|8x[0-7_]+|[0-9_]+)>");
 
         static Regex label = new Regex(":[A-Za-z][A-Za-z0-9_]*");
+
+        static Regex proc = new Regex("(:[A-Za-z][A-Za-z0-9_]*)(\\s+@(.*))?");
 
         static Regex num = new Regex("\\b(0x[0-9A-Fa-f_]+|8x[0-7_]+|[0-9_]+)");
 
@@ -385,6 +389,17 @@ namespace VM12Asm
                 if ((i + 1) % instPerLine == 0)
                 {
                     Console.WriteLine();
+
+                    if (libFile.Instructions.Skip(i).Take(instPerLine).Sum(s => s) == 0)
+                    {
+                        int instructions = libFile.Instructions.Skip(i).TakeWhile(s => s == 0).Count();
+                        i += instructions;
+                        i -= i % instPerLine;
+                        i--;
+
+                        Console.WriteLine($"... ({instructions} instructions)");
+                        continue;
+                    }
                 }
             }
 
@@ -473,6 +488,7 @@ namespace VM12Asm
             Dictionary<string, string> constants = new Dictionary<string, string>();
             Dictionary<string, List<Token>> procs = new Dictionary<string, List<Token>>();
             Dictionary<string, List<int>> breakpoints = new Dictionary<string, List<int>>();
+            Dictionary<string, int> procLocations = new Dictionary<string, int>();
 
             string currProcName = null;
             List<Token> currProc = new List<Token>();
@@ -529,7 +545,7 @@ namespace VM12Asm
                             {
                                 t = new Token(TokenType.Label, l.Value);
                             }
-                            else if (num.IsMatch(token) ||constants.ContainsKey(token))
+                            else if (num.IsMatch(token) || constants.ContainsKey(token))
                             {
                                 t = new Token(TokenType.Litteral, token);
                             }
@@ -543,7 +559,7 @@ namespace VM12Asm
                     }
                     else if (line[0] == ':')
                     {
-                        Match l = label.Match(line);
+                        Match l = proc.Match(line);
                         if (l.Success)
                         {
                             if (currProcName != null)
@@ -551,7 +567,17 @@ namespace VM12Asm
                                 procs[currProcName] = currProc;
                             }
 
-                            currProcName = l.Value;
+                            currProcName = l.Groups[1].Value;
+
+                            if (l.Groups[3].Success)
+                            {
+                                procLocations[currProcName] = ToInt(ParseLitteral(l.Groups[3].Value, constants));
+
+                                if (procLocations[currProcName] < 0x44B_000)
+                                {
+                                    throw new Exception($"Procs can only be placed in ROM. The proc {currProcName} was addressed to {procLocations[currProcName]}!");
+                                }
+                            }
 
                             currProc = new List<Token>();
                         }
@@ -569,7 +595,7 @@ namespace VM12Asm
 
             procs[currProcName] = currProc;
 
-            return new AsemFile(usings, constants, procs, breakpoints);
+            return new AsemFile(usings, constants, procs, breakpoints, procLocations);
         }
 
         static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable, out bool success)
@@ -770,12 +796,25 @@ namespace VM12Asm
 
             Console.WriteLine();
 
+            Dictionary<string, int> procLocations = files.SelectMany(f => f.Value.ProcLoactaions).ToDictionary(kvs => kvs.Key, kvs => kvs.Value);
+
             foreach (var asem in assembledProcs)
             {
-                Console.WriteLine($"Proc {asem.Key} at offset: {offset:X}");
+                if (procLocations.TryGetValue(asem.Key, out int location))
+                {
+                    location -= 0x44B_000;
+                    Console.WriteLine($"Proc {asem.Key} at specified offset: {location:X}");
 
-                procOffests[asem.Key] = offset;
-                offset += asem.Value.Count;
+                    procOffests[asem.Key] = location;
+                    // FIXME: Procs can overlap!!!
+                }
+                else
+                {
+                    Console.WriteLine($"Proc {asem.Key} at offset: {offset:X}");
+
+                    procOffests[asem.Key] = offset;
+                    offset += asem.Value.Count;
+                }
             }
 
             Console.WriteLine();
@@ -822,7 +861,7 @@ namespace VM12Asm
             
             Console.WriteLine();
             
-            short[] compiledInstructions = new short[offset];
+            short[] compiledInstructions = new short[12275712];
 
             foreach (var proc in assembledProcs)
             {
@@ -906,8 +945,23 @@ namespace VM12Asm
         {
             short[] res = new short[2];
             res[0] = (short) (i & _12BIT_MASK);
-            res[1] = (short)((i >> 12) & _12BIT_MASK);
+            res[1] = (short) ((i >> 12) & _12BIT_MASK);
             return res;
+        }
+
+        static int ToInt(short[] array)
+        {
+            switch (array.Length)
+            {
+                case 0:
+                    return 0;
+                case 1:
+                    return array[0];
+                case 2:
+                    return (ushort)array[0] | ((ushort)array[1] << 12);
+                default:
+                    return -1;
+            }
         }
     }
 }

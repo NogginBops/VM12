@@ -12,7 +12,7 @@ using System.Windows.Forms;
 
 namespace VM12
 {
-    public partial class Form1 : Form
+    public partial class VM12Form : Form
     {
         VM12 vm12;
 
@@ -24,7 +24,7 @@ namespace VM12
 
         short[] vram = new short[Memory.VRAM_SIZE];
 
-        public Form1()
+        public VM12Form()
         {
             InitializeComponent();
 
@@ -99,6 +99,8 @@ namespace VM12
             }
 
             pictureBox1.Image = bitmap;
+
+            vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, null));
         }
     }
 }
