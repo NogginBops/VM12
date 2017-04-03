@@ -38,14 +38,14 @@ namespace VM12
 
                 if (inf.Extension == ".12asm")
                 {
-                    VM12Asm.VM12Asm.Main(inf.FullName, Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
+                    VM12Asm.VM12Asm.Main("-src", inf.FullName, "-dst", Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
 
                     inf = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12exe"));
                 }
 
                 short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
 
-                using (BinaryReader br = new BinaryReader(File.OpenRead(dialog.FileName)))
+                using (BinaryReader br = new BinaryReader(File.OpenRead(inf.FullName)))
                 {
                     for (int i = 0; i < rom.Length; i++)
                     {
@@ -78,15 +78,15 @@ namespace VM12
                 
                 System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
 
-                for (int i = 0; i < size; i += bitsPerPixel / 8)
+                for (int i = 0; i < size / (bitsPerPixel / 8); i += bitsPerPixel / 8)
                 {
-                    int index = i / bitsPerPixel;
+                    int index = i;
 
                     short val = vram[index];
 
-                    byte r = (byte)((val & 0xF) * 16);
-                    byte g = (byte)(((val >> 4) & 0xF) * 16);
-                    byte b = (byte)(((val >> 8) & 0xF) * 16);
+                    byte r = (byte)((val & 0x00F) * 16);
+                    byte g = (byte)(((val >> 4) & 0x00F) * 16);
+                    byte b = (byte)(((val >> 8) & 0x00F) * 16);
 
                     data[i] = r;
                     data[i + 1] = g;
@@ -101,6 +101,11 @@ namespace VM12
             pictureBox1.Image = bitmap;
 
             vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, null));
+        }
+
+        private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            vm12?.Stop();
         }
     }
 }

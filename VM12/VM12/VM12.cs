@@ -304,7 +304,7 @@ namespace VM12
                     case Opcode.Inc:
                         int mem_val = memory[SP] + 1;
                         carry = mem_val > 0xFFF;
-                        memory[SP] = (short) mem_val;
+                        memory[SP] = (short) (mem_val & 0xFFF);
                         PC++;
                         break;
                     case Opcode.Add_f:
@@ -358,12 +358,17 @@ namespace VM12
             }
         }
 
+        public void Stop()
+        {
+            StopRunning = true;
+        }
+
         static int ToInt(short upper, short lower)
         {
             return (((ushort)upper << 12) | (ushort)lower);
         }
 
-        private int TimerInterval = 0;
+        private float TimerInterval = 1 / 10000f;
 
         private void HTimer()
         {
@@ -375,7 +380,7 @@ namespace VM12
             {
                 Interrupt(new Interrupt(InterruptType.h_Timer, null));
 
-                SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
+                SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval * Stopwatch.Frequency);
 
                 sw.Restart();
             }

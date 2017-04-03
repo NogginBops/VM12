@@ -158,6 +158,7 @@ namespace VM12Asm
             bool overwrite = false;
             bool hold = false;
             bool open = false;
+            bool verbose = false;
 
             while (enumerator.MoveNext())
             {
@@ -182,6 +183,9 @@ namespace VM12Asm
                         break;
                     case "-p":
                         open = true;
+                        break;
+                    case "-v":
+                        verbose = true;
                         break;
                     default:
                         break;
@@ -208,14 +212,7 @@ namespace VM12Asm
             Console.WriteLine("Preprocessing...");
 
             string[] newLines = PreProcess(lines);
-
-            /*
-            foreach (var line in newLines)
-            {
-                Console.WriteLine(line);
-            }
-            */
-
+            
             Console.WriteLine("Parsing...");
 
             AsemFile asmFile = Parse(newLines);
@@ -274,85 +271,88 @@ namespace VM12Asm
 
             #endregion
 
-            #region Print_Files
-
-            foreach (var asm in files)
+            if (verbose)
             {
-                Console.ForegroundColor = conColor;
-                Console.WriteLine();
-                Console.WriteLine($"--------------------- {asm.Key} ---------------------");
-                Console.WriteLine();
+                #region Print_Files
 
-                foreach (var use in asm.Value.Usings)
+                foreach (var asm in files)
                 {
-                    Console.ForegroundColor = ConsoleColor.DarkGreen;
-                    Console.Write(use.Key);
-                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.WriteLine("\t" + use.Value);
-                }
-
-                if (asm.Value.Usings.Count > 0)
-                {
+                    Console.ForegroundColor = conColor;
                     Console.WriteLine();
-                }
-
-                foreach (var constant in asm.Value.Constants)
-                {
-                    Console.ForegroundColor = ConsoleColor.Blue;
-                    Console.Write(constant.Key);
-                    Console.ForegroundColor = ConsoleColor.DarkCyan;
-                    Console.WriteLine($"\t= {constant.Value}");
-                }
-
-                if (asm.Value.Constants.Count > 0)
-                {
+                    Console.WriteLine($"--------------------- {asm.Key} ---------------------");
                     Console.WriteLine();
-                }
 
-                const string indent = "\t";
-
-                foreach (var proc in asm.Value.Procs)
-                {
-                    Console.ForegroundColor = ConsoleColor.DarkMagenta;
-                    Console.WriteLine(proc.Key);
-
-                    int i = 0;
-                    foreach (var token in proc.Value)
+                    foreach (var use in asm.Value.Usings)
                     {
-                        if (asm.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breaks) && breaks.Contains(i))
-                        {
-                            Console.ForegroundColor = ConsoleColor.Red;
-                            Console.Write("¤");
-                        }
+                        Console.ForegroundColor = ConsoleColor.DarkGreen;
+                        Console.Write(use.Key);
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.WriteLine("\t" + use.Value);
+                    }
 
-                        Console.ForegroundColor = ConsoleColor.DarkYellow;
-                        Console.Write(indent + token.Type + "\t");
-                        switch (token.Type)
+                    if (asm.Value.Usings.Count > 0)
+                    {
+                        Console.WriteLine();
+                    }
+
+                    foreach (var constant in asm.Value.Constants)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Blue;
+                        Console.Write(constant.Key);
+                        Console.ForegroundColor = ConsoleColor.DarkCyan;
+                        Console.WriteLine($"\t= {constant.Value}");
+                    }
+
+                    if (asm.Value.Constants.Count > 0)
+                    {
+                        Console.WriteLine();
+                    }
+
+                    const string indent = "\t";
+
+                    foreach (var proc in asm.Value.Procs)
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkMagenta;
+                        Console.WriteLine(proc.Key);
+
+                        int i = 0;
+                        foreach (var token in proc.Value)
                         {
-                            case TokenType.Instruction:
-                                Console.ForegroundColor = ConsoleColor.Green;
-                                Console.WriteLine("{0,-10}{1,-10}", token.Value, token.Opcode);
-                                break;
-                            case TokenType.Litteral:
-                                Console.ForegroundColor = ConsoleColor.DarkCyan;
-                                Console.WriteLine(token.Value);
-                                break;
-                            case TokenType.Label:
-                                Console.ForegroundColor = ConsoleColor.Magenta;
-                                Console.WriteLine(token.Value);
-                                break;
-                            default:
+                            if (asm.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breaks) && breaks.Contains(i))
+                            {
                                 Console.ForegroundColor = ConsoleColor.Red;
-                                Console.WriteLine("!!ERROR!!");
-                                break;
-                        }
+                                Console.Write("¤");
+                            }
 
-                        i++;
+                            Console.ForegroundColor = ConsoleColor.DarkYellow;
+                            Console.Write(indent + token.Type + "\t");
+                            switch (token.Type)
+                            {
+                                case TokenType.Instruction:
+                                    Console.ForegroundColor = ConsoleColor.Green;
+                                    Console.WriteLine("{0,-10}{1,-10}", token.Value, token.Opcode);
+                                    break;
+                                case TokenType.Litteral:
+                                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                                    Console.WriteLine(token.Value);
+                                    break;
+                                case TokenType.Label:
+                                    Console.ForegroundColor = ConsoleColor.Magenta;
+                                    Console.WriteLine(token.Value);
+                                    break;
+                                default:
+                                    Console.ForegroundColor = ConsoleColor.Red;
+                                    Console.WriteLine("!!ERROR!!");
+                                    break;
+                            }
+
+                            i++;
+                        }
                     }
                 }
-            }
 
-            #endregion
+                #endregion
+            }
 
             Console.ForegroundColor = conColor;
 
@@ -365,15 +365,16 @@ namespace VM12Asm
             {
                 goto noFile;
             }
+            
+            if (verbose)
+            {
+                Console.WriteLine($"Result ({libFile.Instructions.Length} words): ");
+                Console.WriteLine();
 
-            Console.WriteLine($"Result ({libFile.Instructions.Length} words): ");
-            Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.White;
 
-            Console.ForegroundColor = ConsoleColor.White;
-
-            const int instPerLine = 3;
-
-            for (int i = 0; i < libFile.Instructions.Length; i++)
+                const int instPerLine = 3;
+                for (int i = 0; i < libFile.Instructions.Length; i++)
             {
                 if ((libFile.Instructions[i] & 0xF000) != 0)
                 {
@@ -403,8 +404,9 @@ namespace VM12Asm
                 }
             }
 
-            Console.ForegroundColor = conColor;
-
+                Console.ForegroundColor = conColor;
+            }
+            
             Console.WriteLine();
 
             FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + (executable ? ".12exe" : ".12lib")));
@@ -643,6 +645,14 @@ namespace VM12Asm
 
                     Token peek = tokens.Current;
 
+                    void ShiftBreakpoints(int breakpoint_offset)
+                    {
+                        if (file.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breakpoints))
+                        {
+                            file.Value.Breakpoints[proc.Key] = breakpoints.Select(b => b > instructions.Count ? b + breakpoint_offset : b).ToList();
+                        }
+                    }
+
                     while (tokens.MoveNext() || !peek.Equals(tokens.Current))
                     {
                         peek = tokens.Current;
@@ -655,6 +665,10 @@ namespace VM12Asm
                                     case Opcode.Load_lit:
                                         if (peek.Type == TokenType.Label)
                                         {
+                                            // Shift breakpoints before adding instructions
+                                            ShiftBreakpoints(2);
+
+                                            // FIXME: Loading lables does not work!
                                             local_label_uses[instructions.Count] = peek.Value;
                                             instructions.Add(0);
                                             instructions.Add(0);
@@ -664,21 +678,7 @@ namespace VM12Asm
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
                                             
                                             // Shift breakpoints before adding instructions
-                                            if (file.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breakpoints))
-                                            {
-                                                file.Value.Breakpoints[proc.Key] = breakpoints.Select(b => {
-                                                    if (b > instructions.Count)
-                                                    {
-                                                        int a = b + (value.Length * 2) - 1;
-                                                        Console.WriteLine($"Shifted {proc.Key} breakpoint with {a - b} from {b} to {a}");
-                                                        return a;
-                                                    }
-                                                    else
-                                                    {
-                                                        return b;
-                                                    }
-                                                }).ToList();
-                                            }
+                                            ShiftBreakpoints((value.Length * 2) - 1);
 
                                             foreach (var val in value.Reverse())
                                             {
@@ -701,9 +701,13 @@ namespace VM12Asm
                                         {
                                             Opcode op = current.Opcode ?? Opcode.Nop;
 
+                                            instructions.Add((short)op);
+
+                                            // Shift breakpoints before adding instructions
+                                            ShiftBreakpoints(2);
+
                                             if (peek.Type == TokenType.Label)
                                             {
-                                                instructions.Add((short) op);
                                                 local_label_uses[instructions.Count] = peek.Value;
                                                 instructions.Add(0);
                                                 instructions.Add(0);
@@ -721,7 +725,6 @@ namespace VM12Asm
                                                     throw new FormatException("The litteral {} does not fit in 24-bits! {} only takes 24-bit arguments!");
                                                 }
                                                 
-                                                instructions.Add((short)op);
                                                 instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
                                                 instructions.Add(value[0]);
                                             }
@@ -739,6 +742,9 @@ namespace VM12Asm
                                     case Opcode.Jmp_cz:
                                     case Opcode.Jmp_fz:
                                         instructions.Add((short)current.Opcode);
+
+                                        ShiftBreakpoints(2);
+
                                         if (peek.Type == TokenType.Label)
                                         {
                                             local_label_uses[instructions.Count] = peek.Value;

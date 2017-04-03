@@ -102,6 +102,7 @@
             this.MaximizeBox = false;
             this.Name = "VM12Form";
             this.Text = "VM12";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.VM12Form_FormClosing);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).EndInit();
