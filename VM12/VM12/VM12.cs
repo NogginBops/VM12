@@ -171,26 +171,21 @@ namespace VM12
         {
             while (StopRunning != true)
             {
-                Opcode op = Opcode.Nop;
-
                 if (interrupts.Count > 0)
                 {
                     if (interrupts.TryDequeue(out Interrupt interrupt))
                     {
+                        //TODO: Push arguemnts!
                         returnStack.Push(PC);
                         PC = (int)interrupt.Type;
-
-                        //TODO: Push arguemnts!
                     }
                     else
                     {
                         throw new Exception("Could not read interrupt instruction");
                     }
                 }
-                else
-                {
-                    op = (Opcode)(memory[PC] & 0x0FFF);
-                }
+
+                Opcode op = (Opcode)(memory[PC] & 0x0FFF);
                 
                 if ((memory[PC] & 0xF000) != 0)
                 {
