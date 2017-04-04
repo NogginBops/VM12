@@ -140,7 +140,8 @@ namespace VM12Asm
             { "jmp.nz", Opcode.Jmp_nz },
             { "jmp.cz", Opcode.Jmp_cz },
             { "jmp.fz", Opcode.Jmp_fz },
-
+            { "eni", Opcode.Eni },
+            { "dsi", Opcode.Dsi },
             { "hlt", Opcode.Hlt }
         };
 

@@ -7,6 +7,7 @@ using System.Drawing.Imaging;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.IO;
 using System.Windows.Forms;
 
@@ -14,7 +15,7 @@ namespace VM12
 {
     public partial class VM12Form : Form
     {
-        VM12 vm12;
+        volatile VM12 vm12;
 
         ReadOnlyMemory read_mem;
 
@@ -27,9 +28,14 @@ namespace VM12
         public VM12Form()
         {
             InitializeComponent();
-            
+
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
 
+            Shown += (s, e1) => LoadProgram();
+        }
+
+        private void LoadProgram()
+        {
             OpenFileDialog dialog = new OpenFileDialog();
 
             if (dialog.ShowDialog() == DialogResult.OK)
@@ -49,16 +55,18 @@ namespace VM12
                 {
                     for (int i = 0; i < rom.Length; i++)
                     {
-                         rom[i] = br.ReadInt16();
+                        rom[i] = br.ReadInt16();
                     }
                 }
-                
+
                 vm12 = new VM12(rom);
 
                 read_mem = vm12.ReadMemory;
 
-                Thread thread = new Thread(vm12.Start);
-                thread.IsBackground = true;
+                Thread thread = new Thread(vm12.Start)
+                {
+                    IsBackground = true
+                };
 
                 thread.Start();
             }
@@ -66,6 +74,8 @@ namespace VM12
         
         private void RefreshTimer_Tick(object sender, EventArgs e)
         {
+            Text = vm12 == null ? "Uninitialized" : vm12.Stopped ? "Stopped" : "Running"; 
+
             if (read_mem.HasMemory)
             {
                 read_mem.GetVRAM(vram, 0);

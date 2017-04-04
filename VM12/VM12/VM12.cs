@@ -155,11 +155,16 @@ namespace VM12
         public void Interrupt(Interrupt interrupt) => interrupts.Enqueue(interrupt);
 
         bool carry = false;
+        bool interruptsEnabled = false;
 
         int PC = Memory.ROM_START;
-        int SP = 1;
+        int SP = 2;
+
+        long programTime = 0;
 
         bool StopRunning = false;
+        
+        private float TimerInterval = 1000;
 
         public bool Stopped => StopRunning;
 
@@ -172,13 +177,13 @@ namespace VM12
 
         public void Start()
         {
-            Thread hTimeThread = new Thread(HTimer);
+            Stopwatch sw = new Stopwatch();
 
-            hTimeThread.Start();
+            sw.Start();
 
             while (StopRunning != true)
             {
-                if (interrupts.Count > 0)
+                if (interruptsEnabled && interrupts.Count > 0)
                 {
                     if (interrupts.TryDequeue(out Interrupt interrupt))
                     {
@@ -196,7 +201,9 @@ namespace VM12
                 
                 if ((memory[PC] & 0xF000) != 0)
                 {
+                    sw.Stop();
                     ;
+                    sw.Start();
                 }
 
                 switch (op)
@@ -349,12 +356,30 @@ namespace VM12
                         break;
                     case Opcode.Jmp_fz:
                         throw new NotImplementedException();
+                    case Opcode.Eni:
+                        interruptsEnabled = true;
+                        PC++;
+                        break;
+                    case Opcode.Dsi:
+                        interruptsEnabled = false;
+                        PC++;
+                        break;
                     case Opcode.Hlt:
                         StopRunning = true;
                         break;
                     default:
                         throw new Exception($"{op}");
                 }
+
+                programTime++;
+
+                if (programTime % TimerInterval == 0)
+                {
+                    Interrupt(new Interrupt(InterruptType.h_Timer, null));
+                }
+
+                SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
+                sw.Restart();
             }
         }
 
@@ -366,24 +391,6 @@ namespace VM12
         static int ToInt(short upper, short lower)
         {
             return (((ushort)upper << 12) | (ushort)lower);
-        }
-
-        private float TimerInterval = 1 / 10000f;
-
-        private void HTimer()
-        {
-            Stopwatch sw = new Stopwatch();
-
-            sw.Start();
-
-            while (StopRunning == false)
-            {
-                Interrupt(new Interrupt(InterruptType.h_Timer, null));
-
-                SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval * Stopwatch.Frequency);
-
-                sw.Restart();
-            }
         }
     }
 }

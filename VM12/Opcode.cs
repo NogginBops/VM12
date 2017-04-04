@@ -31,6 +31,8 @@
         Jmp_nz,
         Jmp_cz,
         Jmp_fz,
-        Hlt = 0xFFF,
+        Eni,
+        Dsi,
+        Hlt = 0x1F,
     }
 }
