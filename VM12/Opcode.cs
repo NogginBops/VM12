@@ -27,7 +27,7 @@
         Add_f,
         Neg_f,
         Jmp,
-        Jpm_z,
+        Jmp_z,
         Jmp_nz,
         Jmp_cz,
         Jmp_fz,

@@ -317,7 +317,7 @@ namespace VM12
                         int jmp_address = ToInt(memory[++PC], memory[++PC]);
                         PC = jmp_address;
                         break;
-                    case Opcode.Jpm_z:
+                    case Opcode.Jmp_z:
                         if (memory[SP] == 0)
                         {
                             PC = ToInt(memory[++PC], memory[++PC]);

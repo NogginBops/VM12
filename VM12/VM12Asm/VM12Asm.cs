@@ -136,7 +136,7 @@ namespace VM12Asm
             { "add.f", Opcode.Add_f },
             { "neg.f", Opcode.Neg_f },
             { "jmp", Opcode.Jmp },
-            { "jmp.z", Opcode.Jpm_z },
+            { "jmp.z", Opcode.Jmp_z },
             { "jmp.nz", Opcode.Jmp_nz },
             { "jmp.cz", Opcode.Jmp_cz },
             { "jmp.fz", Opcode.Jmp_fz },
@@ -644,15 +644,7 @@ namespace VM12Asm
                     Token current = tokens.Current;
 
                     Token peek = tokens.Current;
-
-                    void ShiftBreakpoints(int breakpoint_offset)
-                    {
-                        if (file.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breakpoints))
-                        {
-                            file.Value.Breakpoints[proc.Key] = breakpoints.Select(b => b > instructions.Count ? b + breakpoint_offset : b).ToList();
-                        }
-                    }
-
+                    
                     while (tokens.MoveNext() || !peek.Equals(tokens.Current))
                     {
                         peek = tokens.Current;
@@ -666,10 +658,11 @@ namespace VM12Asm
                                         if (peek.Type == TokenType.Label)
                                         {
                                             // Shift breakpoints before adding instructions
-                                            ShiftBreakpoints(2);
+                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
 
                                             // FIXME: Loading lables does not work!
                                             local_label_uses[instructions.Count] = peek.Value;
+                                            instructions.Add((short) Opcode.Load_lit);
                                             instructions.Add(0);
                                             instructions.Add(0);
                                         }
@@ -678,7 +671,7 @@ namespace VM12Asm
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
                                             
                                             // Shift breakpoints before adding instructions
-                                            ShiftBreakpoints((value.Length * 2) - 1);
+                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, (value.Length * 2) - 1);
 
                                             foreach (var val in value.Reverse())
                                             {
@@ -701,10 +694,10 @@ namespace VM12Asm
                                         {
                                             Opcode op = current.Opcode ?? Opcode.Nop;
 
-                                            instructions.Add((short)op);
-
                                             // Shift breakpoints before adding instructions
-                                            ShiftBreakpoints(2);
+                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+                                            
+                                            instructions.Add((short)op);
 
                                             if (peek.Type == TokenType.Label)
                                             {
@@ -737,13 +730,14 @@ namespace VM12Asm
                                         }
                                         break;
                                     case Opcode.Jmp:
-                                    case Opcode.Jpm_z:
+                                    case Opcode.Jmp_z:
                                     case Opcode.Jmp_nz:
                                     case Opcode.Jmp_cz:
                                     case Opcode.Jmp_fz:
-                                        instructions.Add((short)current.Opcode);
+                                        // Shift breakpoints before adding instructions
+                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
 
-                                        ShiftBreakpoints(2);
+                                        instructions.Add((short)current.Opcode);
 
                                         if (peek.Type == TokenType.Label)
                                         {
@@ -967,6 +961,14 @@ namespace VM12Asm
                     return (ushort)array[0] | ((ushort)array[1] << 12);
                 default:
                     return -1;
+            }
+        }
+
+        static void ShiftBreakpoints(AsemFile file, string proc, int instructions, int breakpoint_offset)
+        {
+            if (file.Breakpoints.TryGetValue(proc, out List<int> breakpoints))
+            {
+                file.Breakpoints[proc] = breakpoints.Select(b => b > instructions ? b + breakpoint_offset : b).ToList();
             }
         }
     }
