@@ -34,10 +34,11 @@
             this.openToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.developerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
-            this.pictureBox1 = new System.Windows.Forms.PictureBox();
+            this.pbxMain = new System.Windows.Forms.PictureBox();
             this.hTimer = new System.Windows.Forms.Timer(this.components);
+            this.instructionFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
             // 
             // menuStrip
@@ -67,6 +68,8 @@
             // 
             // developerToolStripMenuItem
             // 
+            this.developerToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.instructionFrequencyToolStripMenuItem});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -76,25 +79,33 @@
             this.refreshTimer.Enabled = true;
             this.refreshTimer.Tick += new System.EventHandler(this.RefreshTimer_Tick);
             // 
-            // pictureBox1
+            // pbxMain
             // 
-            this.pictureBox1.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.pictureBox1.Location = new System.Drawing.Point(0, 24);
-            this.pictureBox1.Name = "pictureBox1";
-            this.pictureBox1.Size = new System.Drawing.Size(640, 480);
-            this.pictureBox1.TabIndex = 1;
-            this.pictureBox1.TabStop = false;
+            this.pbxMain.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pbxMain.Location = new System.Drawing.Point(0, 24);
+            this.pbxMain.MinimumSize = new System.Drawing.Size(640, 480);
+            this.pbxMain.Name = "pbxMain";
+            this.pbxMain.Size = new System.Drawing.Size(640, 480);
+            this.pbxMain.TabIndex = 1;
+            this.pbxMain.TabStop = false;
             // 
             // hTimer
             // 
             this.hTimer.Interval = 1;
+            // 
+            // instructionFrequencyToolStripMenuItem
+            // 
+            this.instructionFrequencyToolStripMenuItem.Name = "instructionFrequencyToolStripMenuItem";
+            this.instructionFrequencyToolStripMenuItem.Size = new System.Drawing.Size(189, 22);
+            this.instructionFrequencyToolStripMenuItem.Text = "Instruction Frequency";
+            this.instructionFrequencyToolStripMenuItem.Click += new System.EventHandler(this.instructionFrequencyToolStripMenuItem_Click);
             // 
             // VM12Form
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(640, 504);
-            this.Controls.Add(this.pictureBox1);
+            this.Controls.Add(this.pbxMain);
             this.Controls.Add(this.menuStrip);
             this.DoubleBuffered = true;
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
@@ -105,7 +116,7 @@
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.VM12Form_FormClosing);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -118,8 +129,9 @@
         private System.Windows.Forms.ToolStripMenuItem openToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem developerToolStripMenuItem;
         private System.Windows.Forms.Timer refreshTimer;
-        private System.Windows.Forms.PictureBox pictureBox1;
+        private System.Windows.Forms.PictureBox pbxMain;
         private System.Windows.Forms.Timer hTimer;
+        private System.Windows.Forms.ToolStripMenuItem instructionFrequencyToolStripMenuItem;
     }
 }
 

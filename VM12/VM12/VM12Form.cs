@@ -74,23 +74,33 @@ namespace VM12
         
         private void RefreshTimer_Tick(object sender, EventArgs e)
         {
-            Text = vm12 == null ? "Uninitialized" : vm12.Stopped ? "Stopped" : "Running"; 
-
+            if (vm12 != null)
+            {
+                Text = vm12.Stopped ? "Stopped" : "Running";
+                Text += $" Instructions executed: {vm12.Ticks/1000000}m, PC: {vm12.ProgramCounter}, SP: {vm12.StackPointer}";
+            }
+            else
+            {
+                Text = "Uninitialized";
+            }
+            
             if (read_mem.HasMemory)
             {
                 read_mem.GetVRAM(vram, 0);
                 
-                BitmapData bData = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.ReadWrite, bitmap.PixelFormat);
+                BitmapData bData = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.WriteOnly, bitmap.PixelFormat);
 
                 byte bitsPerPixel = 24;
 
                 int size = bData.Stride * bData.Height;
-                
-                System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
 
-                for (int i = 0; i < size / (bitsPerPixel / 8); i += bitsPerPixel / 8)
+                Text += $", Size: {size}, Vram Size: {vram.Length}";
+
+                System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
+                
+                for (int i = 0; i < size; i += bitsPerPixel / 8)
                 {
-                    int index = i;
+                    int index = i / (bitsPerPixel / 8);
 
                     short val = vram[index];
 
@@ -108,7 +118,7 @@ namespace VM12
                 bitmap.UnlockBits(bData);
             }
 
-            pictureBox1.Image = bitmap;
+            pbxMain.Image = bitmap;
 
             vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, null));
         }
@@ -116,6 +126,16 @@ namespace VM12
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
         {
             vm12?.Stop();
+        }
+
+        private void instructionFrequencyToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (vm12 != null)
+            {
+                Instruction_frequency ifreq = new Instruction_frequency(vm12.instructionFreq);
+
+                ifreq.ShowDialog();
+            }
         }
     }
 }

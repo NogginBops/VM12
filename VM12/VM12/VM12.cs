@@ -45,7 +45,7 @@ namespace VM12
         public readonly short[] VRAM = new short[VRAM_SIZE];
 
         public readonly short[] ROM = new short[ROM_SIZE];
-        
+
         public void GetRAM(short[] ram, int index)
         {
             Array.Copy(RAM, index, ram, 0, ram.Length);
@@ -66,6 +66,7 @@ namespace VM12
             Array.Copy(ROM, this.ROM, ROM.Length);
         }
 
+        //TODO: Fix memory access overhead!
         public short this[int i]
         {
             get
@@ -134,7 +135,7 @@ namespace VM12
         {
             mem.GetROM(rom, index);
         }
-        
+
         public short this[int i]
         {
             get => mem[i];
@@ -149,10 +150,10 @@ namespace VM12
         Memory memory = new Memory();
 
         public ReadOnlyMemory ReadMemory => new ReadOnlyMemory(memory);
-        
+
         ConcurrentQueue<Interrupt> interrupts = new ConcurrentQueue<Interrupt>();
 
-        public void Interrupt(Interrupt interrupt) => interrupts.Enqueue(interrupt);
+        public void Interrupt(Interrupt interrupt) { if(interruptsEnabled) interrupts.Enqueue(interrupt); }
 
         bool carry = false;
         bool interruptsEnabled = false;
@@ -163,12 +164,18 @@ namespace VM12
         long programTime = 0;
 
         bool StopRunning = false;
-        
+
         private float TimerInterval = 1000;
 
         public bool Stopped => StopRunning;
+        public int ProgramCounter => PC;
+        public int StackPointer => SP;
+        public bool InterruptsEnabled => interruptsEnabled;
+        public long Ticks => programTime;
 
-        Stack<int> returnStack = new Stack<int>();
+        Stack<int> returnStack = new Stack<int>(20);
+
+        public ConcurrentDictionary<Opcode, int> instructionFreq = new ConcurrentDictionary<Opcode, int>(1, 64);
         
         public VM12(short[] ROM)
         {
@@ -177,9 +184,9 @@ namespace VM12
 
         public void Start()
         {
-            Stopwatch sw = new Stopwatch();
+            //Stopwatch sw = new Stopwatch();
 
-            sw.Start();
+            //sw.Start();
 
             while (StopRunning != true)
             {
@@ -199,11 +206,20 @@ namespace VM12
 
                 Opcode op = (Opcode)(memory[PC] & 0x0FFF);
                 
+                if (instructionFreq.TryGetValue(op, out int v))
+                {
+                    instructionFreq[op] = v + 1;
+                }
+                else
+                {
+                    instructionFreq[op] = 1;
+                }
+
                 if ((memory[PC] & 0xF000) != 0)
                 {
-                    sw.Stop();
+                    //sw.Stop();
                     ;
-                    sw.Start();
+                    //sw.Start();
                 }
 
                 switch (op)
@@ -252,8 +268,8 @@ namespace VM12
                         PC++;
                         break;
                     case Opcode.Over:
-                        memory[SP + 1] = memory[SP - 1];
                         SP++;
+                        memory[SP] = memory[SP - 2];
                         PC++;
                         break;
                     case Opcode.Swap:
@@ -274,8 +290,8 @@ namespace VM12
                         // TODO: The sign might not work here!
                         int add_temp = memory[SP] + memory[SP - 1];
                         carry = add_temp > 0xFFF;
-                        memory[SP - 1] = (short)(add_temp & 0xFFF);
                         SP--;
+                        memory[SP] = (short)(add_temp - (carry ? 0x1000 : 0));
                         PC++;
                         break;
                     case Opcode.Sh_l:
@@ -378,8 +394,8 @@ namespace VM12
                     Interrupt(new Interrupt(InterruptType.h_Timer, null));
                 }
 
-                SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
-                sw.Restart();
+                //SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
+                //sw.Restart();
             }
         }
 
@@ -390,7 +406,7 @@ namespace VM12
 
         static int ToInt(short upper, short lower)
         {
-            return (((ushort)upper << 12) | (ushort)lower);
+            return ((upper << 12) | (ushort)lower);
         }
     }
 }
