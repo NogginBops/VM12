@@ -219,8 +219,8 @@ namespace VM12
                         PC++;
                         break;
                     case Opcode.Load_sp:
-                        int load_sp_address = ToInt(memory.MEM[SP--], memory.MEM[SP--]);
-                        memory.MEM[++SP] = memory.MEM[load_sp_address];
+                        int load_sp_address = ToInt(memory.MEM[SP--], memory.MEM[SP]);
+                        memory.MEM[SP] = memory.MEM[load_sp_address];
                         PC++;
                         break;
                     case Opcode.Store_pc:
@@ -445,14 +445,30 @@ namespace VM12
                     case Opcode.Add_c:
                         break;
                     case Opcode.Inc_l:
+                        short linc_value;
+                        memory.MEM[SP] = (short)((linc_value = (short) (memory.MEM[SP] + 1)) & 0xFFF);
+                        memory.MEM[SP - 1] = (short)((linc_value = (short)(memory.MEM[SP - 1] + (linc_value > 0xFFF ? 1 : 0))) & 0xFFF);
+                        carry = linc_value > 0xFFF;
+                        PC++;
                         break;
                     case Opcode.Dec_l:
                         break;
                     case Opcode.Add_l:
+                        //FIXME!!
+                        int add1 = ToInt(memory.MEM[SP--], memory.MEM[SP--]);
+                        int add2 = ToInt(memory.MEM[SP], memory.MEM[SP - 1]);
+                        add2 += add1;
+                        carry = add2 >> 12 > 0xFFF;
+                        memory.MEM[SP] = (short)(add2 >> 12);
+                        memory.MEM[SP - 1] = (short)(add2 & 0xFFF);
                         break;
                     case Opcode.Not_l:
                         break;
                     case Opcode.Neg_l:
+                        int add_l_val = -ToInt(memory.MEM[SP], memory.MEM[SP - 1]);
+                        memory.MEM[SP] = (short)(add_l_val >> 12);
+                        memory.MEM[SP - 1] = (short)(add_l_val & 0xFFF);
+                        PC++;
                         break;
                     case Opcode.Load_lit_l:
                         break;
