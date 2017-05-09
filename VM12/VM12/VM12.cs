@@ -454,13 +454,13 @@ namespace VM12
                     case Opcode.Dec_l:
                         break;
                     case Opcode.Add_l:
-                        //FIXME!!
                         int add1 = ToInt(memory.MEM[SP--], memory.MEM[SP--]);
                         int add2 = ToInt(memory.MEM[SP], memory.MEM[SP - 1]);
                         add2 += add1;
                         carry = add2 >> 12 > 0xFFF;
                         memory.MEM[SP] = (short)(add2 >> 12);
                         memory.MEM[SP - 1] = (short)(add2 & 0xFFF);
+                        PC++;
                         break;
                     case Opcode.Not_l:
                         break;
