@@ -102,8 +102,8 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bjc\\b"), "jmp.c" },
             { new Regex("(?<!:)\\bjgz\\b"), "jmp.gz" },
             { new Regex("(?<!:)\\bjlz\\b"), "jmp.lz" },
-            { new Regex("(?<!:)\\bjlz\\b"), "jmp.l.z" },
-            { new Regex("(?<!:)\\bjlnz\\b"), "jmp.l.nz" },
+            { new Regex("(?<!:)\\bjzl\\b"), "jmp.z.l" },
+            { new Regex("(?<!:)\\bjlnz\\b"), "jmp.nz.l" },
             { new Regex("(?<!:)\\badc\\b"), "add.c" },
             { new Regex("(?<!:)\\blinc\\b"), "inc.l" },
             { new Regex("(?<!:)\\bldec\\b"), "dec.l" },
@@ -163,21 +163,20 @@ namespace VM12Asm
             { "jmp.z", Opcode.Jmp_z },
             { "jmp.nz", Opcode.Jmp_nz },
             { "jmp.cz", Opcode.Jmp_cz },
-            { "jmp.fz", Opcode.Jmp_fz },
+            { "jmp.c", Opcode.Jmp_c },
             { "eni", Opcode.Eni },
             { "dsi", Opcode.Dsi },
             { "hlt", Opcode.Hlt },
             { "c.se", Opcode.C_se },
             { "c.cl", Opcode.C_cl },
             { "c.flp", Opcode.C_flp },
-            { "jmp.c", Opcode.Jmp_c },
             { "jmp.gz", Opcode.Jmp_gz },
             { "jmp.lz", Opcode.Jmp_lz },
             { "jmp.z.l", Opcode.Jmp_z_l },
             { "jmp.nz.l", Opcode.Jmp_nz_l },
             { "nand", Opcode.Nand },
             { "xnor", Opcode.Xnor },
-            { "Dec", Opcode.Dec },
+            { "dec", Opcode.Dec },
             { "add.c", Opcode.Add_c },
             { "inc.l", Opcode.Inc_l },
             { "dec.l", Opcode.Dec_l },
@@ -716,24 +715,33 @@ namespace VM12Asm
                                         {
                                             // Shift breakpoints before adding instructions
                                             ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
-
-                                            // FIXME: Loading lables does not work!
+                                            
+                                            instructions.Add((short) Opcode.Load_lit_l);
                                             local_label_uses[instructions.Count] = peek.Value;
-                                            instructions.Add((short) Opcode.Load_lit);
                                             instructions.Add(0);
                                             instructions.Add(0);
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
-                                            
-                                            // Shift breakpoints before adding instructions
-                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, (value.Length * 2) - 1);
 
-                                            foreach (var val in value.Reverse())
+                                            if (value.Length == 2)
                                             {
-                                                instructions.Add((short) current.Opcode);
-                                                instructions.Add(val);
+                                                ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+                                                instructions.Add((short)Opcode.Load_lit_l);
+                                                instructions.Add(value[1]);
+                                                instructions.Add(value[0]);
+                                            }
+                                            else
+                                            {
+                                                // Shift breakpoints before adding instructions
+                                                ShiftBreakpoints(file.Value, proc.Key, instructions.Count, (value.Length * 2) - 1);
+
+                                                foreach (var val in value.Reverse())
+                                                {
+                                                    instructions.Add((short)current.Opcode);
+                                                    instructions.Add(val);
+                                                }
                                             }
 
                                             Console.WriteLine($"Parsed load litteral with litteral {peek.Value}!");
@@ -790,7 +798,11 @@ namespace VM12Asm
                                     case Opcode.Jmp_z:
                                     case Opcode.Jmp_nz:
                                     case Opcode.Jmp_cz:
-                                    case Opcode.Jmp_fz:
+                                    case Opcode.Jmp_c:
+                                    case Opcode.Jmp_gz:
+                                    case Opcode.Jmp_lz:
+                                    case Opcode.Jmp_z_l:
+                                    case Opcode.Jmp_nz_l:
                                         // Shift breakpoints before adding instructions
                                         ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
 

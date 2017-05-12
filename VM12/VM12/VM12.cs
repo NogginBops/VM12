@@ -133,30 +133,34 @@ namespace VM12
 
         ConcurrentQueue<Interrupt> interrupts = new ConcurrentQueue<Interrupt>();
 
-        public void Interrupt(Interrupt interrupt) { if(interruptsEnabled) interrupts.Enqueue(interrupt); }
+        public void Interrupt(Interrupt interrupt) { if(interruptsEnabled) interrupts.Enqueue(interrupt); interrupt_event.Set(); }
 
         bool carry = false;
         bool interruptsEnabled = false;
+        bool halt = false;
+
+        AutoResetEvent interrupt_event = new AutoResetEvent(false);
 
         int PC = Memory.ROM_START;
         int SP = 2;
 
         long programTime = 0;
-
-        bool StopRunning = false;
-
+        
         private float TimerInterval = 1000;
 
-        public bool Stopped => StopRunning;
+        public bool Stopped => halt && !interruptsEnabled;
         public int ProgramCounter => PC;
         public int StackPointer => SP;
         public bool InterruptsEnabled => interruptsEnabled;
         public long Ticks => programTime;
+        public int Calls => returnStack.Count;
 
         Stack<int> returnStack = new Stack<int>(20);
 
+#if DEBUG
         public ConcurrentDictionary<Opcode, int> instructionFreq = new ConcurrentDictionary<Opcode, int>(1, 64);
-        
+#endif
+
         public VM12(short[] ROM)
         {
             memory.SetROM(ROM);
@@ -168,8 +172,24 @@ namespace VM12
 
             //sw.Start();
 
-            while (StopRunning != true)
+            while (true)
             {
+                if (halt && interruptsEnabled)
+                {
+                    interrupt_event.WaitOne();
+                    halt = false;
+                }
+                else if (halt && !interruptsEnabled)
+                {
+                    break;
+                }
+
+                if (interruptsEnabled && interrupts.TryDequeue(out Interrupt intr))
+                {
+                    returnStack.Push(PC);
+                    PC = (int)intr.Type;
+                }
+
                 /*if (interruptsEnabled && interrupts.Count > 0)
                 {
                     if (interrupts.TryDequeue(out Interrupt interrupt))
@@ -202,7 +222,7 @@ namespace VM12
                     ;
                     //sw.Start();
                 }
-#endif       
+#endif
 
                 switch (op)
                 {
@@ -357,28 +377,6 @@ namespace VM12
                             PC += 3;
                         }
                         break;
-                    case Opcode.Jmp_fz:
-                        throw new NotImplementedException();
-                    case Opcode.Eni:
-                        interruptsEnabled = true;
-                        PC++;
-                        break;
-                    case Opcode.Dsi:
-                        interruptsEnabled = false;
-                        PC++;
-                        break;
-                    case Opcode.Hlt:
-                        StopRunning = true;
-                        break;
-                    case Opcode.C_se:
-                        carry = true;
-                        break;
-                    case Opcode.C_cl:
-                        carry = false;
-                        break;
-                    case Opcode.C_flp:
-                        carry = !carry;
-                        break;
                     case Opcode.Jmp_c:
                         if (memory.MEM[SP] == 0)
                         {
@@ -388,6 +386,27 @@ namespace VM12
                         {
                             PC += 3;
                         }
+                        break;
+                    case Opcode.Eni:
+                        interruptsEnabled = true;
+                        PC++;
+                        break;
+                    case Opcode.Dsi:
+                        interruptsEnabled = false;
+                        PC++;
+                        break;
+                    case Opcode.Hlt:
+                        halt = true;
+                        PC++;
+                        break;
+                    case Opcode.C_se:
+                        carry = true;
+                        break;
+                    case Opcode.C_cl:
+                        carry = false;
+                        break;
+                    case Opcode.C_flp:
+                        carry = !carry;
                         break;
                     case Opcode.Jmp_gz:
                         if (memory.MEM[SP] > 0)
@@ -438,8 +457,9 @@ namespace VM12
                         PC++;
                         break;
                     case Opcode.Dec:
-                        // TODO: Carry
-                        memory.MEM[SP] = (short)(memory.MEM[SP] - 1);
+                        int dec_value = memory.MEM[SP] - 1;
+                        carry = dec_value < 0 ? true : false;
+                        memory.MEM[SP] = (short)dec_value;
                         PC++;
                         break;
                     case Opcode.Add_c:
@@ -471,6 +491,9 @@ namespace VM12
                         PC++;
                         break;
                     case Opcode.Load_lit_l:
+                        memory.MEM[++SP] = memory.MEM[++PC];
+                        memory.MEM[++SP] = memory.MEM[++PC];
+                        PC++;
                         break;
                     case Opcode.Memc:
                         break;
@@ -493,6 +516,10 @@ namespace VM12
                     case Opcode.Ret_cz:
                         break;
                     case Opcode.Dup_l:
+                        memory.MEM[SP + 1] = memory.MEM[SP - 1];
+                        memory.MEM[SP + 2] = memory.MEM[SP];
+                        SP += 2;
+                        PC++;
                         break;
                     case Opcode.Over_l_l:
                         break;
@@ -505,7 +532,7 @@ namespace VM12
                 }
 
                 programTime++;
-
+                
                 /*if (programTime % TimerInterval == 0)
                 {
                     Interrupt(new Interrupt(InterruptType.h_Timer, null));
@@ -518,7 +545,8 @@ namespace VM12
 
         public void Stop()
         {
-            StopRunning = true;
+            halt = true;
+            interruptsEnabled = false;
         }
 
         static int ToInt(short upper, short lower)

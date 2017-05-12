@@ -77,7 +77,7 @@ namespace VM12
             if (vm12 != null)
             {
                 Text = vm12.Stopped ? "Stopped" : "Running";
-                Text += $" Instructions executed: {vm12.Ticks/1000000}m, PC: {vm12.ProgramCounter}, SP: {vm12.StackPointer}";
+                Text += $" Instructions executed: {vm12.Ticks/1000000}m, PC: {vm12.ProgramCounter}, SP: {vm12.StackPointer}, Calls: {vm12.Calls}";
             }
             else
             {
@@ -130,12 +130,14 @@ namespace VM12
 
         private void instructionFrequencyToolStripMenuItem_Click(object sender, EventArgs e)
         {
+#if DEBUG
             if (vm12 != null)
             {
                 Instruction_frequency ifreq = new Instruction_frequency(vm12.instructionFreq);
 
                 ifreq.ShowDialog();
             }
+#endif
         }
     }
 }
