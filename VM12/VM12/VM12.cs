@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Diagnostics;
+using VM12_Opcode;
 
 namespace VM12
 {
@@ -133,7 +134,7 @@ namespace VM12
 
         ConcurrentQueue<Interrupt> interrupts = new ConcurrentQueue<Interrupt>();
 
-        public void Interrupt(Interrupt interrupt) { if(interruptsEnabled) interrupts.Enqueue(interrupt); interrupt_event.Set(); }
+        public void Interrupt(Interrupt interrupt) { if (interruptsEnabled) interrupts.Enqueue(interrupt); interrupt_event.Set(); }
 
         bool carry = false;
         bool interruptsEnabled = false;
@@ -145,7 +146,7 @@ namespace VM12
         int SP = 2;
 
         long programTime = 0;
-        
+
         private float TimerInterval = 1000;
 
         public bool Stopped => halt && !interruptsEnabled;
@@ -215,7 +216,7 @@ namespace VM12
                 {
                     instructionFreq[op] = 1;
                 }
-                
+
                 if ((memory[PC] & 0xF000) != 0)
                 {
                     //sw.Stop();
@@ -239,8 +240,8 @@ namespace VM12
                         PC++;
                         break;
                     case Opcode.Load_sp:
-                        int load_sp_address = ToInt(memory.MEM[SP--], memory.MEM[SP]);
-                        memory.MEM[SP] = memory.MEM[load_sp_address];
+                        int load_sp_address = ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
+                        memory.MEM[++SP] = memory.MEM[load_sp_address];
                         PC++;
                         break;
                     case Opcode.Store_pc:
@@ -255,7 +256,8 @@ namespace VM12
                         break;
                     case Opcode.Call_sp:
                         returnStack.Push(PC + 1);
-                        PC = ToInt(memory.MEM[SP--], memory.MEM[SP--]);
+                        PC = ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
+                        SP -= 2;
                         break;
                     case Opcode.Call_pc:
                         returnStack.Push(PC + 3);
@@ -401,12 +403,15 @@ namespace VM12
                         break;
                     case Opcode.C_se:
                         carry = true;
+                        PC++;
                         break;
                     case Opcode.C_cl:
                         carry = false;
+                        PC++;
                         break;
                     case Opcode.C_flp:
                         carry = !carry;
+                        PC++;
                         break;
                     case Opcode.Jmp_gz:
                         if (memory.MEM[SP] > 0)
@@ -466,7 +471,7 @@ namespace VM12
                         break;
                     case Opcode.Inc_l:
                         short linc_value;
-                        memory.MEM[SP] = (short)((linc_value = (short) (memory.MEM[SP] + 1)) & 0xFFF);
+                        memory.MEM[SP] = (short)((linc_value = (short)(memory.MEM[SP] + 1)) & 0xFFF);
                         memory.MEM[SP - 1] = (short)((linc_value = (short)(memory.MEM[SP - 1] + (linc_value > 0xFFF ? 1 : 0))) & 0xFFF);
                         carry = linc_value > 0xFFF;
                         PC++;
@@ -474,20 +479,21 @@ namespace VM12
                     case Opcode.Dec_l:
                         break;
                     case Opcode.Add_l:
-                        int add1 = ToInt(memory.MEM[SP--], memory.MEM[SP--]);
-                        int add2 = ToInt(memory.MEM[SP], memory.MEM[SP - 1]);
+                        int add1 = ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
+                        int add2 = ToInt(memory.MEM[SP - 3], memory.MEM[SP - 2]);
+                        SP -= 2;
                         add2 += add1;
                         carry = add2 >> 12 > 0xFFF;
-                        memory.MEM[SP] = (short)(add2 >> 12);
-                        memory.MEM[SP - 1] = (short)(add2 & 0xFFF);
+                        memory.MEM[SP - 1] = (short)(add2 >> 12);
+                        memory.MEM[SP] = (short)(add2 & 0xFFF);
                         PC++;
                         break;
                     case Opcode.Not_l:
                         break;
                     case Opcode.Neg_l:
-                        int add_l_val = -ToInt(memory.MEM[SP], memory.MEM[SP - 1]);
-                        memory.MEM[SP] = (short)(add_l_val >> 12);
-                        memory.MEM[SP - 1] = (short)(add_l_val & 0xFFF);
+                        int add_l_val = -ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
+                        memory.MEM[SP - 1] = (short)(add_l_val >> 12);
+                        memory.MEM[SP] = (short)(add_l_val & 0xFFF);
                         PC++;
                         break;
                     case Opcode.Load_lit_l:
@@ -526,13 +532,21 @@ namespace VM12
                     case Opcode.Over_l_s:
                         break;
                     case Opcode.Swap_l:
+                        short[] swap_l_temp = new short[2];
+                        swap_l_temp[0] = memory.MEM[SP - 3];
+                        swap_l_temp[1] = memory.MEM[SP - 2];
+                        memory.MEM[SP - 3] = memory.MEM[SP - 1];
+                        memory.MEM[SP - 2] = memory.MEM[SP];
+                        memory.MEM[SP - 1] = swap_l_temp[0];
+                        memory.MEM[SP] = swap_l_temp[1];
+                        PC++;
                         break;
                     default:
                         throw new Exception($"{op}");
                 }
 
                 programTime++;
-                
+
                 /*if (programTime % TimerInterval == 0)
                 {
                     Interrupt(new Interrupt(InterruptType.h_Timer, null));
@@ -540,6 +554,8 @@ namespace VM12
 
                 //SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
                 //sw.Restart();
+
+                //Thread.SpinWait(1000);
             }
         }
 

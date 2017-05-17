@@ -49,9 +49,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\Opcode.cs">
-      <Link>Opcode.cs</Link>
-    </Compile>
     <Compile Include="Instruction frequency.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -100,6 +97,10 @@
     <ProjectReference Include="..\VM12Asm\VM12Asm.csproj">
       <Project>{0bda1018-a90e-4429-86e4-fadd2d141260}</Project>
       <Name>VM12Asm</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\VM12Opcodes\VM12Opcodes.csproj">
+      <Project>{33a7121d-5329-4b6c-b604-7804dbb6e8ab}</Project>
+      <Name>VM12Opcodes</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

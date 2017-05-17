@@ -5,8 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.IO;
 using System.Diagnostics;
-
-using VM12;
+using VM12_Opcode;
 
 namespace VM12Asm
 {
@@ -550,7 +549,7 @@ namespace VM12Asm
 
             string currProcName = null;
             List<Token> currProc = new List<Token>();
-
+            
             foreach (var it_line in lines)
             {
                 if (it_line[0] == '¤')
@@ -836,6 +835,7 @@ namespace VM12Asm
                                 break;
                             case TokenType.Litteral:
                                 Console.WriteLine($"Litteral {current.Value}");
+                                Array.ForEach(ParseLitteral(current.Value, file.Value.Constants), (lit) => instructions.Add(lit));
                                 break;
                             case TokenType.Label:
                                 local_labels[current.Value] = instructions.Count;
@@ -927,7 +927,7 @@ namespace VM12Asm
                     }
                 }
             }
-            
+
             Console.WriteLine();
             
             short[] compiledInstructions = new short[12275712];

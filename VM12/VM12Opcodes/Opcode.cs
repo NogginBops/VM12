@@ -1,6 +1,6 @@
 ﻿namespace VM12_Opcode
 {
-    internal enum Opcode : short
+    public enum Opcode : short
     {
         Nop,
         Load_addr,

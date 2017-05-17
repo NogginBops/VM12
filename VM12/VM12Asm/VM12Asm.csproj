@@ -61,9 +61,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\Opcode.cs">
-      <Link>Opcode.cs</Link>
-    </Compile>
     <Compile Include="VM12Asm.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -81,6 +78,12 @@
       <ProductName>.NET Framework 3.5 SP1</ProductName>
       <Install>false</Install>
     </BootstrapperPackage>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VM12Opcodes\VM12Opcodes.csproj">
+      <Project>{33a7121d-5329-4b6c-b604-7804dbb6e8ab}</Project>
+      <Name>VM12Opcodes</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
