@@ -147,7 +147,7 @@ namespace VM12
 
         long programTime = 0;
 
-        private float TimerInterval = 1000;
+        private const float TimerInterval = 1000;
 
         public bool Stopped => halt && !interruptsEnabled;
         public int ProgramCounter => PC;
@@ -189,6 +189,10 @@ namespace VM12
                 {
                     returnStack.Push(PC);
                     PC = (int)intr.Type;
+                    for (int i = 0; i < intr.Args.Length; i++)
+                    {
+                        memory.MEM[++SP] = intr.Args[i];
+                    }
                 }
 
                 /*if (interruptsEnabled && interrupts.Count > 0)
@@ -546,11 +550,13 @@ namespace VM12
                 }
 
                 programTime++;
-
-                /*if (programTime % TimerInterval == 0)
+                
+                /*
+                if (programTime % TimerInterval == 0)
                 {
-                    Interrupt(new Interrupt(InterruptType.h_Timer, null));
-                }*/
+                    Interrupt(new Interrupt(InterruptType.h_Timer, new short[0]));
+                }
+                */
 
                 //SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
                 //sw.Restart();

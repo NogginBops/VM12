@@ -24,7 +24,7 @@ namespace VM12
         byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
         short[] vram = new short[Memory.VRAM_SIZE];
-
+        
         public VM12Form()
         {
             InitializeComponent();
@@ -120,7 +120,7 @@ namespace VM12
 
             pbxMain.Image = bitmap;
 
-            vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, null));
+            vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, new short[0]));
         }
 
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
@@ -138,6 +138,52 @@ namespace VM12
                 ifreq.ShowDialog();
             }
 #endif
+        }
+
+        static Dictionary<Keys, short> keycode_transformations = new Dictionary<Keys, short>()
+        {
+            { Keys.A, 0 },
+            { Keys.B, 1 },
+            { Keys.C, 2 },
+            { Keys.D, 3 },
+            { Keys.E, 4 },
+            { Keys.F, 5 },
+            { Keys.G, 6 },
+            { Keys.H, 7 },
+            { Keys.I, 8 },
+            { Keys.J, 9 },
+            { Keys.K, 10 },
+            { Keys.L, 11 },
+            { Keys.M, 12 },
+            { Keys.N, 13 },
+            { Keys.O, 14 },
+            { Keys.P, 15 },
+            { Keys.Q, 16 },
+            { Keys.R, 17 },
+            { Keys.S, 18 },
+            { Keys.T, 19 },
+            { Keys.U, 20 },
+            { Keys.V, 21 },
+            { Keys.W, 22 },
+            { Keys.X, 23 },
+            { Keys.Y, 24 },
+            { Keys.Z, 25 },
+        };
+
+        private void VM12Form_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (keycode_transformations.TryGetValue(e.KeyCode, out short code))
+            {
+                vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { code }));
+            }
+        }
+
+        private void VM12Form_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (keycode_transformations.TryGetValue(e.KeyCode, out short code))
+            {
+                vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { code }));
+            }
         }
     }
 }

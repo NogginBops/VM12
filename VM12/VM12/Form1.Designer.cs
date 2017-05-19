@@ -33,10 +33,10 @@
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.openToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.developerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.instructionFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
             this.hTimer = new System.Windows.Forms.Timer(this.components);
-            this.instructionFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -74,6 +74,13 @@
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
             // 
+            // instructionFrequencyToolStripMenuItem
+            // 
+            this.instructionFrequencyToolStripMenuItem.Name = "instructionFrequencyToolStripMenuItem";
+            this.instructionFrequencyToolStripMenuItem.Size = new System.Drawing.Size(189, 22);
+            this.instructionFrequencyToolStripMenuItem.Text = "Instruction Frequency";
+            this.instructionFrequencyToolStripMenuItem.Click += new System.EventHandler(this.instructionFrequencyToolStripMenuItem_Click);
+            // 
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
@@ -93,13 +100,6 @@
             // 
             this.hTimer.Interval = 1;
             // 
-            // instructionFrequencyToolStripMenuItem
-            // 
-            this.instructionFrequencyToolStripMenuItem.Name = "instructionFrequencyToolStripMenuItem";
-            this.instructionFrequencyToolStripMenuItem.Size = new System.Drawing.Size(189, 22);
-            this.instructionFrequencyToolStripMenuItem.Text = "Instruction Frequency";
-            this.instructionFrequencyToolStripMenuItem.Click += new System.EventHandler(this.instructionFrequencyToolStripMenuItem_Click);
-            // 
             // VM12Form
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -114,6 +114,8 @@
             this.Name = "VM12Form";
             this.Text = "VM12";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.VM12Form_FormClosing);
+            this.KeyDown += new System.Windows.Forms.KeyEventHandler(this.VM12Form_KeyDown);
+            this.KeyUp += new System.Windows.Forms.KeyEventHandler(this.VM12Form_KeyUp);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).EndInit();
