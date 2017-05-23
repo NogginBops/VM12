@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 using System.Windows.Forms;
+using System.Diagnostics;
 
 namespace VM12
 {
@@ -140,6 +141,7 @@ namespace VM12
 #endif
         }
 
+        //TODO: Fix more resonable keybindings and more info about releases and presses of buttons
         static Dictionary<Keys, short> keycode_transformations = new Dictionary<Keys, short>()
         {
             { Keys.A, 0 },
@@ -168,11 +170,37 @@ namespace VM12
             { Keys.X, 23 },
             { Keys.Y, 24 },
             { Keys.Z, 25 },
+
+            { Keys.D0, 26 },
+            { Keys.D1, 27 },
+            { Keys.D2, 28 },
+            { Keys.D3, 29 },
+            { Keys.D4, 30 },
+            { Keys.D5, 31 },
+            { Keys.D6, 32 },
+            { Keys.D7, 33 },
+            { Keys.D8, 34 },
+            { Keys.D9, 35 },
+            
+            { Keys.D1 | Keys.Shift, 36 }, // !
+            { Keys.Oemplus | Keys.Shift, 37 }, // ?
+            { Keys.OemPeriod | Keys.Shift, 38 }, // :
+            { Keys.Oemcomma | Keys.Shift, 39 }, // ;
+            { Keys.OemPeriod, 40 }, // .
+            { Keys.Oemcomma, 41 }, // ,
+            { Keys.D8 | Keys.Shift, 42 }, // (
+            { Keys.D9 | Keys.Shift, 43 }, // )
+            { Keys.Oemplus, 44 }, // +
+            { Keys.OemMinus, 45 }, // -
+            { Keys.D7 | Keys.Shift, 46 }, // /
+            { Keys.D2 | Keys.Shift, 47 }, // "
+            { Keys.OemMinus | Keys.Shift, 48 }, // _
+            { Keys.Space, 49 }
         };
 
         private void VM12Form_KeyDown(object sender, KeyEventArgs e)
         {
-            if (keycode_transformations.TryGetValue(e.KeyCode, out short code))
+            if (keycode_transformations.TryGetValue(e.KeyCode | ModifierKeys, out short code))
             {
                 vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { code }));
             }
@@ -180,7 +208,7 @@ namespace VM12
 
         private void VM12Form_KeyUp(object sender, KeyEventArgs e)
         {
-            if (keycode_transformations.TryGetValue(e.KeyCode, out short code))
+            if (keycode_transformations.TryGetValue(e.KeyCode | ModifierKeys, out short code))
             {
                 vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { code }));
             }
