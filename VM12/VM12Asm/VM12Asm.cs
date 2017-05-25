@@ -201,6 +201,8 @@ namespace VM12Asm
 
         static ConsoleColor conColor = Console.ForegroundColor;
 
+        static bool verbose = false;
+
         public static void Main(params string[] args)
         {
             Console.ForegroundColor = conColor;
@@ -213,7 +215,6 @@ namespace VM12Asm
             bool overwrite = false;
             bool hold = false;
             bool open = false;
-            bool verbose = false;
 
             while (enumerator.MoveNext())
             {
@@ -430,39 +431,40 @@ namespace VM12Asm
 
                 const int instPerLine = 3;
                 for (int i = 0; i < libFile.Instructions.Length; i++)
-            {
-                if ((libFile.Instructions[i] & 0xF000) != 0)
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.Write("¤");
-                }
-
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("{0:X6}: ", i + (executable ? ROM_OFFSET : 0));
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("{0:X3}{1,-12}", libFile.Instructions[i] & 0xFFF, "(" + (Opcode)(libFile.Instructions[i] & 0xFFF) + ")");
-
-                if ((i + 1) % instPerLine == 0)
-                {
-                    Console.WriteLine();
-
-                    if (libFile.Instructions.Skip(i).Take(instPerLine).Sum(s => s) == 0)
+                    if ((libFile.Instructions[i] & 0xF000) != 0)
                     {
-                        int instructions = libFile.Instructions.Skip(i).TakeWhile(s => s == 0).Count();
-                        i += instructions;
-                        i -= i % instPerLine;
-                        i--;
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Write("¤");
+                    }
 
-                        Console.WriteLine($"... ({instructions} instructions)");
-                        continue;
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write("{0:X6}: ", i + (executable ? ROM_OFFSET : 0));
+                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.Write("{0:X3}{1,-12}", libFile.Instructions[i] & 0xFFF, "(" + (Opcode)(libFile.Instructions[i] & 0xFFF) + ")");
+
+                    if ((i + 1) % instPerLine == 0)
+                    {
+                        Console.WriteLine();
+
+                        if (libFile.Instructions.Skip(i).Take(instPerLine).Sum(s => s) == 0)
+                        {
+                            int instructions = libFile.Instructions.Skip(i).TakeWhile(s => s == 0).Count();
+                            i += instructions;
+                            i -= i % instPerLine;
+                            i--;
+
+                            Console.WriteLine($"... ({instructions} instructions)");
+                            continue;
+                        }
                     }
                 }
-            }
 
                 Console.ForegroundColor = conColor;
             }
             
             Console.WriteLine();
+            Console.WriteLine("Done!");
 
             FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + (executable ? ".12exe" : ".12lib")));
 
@@ -681,8 +683,11 @@ namespace VM12Asm
 
                 foreach (var proc in file.Value.Procs)
                 {
-                    Console.WriteLine($"Assembling proc {proc.Key}");
-                    Console.WriteLine();
+                    if (verbose)
+                    {
+                        Console.WriteLine($"Assembling proc {proc.Key}");
+                        Console.WriteLine();
+                    }
 
                     Dictionary<string, int> local_labels = new Dictionary<string, int>();
                     Dictionary<int, string> local_label_uses = new Dictionary<int, string>();
@@ -743,7 +748,7 @@ namespace VM12Asm
                                                 }
                                             }
 
-                                            Console.WriteLine($"Parsed load litteral with litteral {peek.Value}!");
+                                            if (verbose) Console.WriteLine($"Parsed load litteral with litteral {peek.Value}!");
                                         }
                                         else
                                         {
@@ -770,7 +775,7 @@ namespace VM12Asm
                                                 instructions.Add(0);
 
                                                 Console.ForegroundColor = ConsoleColor.DarkGreen;
-                                                Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
+                                                if (verbose) Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
                                                 Console.ForegroundColor = conColor;
                                             }
                                             else if (peek.Type == TokenType.Litteral)
@@ -779,7 +784,7 @@ namespace VM12Asm
                                                 
                                                 if (value.Length > 2)
                                                 {
-                                                    throw new FormatException("The litteral {} does not fit in 24-bits! {} only takes 24-bit arguments!");
+                                                    throw new FormatException(string.Format("The litteral {0} does not fit in 24-bits! {1} only takes 24-bit arguments!", peek.Value, current.Opcode));
                                                 }
                                                 
                                                 instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
@@ -811,7 +816,7 @@ namespace VM12Asm
                                         {
                                             local_label_uses[instructions.Count] = peek.Value;
                                             Console.ForegroundColor = ConsoleColor.DarkGreen;
-                                            Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
+                                            if (verbose) Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
                                             Console.ForegroundColor = conColor;
                                             instructions.Add(0);
                                             instructions.Add(0);
@@ -819,6 +824,10 @@ namespace VM12Asm
                                         else if (peek.Type == TokenType.Litteral)
                                         {
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                            if (value.Length > 2)
+                                            {
+                                                throw new FormatException(string.Format("The litteral {0} does not fit in 24-bits! {1} only takes 24-bit arguments!", peek.Value, current.Opcode));
+                                            }
                                             instructions.Add(value[1]);
                                             instructions.Add(value[0]);
                                         }
@@ -834,14 +843,14 @@ namespace VM12Asm
                                 }
                                 break;
                             case TokenType.Litteral:
-                                Console.WriteLine($"Litteral {current.Value}");
+                                if (verbose) Console.WriteLine($"Litteral {current.Value}");
                                 Array.ForEach(ParseLitteral(current.Value, file.Value.Constants), (lit) => instructions.Add(lit));
                                 break;
                             case TokenType.Label:
                                 local_labels[current.Value] = instructions.Count;
 
                                 Console.ForegroundColor = ConsoleColor.DarkCyan;
-                                Console.WriteLine($"Found label def {current.Value} at index: {instructions.Count:X}");
+                                if (verbose) Console.WriteLine($"Found label def {current.Value} at index: {instructions.Count:X}");
                                 Console.ForegroundColor = conColor;
                                 break;
                         }
@@ -857,13 +866,13 @@ namespace VM12Asm
 
                     assembledProcs[proc.Key] = instructions;
 
-                    Console.WriteLine("----------------------");
+                    if (verbose) Console.WriteLine("----------------------");
                 }
             }
 
             offset = 0;
 
-            Console.WriteLine();
+            if (verbose) Console.WriteLine();
 
             Dictionary<string, int> procLocations = files.SelectMany(f => f.Value.ProcLoactaions).ToDictionary(kvs => kvs.Key, kvs => kvs.Value);
 
@@ -872,21 +881,21 @@ namespace VM12Asm
                 if (procLocations.TryGetValue(asem.Key, out int location))
                 {
                     location -= 0x44B_000;
-                    Console.WriteLine($"Proc {asem.Key} at specified offset: {location:X}");
+                    if (verbose) Console.WriteLine($"Proc {asem.Key} at specified offset: {location:X}");
 
                     procOffests[asem.Key] = location;
                     // FIXME: Procs can overlap!!!
                 }
                 else
                 {
-                    Console.WriteLine($"Proc {asem.Key} at offset: {offset:X}");
+                    if (verbose) Console.WriteLine($"Proc {asem.Key} at offset: {offset:X}");
 
                     procOffests[asem.Key] = offset;
                     offset += asem.Value.Count;
                 }
             }
 
-            Console.WriteLine();
+            if (verbose) Console.WriteLine();
 
             foreach (var proc in assembledProcs)
             {
@@ -898,7 +907,7 @@ namespace VM12Asm
                         proc.Value[use.Key] = offset_inst[1];
                         proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkCyan;
-                        Console.WriteLine($"{use.Value,-12} matched local at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {lbl_offset + procOffests[proc.Key]:X6}");
+                        if (verbose) Console.WriteLine($"{use.Value,-12} matched local at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {lbl_offset + procOffests[proc.Key]:X6}");
                         Console.ForegroundColor = conColor;
                     }
                     else if (procOffests.TryGetValue(use.Value, out int proc_offset))
@@ -907,13 +916,13 @@ namespace VM12Asm
                         proc.Value[use.Key] = offset_inst[1];
                         proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkMagenta;
-                        Console.WriteLine($"{use.Value,-12} matched call  at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {proc_offset:X6}");
+                        if (verbose) Console.WriteLine($"{use.Value,-12} matched call  at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {proc_offset:X6}");
                         Console.ForegroundColor = conColor;
                     }
                     else
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine($"Could not solve label! {use.Value} in proc {proc.Key}");
+                        if (verbose) Console.WriteLine($"Could not solve label! {use.Value} in proc {proc.Key}");
                         Console.ForegroundColor = conColor;
                     }
                 }
@@ -928,7 +937,7 @@ namespace VM12Asm
                 }
             }
 
-            Console.WriteLine();
+            if (verbose) Console.WriteLine();
             
             short[] compiledInstructions = new short[12275712];
 

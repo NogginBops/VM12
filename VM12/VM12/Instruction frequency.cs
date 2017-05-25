@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
@@ -13,9 +13,10 @@ namespace VM12
 {
     public partial class Instruction_frequency : Form
     {
-        ConcurrentDictionary<Opcode, int> freqs;
+        Dictionary<Opcode, int> internalFreq = new Dictionary<Opcode, int>(64);
+        int[] freqs;
 
-        internal Instruction_frequency(ConcurrentDictionary<Opcode, int> frequencies)
+        internal Instruction_frequency(int[] frequencies)
         {
             freqs = frequencies;
             InitializeComponent();
@@ -41,8 +42,13 @@ namespace VM12
 
         private void UpdateList()
         {
+            foreach (Opcode opcode in Enum.GetValues(typeof(Opcode)))
+            {
+                internalFreq[opcode] = freqs[(int)opcode];
+            }
+
             instructionFrequencyListView.Items.Clear();
-            foreach (var kvp in freqs.OrderByDescending(kvp => kvp.Value))
+            foreach (var kvp in internalFreq.Where(kvp => kvp.Value > 0).OrderByDescending(kvp => kvp.Value))
             {
                 instructionFrequencyListView.Items.Add(kvp.Key.ToString()).SubItems.Add(kvp.Value.ToString());
             }

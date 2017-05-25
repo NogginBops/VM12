@@ -33,6 +33,14 @@ namespace VM12
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
 
             Shown += (s, e1) => LoadProgram();
+
+#if !DEBUG
+            MainMenuStrip.Items.RemoveAt(1);
+#endif
+
+#if DEBUG
+            refreshTimer.Interval = 100;
+#endif
         }
 
         private void LoadProgram()
@@ -43,42 +51,51 @@ namespace VM12
             {
                 FileInfo inf = new FileInfo(dialog.FileName);
 
-                if (inf.Extension == ".12asm")
+                Task.Run(() =>
                 {
-                    VM12Asm.VM12Asm.Main("-src", inf.FullName, "-dst", Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
 
-                    inf = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12exe"));
-                }
-
-                short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
-
-                using (BinaryReader br = new BinaryReader(File.OpenRead(inf.FullName)))
-                {
-                    for (int i = 0; i < rom.Length; i++)
+                    if (inf.Extension == ".12asm")
                     {
-                        rom[i] = br.ReadInt16();
+                        VM12Asm.VM12Asm.Main("-src", inf.FullName, "-dst", Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
+
+                        inf = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12exe"));
                     }
-                }
 
-                vm12 = new VM12(rom);
+                    short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
 
-                read_mem = vm12.ReadMemory;
+                    using (BinaryReader br = new BinaryReader(File.OpenRead(inf.FullName)))
+                    {
+                        for (int i = 0; i < rom.Length; i++)
+                        {
+                            rom[i] = br.ReadInt16();
+                        }
+                    }
 
-                Thread thread = new Thread(vm12.Start)
-                {
-                    IsBackground = true
-                };
+                    if (vm12 != null && vm12.Running)
+                    {
+                        vm12.Stop();
+                    }
 
-                thread.Start();
+                    vm12 = new VM12(rom);
+
+                    read_mem = vm12.ReadMemory;
+
+                    Thread thread = new Thread(vm12.Start)
+                    {
+                        IsBackground = true
+                    };
+
+                    thread.Start();
+                });
             }
         }
         
         private void RefreshTimer_Tick(object sender, EventArgs e)
         {
-            if (vm12 != null)
+            if (vm12 != null && vm12.Running)
             {
                 Text = vm12.Stopped ? "Stopped" : "Running";
-                Text += $" Instructions executed: {vm12.Ticks/1000000}m, PC: {vm12.ProgramCounter}, SP: {vm12.StackPointer}, Calls: {vm12.Calls}";
+                Text += $" Instructions executed: {vm12.Ticks/1000000}m, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, PC: {vm12.ProgramCounter}, SP: {vm12.StackPointer}, Calls: {vm12.Calls}";
             }
             else
             {
@@ -212,6 +229,16 @@ namespace VM12
             {
                 vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { code }));
             }
+        }
+
+        private void stopToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            vm12?.Stop();
+        }
+
+        private void openToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            LoadProgram();
         }
     }
 }

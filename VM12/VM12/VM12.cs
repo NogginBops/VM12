@@ -11,6 +11,7 @@ namespace VM12
 {
     enum InterruptType : int
     {
+        stop,
         h_Timer = 0xFFF_FF0,
         v_Blank = 0xFFF_FE0,
         keyboard = 0xFFF_FD0,
@@ -41,7 +42,12 @@ namespace VM12
 
         public const int MEM_SIZE = RAM_SIZE + VRAM_SIZE + ROM_SIZE;
 
-        public readonly short[] MEM = new short[MEM_SIZE];
+        public readonly short[] MEM;
+
+        public Memory(short[] mem)
+        {
+            MEM = mem;
+        }
 
         //public readonly short[] RAM = new short[RAM_SIZE];
 
@@ -128,13 +134,17 @@ namespace VM12
         public const int SCREEN_WIDTH = 640;
         public const int SCREEN_HEIGHT = 480;
 
-        Memory memory = new Memory();
+        short[] MEM = new short[Memory.MEM_SIZE];
+
+        Memory memory;
 
         public ReadOnlyMemory ReadMemory => new ReadOnlyMemory(memory);
 
-        ConcurrentQueue<Interrupt> interrupts = new ConcurrentQueue<Interrupt>();
+        //ConcurrentQueue<Interrupt> interrupts = new ConcurrentQueue<Interrupt>();
 
-        public void Interrupt(Interrupt interrupt) { if (interruptsEnabled) interrupts.Enqueue(interrupt); interrupt_event.Set(); }
+        Interrupt? intrr = null;
+
+        public void Interrupt(Interrupt interrupt) { if (interruptsEnabled) { /*interrupts.Enqueue(interrupt);*/ intrr = intrr ?? interrupt; interrupt_event.Set(); } else { MissedInterrupts++; } }
 
         bool carry = false;
         bool interruptsEnabled = false;
@@ -149,6 +159,7 @@ namespace VM12
 
         private const float TimerInterval = 1000;
 
+        public bool Running { get; set; }
         public bool Stopped => halt && !interruptsEnabled;
         public int ProgramCounter => PC;
         public int StackPointer => SP;
@@ -159,414 +170,441 @@ namespace VM12
         Stack<int> returnStack = new Stack<int>(20);
 
 #if DEBUG
-        public ConcurrentDictionary<Opcode, int> instructionFreq = new ConcurrentDictionary<Opcode, int>(1, 64);
+        public int[] instructionFreq = new int[64];
 #endif
 
         public VM12(short[] ROM)
         {
+            memory = new Memory(MEM);
             memory.SetROM(ROM);
         }
 
-        public void Start()
+        public int InterruptCount = 0;
+        public int MissedInterrupts = 0;
+
+        public unsafe void Start()
         {
             //Stopwatch sw = new Stopwatch();
 
             //sw.Start();
 
-            while (true)
+            Running = true;
+
+            fixed (short* mem = MEM)
             {
-                if (halt && interruptsEnabled)
+                while (true)
                 {
-                    interrupt_event.WaitOne();
-                    halt = false;
-                }
-                else if (halt && !interruptsEnabled)
-                {
-                    break;
-                }
-
-                if (interruptsEnabled && interrupts.TryDequeue(out Interrupt intr))
-                {
-                    returnStack.Push(PC);
-                    PC = (int)intr.Type;
-                    for (int i = 0; i < intr.Args.Length; i++)
+                    if (intrr != null)
                     {
-                        memory.MEM[++SP] = intr.Args[i];
-                    }
-                }
-
-                /*if (interruptsEnabled && interrupts.Count > 0)
-                {
-                    if (interrupts.TryDequeue(out Interrupt interrupt))
-                    {
-                        //TODO: Push arguemnts!
+                        if (intrr.Value.Type == InterruptType.stop)
+                        {
+                            break;
+                        }
+                        InterruptCount++;
+                        Interrupt intr = intrr.Value;
                         returnStack.Push(PC);
-                        PC = (int)interrupt.Type;
+                        PC = (int)intr.Type;
+                        for (int i = 0; i < intr.Args.Length; i++)
+                        {
+                            mem[++SP] = intr.Args[i];
+                        }
+                        intrr = null;
                     }
-                    else
+                    /*if (interruptsEnabled && interrupts.TryDequeue(out Interrupt intr))
                     {
-                        throw new Exception("Could not read interrupt instruction");
-                    }
-                }*/
+                        returnStack.Push(PC);
+                        PC = (int)intr.Type;
+                        for (int i = 0; i < intr.Args.Length; i++)
+                        {
+                            mem[++SP] = intr.Args[i];
+                        }
+                    }*/
 
-                Opcode op = (Opcode)(memory.MEM[PC] & 0x0FFF);
+                    /*if (interruptsEnabled && interrupts.Count > 0)
+                    {
+                        if (interrupts.TryDequeue(out Interrupt interrupt))
+                        {
+                            //TODO: Push arguemnts!
+                            returnStack.Push(PC);
+                            PC = (int)interrupt.Type;
+                        }
+                        else
+                        {
+                            throw new Exception("Could not read interrupt instruction");
+                        }
+                    }*/
+
+                    Opcode op = (Opcode)(mem[PC] & 0x0FFF);
 
 #if DEBUG
-                if (instructionFreq.TryGetValue(op, out int v))
-                {
-                    instructionFreq[op] = v + 1;
-                }
-                else
-                {
-                    instructionFreq[op] = 1;
-                }
+                    instructionFreq[(int)op]++;
 
-                if ((memory[PC] & 0xF000) != 0)
-                {
-                    //sw.Stop();
-                    ;
-                    //sw.Start();
-                }
+                    if ((memory[PC] & 0xF000) != 0)
+                    {
+                        //sw.Stop();
+                        ;
+                        //sw.Start();
+                    }
 #endif
 
-                switch (op)
-                {
-                    case Opcode.Nop:
-                        PC++;
-                        break;
-                    case Opcode.Load_addr:
-                        int load_address = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        PC++;
-                        memory.MEM[++SP] = memory.MEM[load_address];
-                        break;
-                    case Opcode.Load_lit:
-                        memory.MEM[++SP] = memory.MEM[++PC];
-                        PC++;
-                        break;
-                    case Opcode.Load_sp:
-                        int load_sp_address = ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
-                        memory.MEM[++SP] = memory.MEM[load_sp_address];
-                        PC++;
-                        break;
-                    case Opcode.Store_pc:
-                        int store_pc_address = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        PC++;
-                        memory.MEM[store_pc_address] = memory.MEM[SP];
-                        break;
-                    case Opcode.Store_sp:
-                        int store_sp_address = ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
-                        memory.MEM[store_sp_address] = memory.MEM[SP - 2];
-                        PC++;
-                        break;
-                    case Opcode.Call_sp:
-                        returnStack.Push(PC + 1);
-                        PC = ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
-                        SP -= 2;
-                        break;
-                    case Opcode.Call_pc:
-                        returnStack.Push(PC + 3);
-                        PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        break;
-                    case Opcode.Ret:
-                        PC = returnStack.Pop();
-                        break;
-                    case Opcode.Dup:
-                        memory.MEM[SP + 1] = memory.MEM[SP];
-                        SP++;
-                        PC++;
-                        break;
-                    case Opcode.Over:
-                        SP++;
-                        memory.MEM[SP] = memory.MEM[SP - 2];
-                        PC++;
-                        break;
-                    case Opcode.Swap:
-                        short swap_temp = memory.MEM[SP];
-                        memory.MEM[SP] = memory.MEM[SP - 1];
-                        memory.MEM[SP - 1] = swap_temp;
-                        PC++;
-                        break;
-                    case Opcode.Drop:
-                        SP--;
-                        PC++;
-                        break;
-                    case Opcode.Reclaim:
-                        SP++;
-                        PC++;
-                        break;
-                    case Opcode.Add:
-                        // TODO: The sign might not work here!
-                        int add_temp = memory.MEM[SP] + memory.MEM[SP - 1];
-                        carry = add_temp > 0xFFF;
-                        SP--;
-                        memory.MEM[SP] = (short)(add_temp - (carry ? 0x1000 : 0));
-                        PC++;
-                        break;
-                    case Opcode.Not:
-                        memory.MEM[SP] = (short)~memory.MEM[SP];
-                        PC++;
-                        break;
-                    case Opcode.Neg:
-                        memory.MEM[SP] = (short)-memory.MEM[SP];
-                        PC++;
-                        break;
-                    case Opcode.Or:
-                        memory.MEM[SP - 1] = (short)(memory.MEM[SP] | memory.MEM[SP - 1]);
-                        SP--;
-                        PC++;
-                        break;
-                    case Opcode.Xor:
-                        memory.MEM[SP - 1] = (short)(memory.MEM[SP] ^ memory.MEM[SP - 1]);
-                        SP--;
-                        PC++;
-                        break;
-                    case Opcode.And:
-                        memory.MEM[SP - 1] = (short)(memory.MEM[SP] & memory.MEM[SP - 1]);
-                        SP--;
-                        PC++;
-                        break;
-                    case Opcode.Inc:
-                        int mem_val = memory.MEM[SP] + 1;
-                        carry = mem_val > 0xFFF;
-                        memory.MEM[SP] = (short)(mem_val & 0xFFF);
-                        PC++;
-                        break;
-                    case Opcode.C_ss:
-                        carry = (memory.MEM[SP] & 0x0800) != 0;
-                        PC++;
-                        break;
-                    case Opcode.Rot_l_c:
-                        ushort rot_l_value = (ushort)memory.MEM[SP];
-                        bool rot_l_c = (rot_l_value & 0x800) != 0;
-                        memory.MEM[SP] = (short)(((rot_l_value << 1) | (carry ? 1 : 0)) & 0x0FFF);
-                        carry = rot_l_c;
-                        PC++;
-                        break;
-                    case Opcode.Rot_r_c:
-                        ushort rot_r_value = (ushort)memory.MEM[SP];
-                        bool rot_r_c = (rot_r_value & 0x001) != 0;
-                        memory.MEM[SP] = (short)(((rot_r_value >> 1) | (carry ? 0x800 : 0)) & 0x0FFF);
-                        carry = rot_r_c;
-                        PC++;
-                        break;
-                    case Opcode.Jmp:
-                        int jmp_address = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        PC = jmp_address;
-                        break;
-                    case Opcode.Jmp_z:
-                        if (memory.MEM[SP] == 0)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Jmp_nz:
-                        if (memory.MEM[SP] != 0)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Jmp_cz:
-                        if (carry == false)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Jmp_c:
-                        if (memory.MEM[SP] == 0)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Eni:
-                        interruptsEnabled = true;
-                        PC++;
-                        break;
-                    case Opcode.Dsi:
-                        interruptsEnabled = false;
-                        PC++;
-                        break;
-                    case Opcode.Hlt:
-                        halt = true;
-                        PC++;
-                        break;
-                    case Opcode.C_se:
-                        carry = true;
-                        PC++;
-                        break;
-                    case Opcode.C_cl:
-                        carry = false;
-                        PC++;
-                        break;
-                    case Opcode.C_flp:
-                        carry = !carry;
-                        PC++;
-                        break;
-                    case Opcode.Jmp_gz:
-                        if (memory.MEM[SP] > 0)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Jmp_lz:
-                        if ((memory.MEM[SP] & 0x800) > 0)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Jmp_z_l:
-                        if ((memory.MEM[SP] | memory.MEM[SP - 1]) == 0)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Jmp_nz_l:
-                        if ((memory.MEM[SP] | memory.MEM[SP - 1]) != 0)
-                        {
-                            PC = ToInt(memory.MEM[++PC], memory.MEM[++PC]);
-                        }
-                        else
-                        {
-                            PC += 3;
-                        }
-                        break;
-                    case Opcode.Nand:
-                        memory.MEM[SP - 1] = (short)~(memory.MEM[SP] & memory.MEM[SP - 1]);
-                        PC++;
-                        break;
-                    case Opcode.Xnor:
-                        memory.MEM[SP - 1] = (short)~(memory.MEM[SP] ^ memory.MEM[SP - 1]);
-                        PC++;
-                        break;
-                    case Opcode.Dec:
-                        int dec_value = memory.MEM[SP] - 1;
-                        carry = dec_value < 0 ? true : false;
-                        memory.MEM[SP] = (short)dec_value;
-                        PC++;
-                        break;
-                    case Opcode.Add_c:
-                        break;
-                    case Opcode.Inc_l:
-                        short linc_value;
-                        memory.MEM[SP] = (short)((linc_value = (short)(memory.MEM[SP] + 1)) & 0xFFF);
-                        memory.MEM[SP - 1] = (short)((linc_value = (short)(memory.MEM[SP - 1] + (linc_value > 0xFFF ? 1 : 0))) & 0xFFF);
-                        carry = linc_value > 0xFFF;
-                        PC++;
-                        break;
-                    case Opcode.Dec_l:
-                        break;
-                    case Opcode.Add_l:
-                        int add1 = ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
-                        int add2 = ToInt(memory.MEM[SP - 3], memory.MEM[SP - 2]);
-                        SP -= 2;
-                        add2 += add1;
-                        carry = add2 >> 12 > 0xFFF;
-                        memory.MEM[SP - 1] = (short)(add2 >> 12);
-                        memory.MEM[SP] = (short)(add2 & 0xFFF);
-                        PC++;
-                        break;
-                    case Opcode.Not_l:
-                        break;
-                    case Opcode.Neg_l:
-                        int add_l_val = -ToInt(memory.MEM[SP - 1], memory.MEM[SP]);
-                        memory.MEM[SP - 1] = (short)(add_l_val >> 12);
-                        memory.MEM[SP] = (short)(add_l_val & 0xFFF);
-                        PC++;
-                        break;
-                    case Opcode.Load_lit_l:
-                        memory.MEM[++SP] = memory.MEM[++PC];
-                        memory.MEM[++SP] = memory.MEM[++PC];
-                        PC++;
-                        break;
-                    case Opcode.Memc:
-                        break;
-                    case Opcode.Read:
-                        break;
-                    case Opcode.Write:
-                        break;
-                    case Opcode.Call_pc_nz:
-                        break;
-                    case Opcode.Call_pc_cz:
-                        break;
-                    case Opcode.Call_sp_nz:
-                        break;
-                    case Opcode.Call_sp_cz:
-                        break;
-                    case Opcode.Ret_z:
-                        break;
-                    case Opcode.Ret_nz:
-                        break;
-                    case Opcode.Ret_cz:
-                        break;
-                    case Opcode.Dup_l:
-                        memory.MEM[SP + 1] = memory.MEM[SP - 1];
-                        memory.MEM[SP + 2] = memory.MEM[SP];
-                        SP += 2;
-                        PC++;
-                        break;
-                    case Opcode.Over_l_l:
-                        break;
-                    case Opcode.Over_l_s:
-                        break;
-                    case Opcode.Swap_l:
-                        short[] swap_l_temp = new short[2];
-                        swap_l_temp[0] = memory.MEM[SP - 3];
-                        swap_l_temp[1] = memory.MEM[SP - 2];
-                        memory.MEM[SP - 3] = memory.MEM[SP - 1];
-                        memory.MEM[SP - 2] = memory.MEM[SP];
-                        memory.MEM[SP - 1] = swap_l_temp[0];
-                        memory.MEM[SP] = swap_l_temp[1];
-                        PC++;
-                        break;
-                    default:
-                        throw new Exception($"{op}");
+                    switch (op)
+                    {
+                        case Opcode.Nop:
+                            PC++;
+                            break;
+                        case Opcode.Load_addr:
+                            int load_address = (mem[++PC] << 12) | (ushort)(mem[++PC] & 0xFFF);
+                            //int load_address = ToInt(mem[++PC], mem[++PC]);
+                            PC++;
+                            mem[++SP] = mem[load_address];
+                            break;
+                        case Opcode.Load_lit:
+                            mem[++SP] = mem[++PC];
+                            PC++;
+                            break;
+                        case Opcode.Load_sp:
+                            int load_sp_address = ToInt(mem[SP - 1], mem[SP]);
+                            mem[++SP] = mem[load_sp_address];
+                            PC++;
+                            break;
+                        case Opcode.Store_pc:
+                            int store_pc_address = ToInt(mem[++PC], mem[++PC]);
+                            PC++;
+                            mem[store_pc_address] = mem[SP];
+                            break;
+                        case Opcode.Store_sp:
+                            int store_sp_address = (mem[SP - 1] << 12) | (ushort)(mem[SP]); //ToInt(mem[SP - 1], mem[SP]);
+                            mem[store_sp_address] = mem[SP - 2];
+                            PC++;
+                            break;
+                        case Opcode.Call_sp:
+                            returnStack.Push(PC + 1);
+                            PC = ToInt(mem[SP - 1], mem[SP]);
+                            SP -= 2;
+                            break;
+                        case Opcode.Call_pc:
+                            returnStack.Push(PC + 3);
+                            PC = ToInt(mem[++PC], mem[++PC]);
+                            break;
+                        case Opcode.Ret:
+                            PC = returnStack.Pop();
+                            break;
+                        case Opcode.Dup:
+                            mem[SP + 1] = mem[SP];
+                            SP++;
+                            PC++;
+                            break;
+                        case Opcode.Over:
+                            SP++;
+                            mem[SP] = mem[SP - 2];
+                            PC++;
+                            break;
+                        case Opcode.Swap:
+                            short swap_temp = mem[SP];
+                            mem[SP] = mem[SP - 1];
+                            mem[SP - 1] = swap_temp;
+                            PC++;
+                            break;
+                        case Opcode.Drop:
+                            SP--;
+                            PC++;
+                            break;
+                        case Opcode.Reclaim:
+                            SP++;
+                            PC++;
+                            break;
+                        case Opcode.Add:
+                            // TODO: The sign might not work here!
+                            int add_temp = mem[SP] + mem[SP - 1];
+                            carry = add_temp > 0xFFF;
+                            SP--;
+                            mem[SP] = (short)(add_temp - (carry ? 0x1000 : 0));
+                            PC++;
+                            break;
+                        case Opcode.Not:
+                            mem[SP] = (short)~mem[SP];
+                            PC++;
+                            break;
+                        case Opcode.Neg:
+                            mem[SP] = (short)-mem[SP];
+                            PC++;
+                            break;
+                        case Opcode.Or:
+                            mem[SP - 1] = (short)(mem[SP] | mem[SP - 1]);
+                            SP--;
+                            PC++;
+                            break;
+                        case Opcode.Xor:
+                            mem[SP - 1] = (short)(mem[SP] ^ mem[SP - 1]);
+                            SP--;
+                            PC++;
+                            break;
+                        case Opcode.And:
+                            mem[SP - 1] = (short)(mem[SP] & mem[SP - 1]);
+                            SP--;
+                            PC++;
+                            break;
+                        case Opcode.Inc:
+                            int mem_val = mem[SP] + 1;
+                            carry = mem_val > 0xFFF;
+                            mem[SP] = (short)(mem_val & 0xFFF);
+                            PC++;
+                            break;
+                        case Opcode.C_ss:
+                            carry = (mem[SP] & 0x0800) != 0;
+                            PC++;
+                            break;
+                        case Opcode.Rot_l_c:
+                            ushort rot_l_value = (ushort)mem[SP];
+                            bool rot_l_c = (rot_l_value & 0x800) != 0;
+                            mem[SP] = (short)(((rot_l_value << 1) | (carry ? 1 : 0)) & 0x0FFF);
+                            carry = rot_l_c;
+                            PC++;
+                            break;
+                        case Opcode.Rot_r_c:
+                            ushort rot_r_value = (ushort)mem[SP];
+                            bool rot_r_c = (rot_r_value & 0x001) != 0;
+                            mem[SP] = (short)(((rot_r_value >> 1) | (carry ? 0x800 : 0)) & 0x0FFF);
+                            carry = rot_r_c;
+                            PC++;
+                            break;
+                        case Opcode.Jmp:
+                            PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
+                            break;
+                        case Opcode.Jmp_z:
+                            if (mem[SP] == 0)
+                            {
+                                PC = ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Jmp_nz:
+                            if (mem[SP] != 0)
+                            {
+                                PC = ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Jmp_cz:
+                            if (carry == false)
+                            {
+                                PC = ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Jmp_c:
+                            if (mem[SP] == 0)
+                            {
+                                PC = ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Eni:
+                            interruptsEnabled = true;
+                            PC++;
+                            break;
+                        case Opcode.Dsi:
+                            interruptsEnabled = false;
+                            PC++;
+                            break;
+                        case Opcode.Hlt:
+                            halt = true;
+                            if (interruptsEnabled)
+                            {
+                                interrupt_event.WaitOne();
+                                halt = false;
+                            }
+                            else
+                            {
+                                goto end;
+                            }
+                            PC++;
+                            break;
+                        case Opcode.C_se:
+                            carry = true;
+                            PC++;
+                            break;
+                        case Opcode.C_cl:
+                            carry = false;
+                            PC++;
+                            break;
+                        case Opcode.C_flp:
+                            carry = !carry;
+                            PC++;
+                            break;
+                        case Opcode.Jmp_gz:
+                            if (mem[SP] > 0)
+                            {
+                                PC = ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Jmp_lz:
+                            if ((mem[SP] & 0x800) > 0)
+                            {
+                                PC = ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Jmp_z_l:
+                            if ((mem[SP] | mem[SP - 1]) == 0)
+                            {
+                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Jmp_nz_l:
+                            if ((mem[SP] | mem[SP - 1]) != 0)
+                            {
+                                PC = ToInt(mem[++PC], mem[++PC]);
+                            }
+                            else
+                            {
+                                PC += 3;
+                            }
+                            break;
+                        case Opcode.Nand:
+                            mem[SP - 1] = (short)~(mem[SP] & mem[SP - 1]);
+                            PC++;
+                            break;
+                        case Opcode.Xnor:
+                            mem[SP - 1] = (short)~(mem[SP] ^ mem[SP - 1]);
+                            PC++;
+                            break;
+                        case Opcode.Dec:
+                            int dec_value = mem[SP] - 1;
+                            carry = dec_value < 0;
+                            mem[SP] = (short)dec_value;
+                            PC++;
+                            break;
+                        case Opcode.Add_c:
+                            break;
+                        case Opcode.Inc_l:
+                            int linc_value = ((mem[SP - 1] << 12) | (ushort)(mem[SP])) + 1;
+                            mem[SP] = (short) (linc_value & 0xFFF);
+                            mem[SP - 1] = (short)((linc_value >> 12) & 0xFFF);
+                            carry = (linc_value >> 12) > 0xFFF;
+                            PC++;
+                            break;
+                        case Opcode.Dec_l:
+                            break;
+                        case Opcode.Add_l:
+                            int add1 = (mem[SP - 1] << 12) | (ushort)(mem[SP]); //ToInt(mem[SP - 1], mem[SP]);
+                            int add2 =  (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]); //ToInt(mem[SP - 3], mem[SP - 2]);
+                            SP -= 2;
+                            add2 += add1;
+                            carry = add2 >> 12 > 0xFFF;
+                            mem[SP - 1] = (short)(add2 >> 12);
+                            mem[SP] = (short)(add2 & 0xFFF);
+                            PC++;
+                            break;
+                        case Opcode.Not_l:
+                            break;
+                        case Opcode.Neg_l:
+                            int add_l_val = -((mem[SP - 1] << 12) | (ushort)(mem[SP])); //-ToInt(mem[SP - 1], mem[SP]);
+                            mem[SP] = (short)(add_l_val & 0xFFF);
+                            mem[SP - 1] = (short)(add_l_val >> 12);
+                            PC++;
+                            break;
+                        case Opcode.Load_lit_l:
+                            mem[++SP] = mem[++PC];
+                            mem[++SP] = mem[++PC];
+                            PC++;
+                            break;
+                        case Opcode.Memc:
+                            break;
+                        case Opcode.Read:
+                            break;
+                        case Opcode.Write:
+                            break;
+                        case Opcode.Call_pc_nz:
+                            break;
+                        case Opcode.Call_pc_cz:
+                            break;
+                        case Opcode.Call_sp_nz:
+                            break;
+                        case Opcode.Call_sp_cz:
+                            break;
+                        case Opcode.Ret_z:
+                            break;
+                        case Opcode.Ret_nz:
+                            break;
+                        case Opcode.Ret_cz:
+                            break;
+                        case Opcode.Dup_l:
+                            mem[SP + 1] = mem[SP - 1];
+                            mem[SP + 2] = mem[SP];
+                            SP += 2;
+                            PC++;
+                            break;
+                        case Opcode.Over_l_l:
+                            mem[SP + 1] = mem[SP - 3];
+                            mem[SP + 2] = mem[SP - 2];
+                            SP += 2;
+                            PC++;
+                            break;
+                        case Opcode.Over_l_s:
+                            mem[SP + 1] = mem[SP - 2];
+                            mem[SP + 2] = mem[SP - 1];
+                            SP += 2;
+                            PC++;
+                            break;
+                        case Opcode.Swap_l:
+                            short[] swap_l_temp = new short[2];
+                            swap_l_temp[0] = mem[SP - 3];
+                            swap_l_temp[1] = mem[SP - 2];
+                            mem[SP - 3] = mem[SP - 1];
+                            mem[SP - 2] = mem[SP];
+                            mem[SP - 1] = swap_l_temp[0];
+                            mem[SP] = swap_l_temp[1];
+                            PC++;
+                            break;
+                        default:
+                            throw new Exception($"{op}");
+                    }
+
+                    programTime++;
+
+                    /*
+                    if (programTime % TimerInterval == 0)
+                    {
+                        Interrupt(new Interrupt(InterruptType.h_Timer, new short[0]));
+                    }
+                    */
+
+                    //SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
+                    //sw.Restart();
+
+                    //Thread.SpinWait(1000);
                 }
-
-                programTime++;
-                
-                /*
-                if (programTime % TimerInterval == 0)
-                {
-                    Interrupt(new Interrupt(InterruptType.h_Timer, new short[0]));
-                }
-                */
-
-                //SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
-                //sw.Restart();
-
-                //Thread.SpinWait(1000);
             }
+            end:  Running = false;
         }
 
         public void Stop()
         {
+            intrr = new Interrupt(InterruptType.stop, null);
             halt = true;
             interruptsEnabled = false;
         }
