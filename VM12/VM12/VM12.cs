@@ -239,7 +239,7 @@ namespace VM12
 #if DEBUG
                     instructionFreq[(int)op]++;
 
-                    if ((memory[PC] & 0xF000) != 0)
+                    if ((mem[PC] & 0xF000) != 0)
                     {
                         //sw.Stop();
                         ;
@@ -315,7 +315,7 @@ namespace VM12
                             break;
                         case Opcode.Add:
                             // TODO: The sign might not work here!
-                            int add_temp = mem[SP] + mem[SP - 1];
+                            uint add_temp = (uint)(mem[SP] + mem[SP - 1]);
                             carry = add_temp > 0xFFF;
                             SP--;
                             mem[SP] = (short)(add_temp - (carry ? 0x1000 : 0));
@@ -508,6 +508,11 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Dec_l:
+                            uint ldec_value = ((uint)(mem[SP - 1] << 12) | (ushort)(mem[SP])) - 1;
+                            mem[SP] = (short)(ldec_value & 0xFFF);
+                            mem[SP - 1] = (short)((ldec_value >> 12) & 0xFFF);
+                            carry = ldec_value == uint.MaxValue;
+                            PC++;
                             break;
                         case Opcode.Add_l:
                             int add1 = (mem[SP - 1] << 12) | (ushort)(mem[SP]); //ToInt(mem[SP - 1], mem[SP]);
@@ -520,11 +525,14 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Not_l:
+                            mem[SP] = (short) ~mem[SP];
+                            mem[SP - 1] = (short)~mem[SP - 1];
+                            PC++;
                             break;
                         case Opcode.Neg_l:
-                            int add_l_val = -((mem[SP - 1] << 12) | (ushort)(mem[SP])); //-ToInt(mem[SP - 1], mem[SP]);
-                            mem[SP] = (short)(add_l_val & 0xFFF);
-                            mem[SP - 1] = (short)(add_l_val >> 12);
+                            int neg_l_val = -((mem[SP - 1] << 12) | (ushort)(mem[SP])); //-ToInt(mem[SP - 1], mem[SP]);
+                            mem[SP] = (short)(neg_l_val & 0xFFF);
+                            mem[SP - 1] = (short)(neg_l_val >> 12);
                             PC++;
                             break;
                         case Opcode.Load_lit_l:
@@ -538,19 +546,15 @@ namespace VM12
                             break;
                         case Opcode.Write:
                             break;
-                        case Opcode.Call_pc_nz:
-                            break;
-                        case Opcode.Call_pc_cz:
-                            break;
-                        case Opcode.Call_sp_nz:
-                            break;
-                        case Opcode.Call_sp_cz:
-                            break;
-                        case Opcode.Ret_z:
-                            break;
-                        case Opcode.Ret_nz:
-                            break;
                         case Opcode.Ret_cz:
+                            if (carry)
+                            {
+                                PC = (mem[++PC] << 12) | (ushort) mem[++PC];
+                            }
+                            else
+                            {
+                                PC++;
+                            }
                             break;
                         case Opcode.Dup_l:
                             mem[SP + 1] = mem[SP - 1];
@@ -578,6 +582,14 @@ namespace VM12
                             mem[SP - 2] = mem[SP];
                             mem[SP - 1] = swap_l_temp[0];
                             mem[SP] = swap_l_temp[1];
+                            PC++;
+                            break;
+                        case Opcode.Drop_v:
+                            SP -= mem[++PC];
+                            PC++;
+                            break;
+                        case Opcode.Reclaim_v:
+                            SP += mem[++PC];
                             PC++;
                             break;
                         default:

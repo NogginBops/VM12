@@ -240,5 +240,16 @@ namespace VM12
         {
             LoadProgram();
         }
+
+        int lastPosX;
+        int lastPosY;
+
+        private void pbxMain_MouseMove(object sender, MouseEventArgs e)
+        {
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X - lastPosX), (short)(e.Y - lastPosY) }));
+
+            lastPosX = e.X;
+            lastPosY = e.Y;
+        }
     }
 }

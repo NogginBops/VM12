@@ -44,14 +44,16 @@ namespace VM12Asm
             public readonly Dictionary<string, List<Token>> Procs;
             public readonly Dictionary<string, List<int>> Breakpoints;
             public readonly Dictionary<string, int> ProcLoactaions;
+            public readonly HashSet<string> Flags;
 
-            public AsemFile(Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, List<Token>> procs, Dictionary<string, List<int>> breakpoints, Dictionary<string, int> procLocations)
+            public AsemFile(Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, List<Token>> procs, Dictionary<string, List<int>> breakpoints, Dictionary<string, int> procLocations, HashSet<string> flags)
             {
                 Usings = usigns;
                 Constants = constants;
                 Procs = procs; //.OrderBy(proc => proc.Key == "start" ? 1 : 0).ToDictionary(kpv => kpv.Key, kpv => kpv.Value);
                 Breakpoints = breakpoints;
                 ProcLoactaions = procLocations;
+                Flags = flags;
             }
         }
 
@@ -109,17 +111,13 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bladd\\b"), "add.l" },
             { new Regex("(?<!:)\\blnot\\b"), "not.l" },
             { new Regex("(?<!:)\\blneg\\b"), "neg.l" },
-            { new Regex("nz::(?!\\s)"), "call.pc.nz :" },
-            { new Regex("cz::(?!\\s)"), "call.pc.cz :" },
-            { new Regex("nz::\\[SP\\]"), "call.sp.nz" },
-            { new Regex("cz::\\[SP\\]"), "call.sp.cz" },
-            { new Regex("(?<!:)\\brz\\b"), "ret.z" },
-            { new Regex("(?<!:)\\brnz\\b"), "ret.nz" },
             { new Regex("(?<!:)\\brcz\\b"), "ret.cz" },
             { new Regex("(?<!:)\\bldup\\b"), "dup.l" },
             { new Regex("(?<!:)\\blover\\b"), "over.l.l" },
             { new Regex("(?<!:)\\blovers\\b"), "over.l.s" },
             { new Regex("(?<!:)\\blswap\\b"), "swap.l" },
+            { new Regex("(?<!:)\\bdrop\\s+#"), "drop.v " },
+            { new Regex("(?<!:)\\breclaim\\s+#"), "reclaim.v " },
         };
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
@@ -186,17 +184,13 @@ namespace VM12Asm
             { "memc", Opcode.Memc },
             { "read", Opcode.Read },
             { "write", Opcode.Write },
-            { "call.pc.nz", Opcode.Call_pc_nz },
-            { "call.pc.cz", Opcode.Call_pc_cz },
-            { "call.sp.nz", Opcode.Call_sp_nz },
-            { "call.sp.cz", Opcode.Call_sp_cz },
-            { "ret.z", Opcode.Ret_z },
-            { "ret.nz", Opcode.Ret_nz },
             { "ret.cz", Opcode.Ret_cz },
             { "dup.l", Opcode.Dup_l },
             { "over.l.l", Opcode.Over_l_l },
             { "over.l.s", Opcode.Over_l_s },
-            { "swap.l", Opcode.Swap_l }
+            { "swap.l", Opcode.Swap_l },
+            { "drop.v", Opcode.Drop_v },
+            { "reclaim.v", Opcode.Reclaim_v },
         };
 
         static ConsoleColor conColor = Console.ForegroundColor;
@@ -333,6 +327,11 @@ namespace VM12Asm
 
                 foreach (var asm in files)
                 {
+                    if (asm.Value.Flags.Contains("!noprintouts"))
+                    {
+                        continue;
+                    }
+
                     Console.ForegroundColor = conColor;
                     Console.WriteLine();
                     Console.WriteLine($"--------------------- {asm.Key} ---------------------");
@@ -548,6 +547,7 @@ namespace VM12Asm
             Dictionary<string, List<Token>> procs = new Dictionary<string, List<Token>>();
             Dictionary<string, List<int>> breakpoints = new Dictionary<string, List<int>>();
             Dictionary<string, int> procLocations = new Dictionary<string, int>();
+            HashSet<string> flags = new HashSet<string>();
 
             string currProcName = null;
             List<Token> currProc = new List<Token>();
@@ -563,6 +563,12 @@ namespace VM12Asm
                     
                     // FIXME: We are filtering out all lables and litterals, this means we need to shift the breakpoints in relevant instructions!
                     breakpoints[currProcName].Add(currProc.Where(t => t.Type == TokenType.Instruction).Count());
+                }
+
+                if (it_line[0] == '!')
+                {
+                    flags.Add(it_line);
+                    continue;
                 }
 
                 string line = it_line.Trim(new[]{ ' ', '\t', '¤' });
@@ -654,7 +660,7 @@ namespace VM12Asm
 
             procs[currProcName] = currProc;
 
-            return new AsemFile(usings, constants, procs, breakpoints, procLocations);
+            return new AsemFile(usings, constants, procs, breakpoints, procLocations, flags);
         }
 
         static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable, out bool success)
@@ -680,6 +686,10 @@ namespace VM12Asm
             foreach (var file in files)
             {
                 offset = 0;
+
+                bool temp_verbose = verbose;
+
+                verbose = !file.Value.Flags.Contains("!noprintouts");
 
                 foreach (var proc in file.Value.Procs)
                 {
@@ -837,6 +847,28 @@ namespace VM12Asm
                                         }
                                         tokens.MoveNext();
                                         break;
+                                    case Opcode.Drop_v:
+                                    case Opcode.Reclaim_v:
+                                        if (peek.Type == TokenType.Litteral)
+                                        {
+                                            short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                            if (value.Length > 1)
+                                            {
+                                                throw new FormatException($"{current.Opcode} only takes a single word argument!");
+                                            }
+
+                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 1);
+
+                                            instructions.Add((short)current.Opcode);
+                                            instructions.Add(value[0]);
+
+                                            tokens.MoveNext();
+                                        }
+                                        else
+                                        {
+                                            throw new FormatException($"{current.Opcode} must be followed by a littera!");
+                                        }
+                                        break;
                                     default:
                                         instructions.Add((short) (current.Opcode ?? Opcode.Nop));
                                         break;
@@ -868,6 +900,8 @@ namespace VM12Asm
 
                     if (verbose) Console.WriteLine("----------------------");
                 }
+
+                verbose = temp_verbose;
             }
 
             offset = 0;
