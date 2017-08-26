@@ -20,12 +20,14 @@ namespace VM12Asm
 
         struct Token
         {
+            public readonly int Line;
             public readonly TokenType Type;
             public readonly string Value;
             public readonly Opcode? Opcode;
 
-            public Token(TokenType type, string value, Opcode? opcode = null)
+            public Token(int line, TokenType type, string value, Opcode? opcode = null)
             {
+                Line = line;
                 Type = type;
                 Value = value;
                 Opcode = opcode;
@@ -33,47 +35,78 @@ namespace VM12Asm
 
             public bool Equals(Token t)
             {
-                return (Type == t.Type) && (Value == t.Value) && (Opcode == t.Opcode);
+                return (Line == t.Line) && (Type == t.Type) && (Value == t.Value) && (Opcode == t.Opcode);
             }
         }
 
-        struct AsemFile
+        struct Proc
         {
+            public string name;
+            public int line;
+            public int? parameters;
+            public int? locals;
+            public int? location;
+            public List<Token> tokens;
+        }
+        
+        class RawFile
+        {
+            public string path;
+            public string[] rawlines;
+            public string[] processedlines;
+        }
+
+        class AsemFile
+        {
+            public readonly RawFile Raw;
             public readonly Dictionary<string, string> Usings;
             public readonly Dictionary<string, string> Constants;
-            public readonly Dictionary<string, List<Token>> Procs;
+            public readonly Dictionary<string, Proc> Procs;
             public readonly Dictionary<string, List<int>> Breakpoints;
-            public readonly Dictionary<string, int> ProcLoactaions;
             public readonly HashSet<string> Flags;
 
-            public AsemFile(Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, List<Token>> procs, Dictionary<string, List<int>> breakpoints, Dictionary<string, int> procLocations, HashSet<string> flags)
+            public AsemFile(RawFile raw, Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, Proc> procs, Dictionary<string, List<int>> breakpoints, HashSet<string> flags)
             {
+                Raw = raw;
                 Usings = usigns;
                 Constants = constants;
                 Procs = procs; //.OrderBy(proc => proc.Key == "start" ? 1 : 0).ToDictionary(kpv => kpv.Key, kpv => kpv.Value);
                 Breakpoints = breakpoints;
-                ProcLoactaions = procLocations;
                 Flags = flags;
             }
         }
 
-        struct LibFile
+        class LibFile
         {
+            public readonly ProcMetadata[] Metadata;
             public readonly short[] Instructions;
-            public readonly Dictionary<string, int> ProcOffsets;
-            public readonly List<int> LabelUses;
+            public readonly int UsedInstructions;
 
-            public LibFile(short[] instructions, Dictionary<string, int> procOffsets, List<int> labelUses)
+            public LibFile(short[] instructions, ProcMetadata[] metadata, int usedInstructions)
             {
                 Instructions = instructions;
-                ProcOffsets = procOffsets;
-                LabelUses = labelUses;
+                Metadata = metadata;
+                UsedInstructions = usedInstructions;
             }
+        }
+
+        class ProcMetadata
+        {
+            public RawFile source;
+            public AsemFile assembledSource;
+            public int location;
+            public string name;
+            public int size;
+            public int line;
+            public Dictionary<int, int> linkedLines;
+            public List<int> breaks;
         }
 
         const int _12BIT_MASK = 0x0FFF;
 
         const int ROM_OFFSET = 0x44B_000;
+
+        const int ROM_SIZE = 12275712;
 
         const short ROM_OFFSET_UPPER_BITS = 0x44B;
         
@@ -82,42 +115,54 @@ namespace VM12Asm
             { new Regex(";.*"), "" },
             { new Regex("#reg.*"), "" },
             { new Regex("#endreg.*"), "" },
+            { new Regex("(?<!:)\\bload\\s+#(\\S+)"), "load.lit $1" },
+            { new Regex("(?<!:)\\bloadl\\s+#(\\S+)"), "load.lit.l $1" },
+            { new Regex("(?<!:)\\bload\\s+(:\\S+)"), "load.lit $1" },
+            { new Regex("(?<!:)\\bloadl\\s+(:\\S+)"), "load.lit.l $1" },
+            { new Regex("(?<!:)\\bload\\s+(\\d+)"), "load.local $1" },
+            { new Regex("(?<!:)\\bloadl\\s+(\\d+)"), "load.local.l $1" },
+            { new Regex("(?<!:)\\bload\\s+@(\\S+)"), "load.lit.l $1 load.sp" },
+            { new Regex("(?<!:)\\bloadl\\s+@(\\S+)"), "load.lit.l $1 load.sp.l" },
+            { new Regex("(?<!:)\\bload\\s+\\[SP\\]"), "load.sp" },
+            { new Regex("(?<!:)\\bloadl\\s+\\[SP\\]"), "load.sp.l" },
+            { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
+            { new Regex("(?<!:)\\bstorel\\s+\\[SP\\]"), "store.sp.l" },
+            { new Regex("(?<!:)\\bstore\\s+(\\d+)"), "store.local $1" },
+            { new Regex("(?<!:)\\bstorel\\s+(\\d+)"), "store.local.l $1" },
+            { new Regex("(?<!:)\\bstore\\s+#(\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit $1 store.sp" },
+            { new Regex("(?<!:)\\bstorel\\s+#(\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit.l $1 store.sp.l" },
+            { new Regex("(?<!:)\\bstore\\s+@(\\S+)"), "load.lit.l $1 swap.s.l store.sp" },
+            { new Regex("(?<!:)\\bstorel\\s+@(\\S+)"), "load.lit.l $1 swap.l store.sp.l" },
+            { new Regex("(?<!:)\\blswap\\b"), "swap.l" },
+            { new Regex("(?<!:)\\bslswap\\b"), "swap.s.l" },
+            { new Regex("(?<!:)\\bldup\\b"), "dup.l" },
+            { new Regex("(?<!:)\\blover\\b"), "over.l.l" },
+            { new Regex("(?<!:)\\blovers\\b"), "over.l.s" },
+            { new Regex("(?<!:)\\bladd\\b"), "add.l" },
+            { new Regex("(?<!:)\\badc\\b"), "add.c" },
+            { new Regex("(?<!:)\\blsub\\b"), "sub.l" },
+            { new Regex("(?<!:)\\blneg\\b"), "neg.l" },
+            { new Regex("(?<!:)\\blinc\\b"), "inc.l" },
+            { new Regex("(?<!:)\\bldec\\b"), "dec.l" },
             { new Regex("(?<!:)\\bcss\\b"), "c.ss" },
+            { new Regex("(?<!:)\\bcse\\b"), "c.se" },
+            { new Regex("(?<!:)\\bccl\\b"), "c.cl" },
+            { new Regex("(?<!:)\\bcflp\\b"), "c.flp" },
             { new Regex("(?<!:)\\brtcl\\b"), "rot.l.c" },
             { new Regex("(?<!:)\\brtcr\\b"), "rot.r.c" },
             { new Regex("(?<!:)\\bjz\\b"), "jmp.z" },
             { new Regex("(?<!:)\\bjnz\\b"), "jmp.nz" },
-            { new Regex("(?<!:)\\bjcz\\b"), "jmp.cz" },
-            { new Regex("(?<!:)\\bjfz\\b"), "jmp.fz" },
-            { new Regex("::\\[SP\\]"), "call.sp" },
-            { new Regex("::(?!\\s)"), "call.pc :" },
-            { new Regex("(?<!:)\\bload\\s+@"), "load.addr " },
-            { new Regex("(?<!:)\\bload\\s+#"), "load.lit " },
-            { new Regex("(?<!:)\\bload\\s+:"), "load.lit :" },
-            { new Regex("(?<!:)\\bload\\s+\\[SP\\]"), "load.sp" },
-            { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
-            { new Regex("(?<!:)\\bstore\\s+@"), "store.pc " },
-            { new Regex("(?<!:)\\bcse\\b"), "c.se" },
-            { new Regex("(?<!:)\\bccl\\b"), "c.cl" },
-            { new Regex("(?<!:)\\bcflp\\b"), "c.flp" },
             { new Regex("(?<!:)\\bjc\\b"), "jmp.c" },
+            { new Regex("(?<!:)\\bjcz\\b"), "jmp.cz" },
             { new Regex("(?<!:)\\bjgz\\b"), "jmp.gz" },
             { new Regex("(?<!:)\\bjlz\\b"), "jmp.lz" },
             { new Regex("(?<!:)\\bjzl\\b"), "jmp.z.l" },
-            { new Regex("(?<!:)\\bjlnz\\b"), "jmp.nz.l" },
-            { new Regex("(?<!:)\\badc\\b"), "add.c" },
-            { new Regex("(?<!:)\\blinc\\b"), "inc.l" },
-            { new Regex("(?<!:)\\bldec\\b"), "dec.l" },
-            { new Regex("(?<!:)\\bladd\\b"), "add.l" },
-            { new Regex("(?<!:)\\blnot\\b"), "not.l" },
-            { new Regex("(?<!:)\\blneg\\b"), "neg.l" },
-            { new Regex("(?<!:)\\brcz\\b"), "ret.cz" },
-            { new Regex("(?<!:)\\bldup\\b"), "dup.l" },
-            { new Regex("(?<!:)\\blover\\b"), "over.l.l" },
-            { new Regex("(?<!:)\\blovers\\b"), "over.l.s" },
-            { new Regex("(?<!:)\\blswap\\b"), "swap.l" },
-            { new Regex("(?<!:)\\bdrop\\s+#"), "drop.v " },
-            { new Regex("(?<!:)\\breclaim\\s+#"), "reclaim.v " },
+            { new Regex("(?<!:)\\bjnzl\\b"), "jmp.nz.l" },
+            { new Regex("::(?!\\S)"), "call.v" },
+            { new Regex("::(?!\\s)"), "call :" },
+            { new Regex("(?<!:)\\bret1\\b"), "ret.1" },
+            { new Regex("(?<!:)\\bret2\\b"), "ret.2" },
+            { new Regex("(?<!:)\\bretv\\b"), "ret.v" },
         };
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
@@ -128,69 +173,73 @@ namespace VM12Asm
 
         static Regex proc = new Regex("(:[A-Za-z][A-Za-z0-9_]*)(\\s+@(.*))?");
 
-        static Regex num = new Regex("\\b(0x[0-9A-Fa-f_]+|8x[0-7_]+|[0-9_]+)");
+        static Regex num = new Regex("\\b(0x[0-9A-Fa-f_]+|8x[0-7_]+|2x[0-1]|[0-9_]+)");
 
         static Dictionary<string, Opcode> opcodes = new Dictionary<string, Opcode>()
         {
             { "nop", Opcode.Nop },
-            { "load.addr", Opcode.Load_addr },
+            { "pop", Opcode.Pop },
+            { "sp", Opcode.Sp },
+            { "pc", Opcode.Pc },
             { "load.lit", Opcode.Load_lit },
+            { "load.lit.l", Opcode.Load_lit_l },
             { "load.sp", Opcode.Load_sp },
-            { "store.pc", Opcode.Store_pc },
+            { "load.sp.l", Opcode.Load_sp_l },
+            { "load.local", Opcode.Load_local },
+            { "load.local.l", Opcode.Load_local_l },
             { "store.sp", Opcode.Store_sp },
-            { "call.sp", Opcode.Call_sp },
-            { "call.pc", Opcode.Call_pc },
-            { "ret", Opcode.Ret },
-            { "dup", Opcode.Dup },
-            { "over", Opcode.Over },
+            { "store.sp.l", Opcode.Store_sp_l },
+            { "store.local", Opcode.Store_local },
+            { "store.local.l", Opcode.Store_local_l },
             { "swap", Opcode.Swap },
-            { "drop", Opcode.Drop },
-            { "reclaim", Opcode.Reclaim },
+            { "swap.l", Opcode.Swap_l },
+            { "swap.s.l", Opcode.Swap_s_l },
+            { "dup", Opcode.Dup },
+            { "dup.l", Opcode.Dup_l },
+            { "over", Opcode.Over },
+            { "over.l.l", Opcode.Over_l_l },
+            { "over.l.s", Opcode.Over_l_s },
             { "add", Opcode.Add },
-            { "not", Opcode.Not },
+            { "add.l", Opcode.Add_l },
+            { "sub", Opcode.Sub },
+            { "sub.l", Opcode.Sub_l },
             { "neg", Opcode.Neg },
+            { "neg.l", Opcode.Neg_l },
+            { "inc", Opcode.Inc },
+            { "inc.l", Opcode.Inc_l },
+            { "dec", Opcode.Dec },
+            { "dec.l", Opcode.Dec_l },
             { "or", Opcode.Or },
             { "xor", Opcode.Xor },
             { "and", Opcode.And },
-            { "inc", Opcode.Inc },
+            { "not", Opcode.Not },
             { "c.ss", Opcode.C_ss },
-            { "rot.l.c", Opcode.Rot_l_c },
-            { "rot.r.c", Opcode.Rot_r_c },
-            { "jmp", Opcode.Jmp },
-            { "jmp.z", Opcode.Jmp_z },
-            { "jmp.nz", Opcode.Jmp_nz },
-            { "jmp.cz", Opcode.Jmp_cz },
-            { "jmp.c", Opcode.Jmp_c },
-            { "eni", Opcode.Eni },
-            { "dsi", Opcode.Dsi },
-            { "hlt", Opcode.Hlt },
             { "c.se", Opcode.C_se },
             { "c.cl", Opcode.C_cl },
             { "c.flp", Opcode.C_flp },
+            { "rot.l.c", Opcode.Rot_l_c },
+            { "rot.r.c", Opcode.Rot_r_c },
+            { "mul", Opcode.Mul },
+            { "div", Opcode.Div },
+            { "eni", Opcode.Eni },
+            { "dsi", Opcode.Dsi },
+            { "hlt", Opcode.Hlt },
+            { "jmp", Opcode.Jmp },
+            { "jmp.z", Opcode.Jmp_z },
+            { "jmp.nz", Opcode.Jmp_nz },
+            { "jmp.c", Opcode.Jmp_c },
+            { "jmp.cz", Opcode.Jmp_cz },
             { "jmp.gz", Opcode.Jmp_gz },
             { "jmp.lz", Opcode.Jmp_lz },
             { "jmp.z.l", Opcode.Jmp_z_l },
             { "jmp.nz.l", Opcode.Jmp_nz_l },
-            { "nand", Opcode.Nand },
-            { "xnor", Opcode.Xnor },
-            { "dec", Opcode.Dec },
-            { "add.c", Opcode.Add_c },
-            { "inc.l", Opcode.Inc_l },
-            { "dec.l", Opcode.Dec_l },
-            { "add.l", Opcode.Add_l },
-            { "not.l", Opcode.Not_l },
-            { "neg.l", Opcode.Neg_l },
-            { "load.lit.l", Opcode.Load_lit_l },
+            { "call", Opcode.Call },
+            { "call.v", Opcode.Call_v },
+            { "ret", Opcode.Ret },
+            { "ret.1", Opcode.Ret_1 },
+            { "ret.2", Opcode.Ret_2 },
+            { "ret.v", Opcode.Ret_v },
             { "memc", Opcode.Memc },
-            { "read", Opcode.Read },
-            { "write", Opcode.Write },
-            { "ret.cz", Opcode.Ret_cz },
-            { "dup.l", Opcode.Dup_l },
-            { "over.l.l", Opcode.Over_l_l },
-            { "over.l.s", Opcode.Over_l_s },
-            { "swap.l", Opcode.Swap_l },
-            { "drop.v", Opcode.Drop_v },
-            { "reclaim.v", Opcode.Reclaim_v },
         };
 
         static ConsoleColor conColor = Console.ForegroundColor;
@@ -254,18 +303,21 @@ namespace VM12Asm
                 name = Console.ReadLine();
             }
 
-            string[] lines = File.ReadAllLines(file);
+            RawFile rawFile = new RawFile();
+
+            rawFile.path = file;
+            rawFile.rawlines = File.ReadAllLines(file);
 
             Console.WriteLine();
             Console.WriteLine();
 
             Console.WriteLine("Preprocessing...");
 
-            string[] newLines = PreProcess(lines);
+            rawFile.processedlines = PreProcess(rawFile.rawlines);
             
             Console.WriteLine("Parsing...");
 
-            AsemFile asmFile = Parse(newLines);
+            AsemFile asmFile = Parse(rawFile);
 
             #region Usings
 
@@ -273,7 +325,7 @@ namespace VM12Asm
 
             Stack<string> remainingUsings = new Stack<string>();
 
-            FileInfo fileInf = new FileInfo(file);
+            FileInfo fileInf = new FileInfo(rawFile.path);
             DirectoryInfo dirInf = fileInf.Directory;
             
             FileInfo[] dirFiles = dirInf.GetFiles($".{Path.DirectorySeparatorChar}*.12asm", SearchOption.AllDirectories);
@@ -284,7 +336,7 @@ namespace VM12Asm
             }
 
             // TODO: Files with the same name but differnet directories
-            files[new FileInfo(file).Name] = asmFile;
+            files[fileInf.Name] = asmFile;
 
             while (remainingUsings.Count > 0)
             {
@@ -297,11 +349,15 @@ namespace VM12Asm
 
                 FileInfo fi = dirFiles.First(f => f.Name == use);
 
-                lines = File.ReadAllLines(fi.FullName);
+                rawFile = new RawFile();
 
-                newLines = PreProcess(lines);
+                rawFile.path = fi.FullName;
 
-                asmFile = Parse(newLines);
+                rawFile.rawlines = File.ReadAllLines(fi.FullName);
+
+                rawFile.processedlines = PreProcess(rawFile.rawlines);
+
+                asmFile = Parse(rawFile);
 
                 files[use] = asmFile;
 
@@ -368,10 +424,10 @@ namespace VM12Asm
                     foreach (var proc in asm.Value.Procs)
                     {
                         Console.ForegroundColor = ConsoleColor.DarkMagenta;
-                        Console.WriteLine(proc.Key);
+                        Console.WriteLine(proc.Key + $" (params: {proc.Value.parameters}, locals: {proc.Value.locals}) [{proc.Value.tokens.Count} instructions]");
 
                         int i = 0;
-                        foreach (var token in proc.Value)
+                        foreach (var token in proc.Value.tokens)
                         {
                             if (asm.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breaks) && breaks.Contains(i))
                             {
@@ -385,7 +441,7 @@ namespace VM12Asm
                             {
                                 case TokenType.Instruction:
                                     Console.ForegroundColor = ConsoleColor.Green;
-                                    Console.WriteLine("{0,-10}{1,-10}", token.Value, token.Opcode);
+                                    Console.WriteLine("{0,-14}{1,-14}", token.Value, token.Opcode);
                                     break;
                                 case TokenType.Litteral:
                                     Console.ForegroundColor = ConsoleColor.DarkCyan;
@@ -393,7 +449,7 @@ namespace VM12Asm
                                     break;
                                 case TokenType.Label:
                                     Console.ForegroundColor = ConsoleColor.Magenta;
-                                    Console.WriteLine(token.Value);
+                                    Console.WriteLine("\t" + token.Value);
                                     break;
                                 default:
                                     Console.ForegroundColor = ConsoleColor.Red;
@@ -423,8 +479,15 @@ namespace VM12Asm
             
             if (verbose)
             {
-                Console.WriteLine($"Result ({libFile.Instructions.Length} words): ");
-                Console.WriteLine();
+                bool toFile = false;
+                TextWriter output = Console.Out;
+                if (toFile)
+                {
+                    output = new StreamWriter(File.Create(Path.Combine(dirInf.FullName, "output.txt")), Encoding.ASCII, 2048);
+                }
+
+                output.WriteLine($"Result ({libFile.UsedInstructions} used words ({((double) libFile.UsedInstructions / ROM_SIZE):P5})): ");
+                output.WriteLine();
 
                 Console.ForegroundColor = ConsoleColor.White;
 
@@ -434,26 +497,37 @@ namespace VM12Asm
                     if ((libFile.Instructions[i] & 0xF000) != 0)
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
-                        Console.Write("¤");
+                        output.Write("¤");
                     }
 
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.Write("{0:X6}: ", i + (executable ? ROM_OFFSET : 0));
+                    output.Write("{0:X6}: ", i + (executable ? ROM_OFFSET : 0));
                     Console.ForegroundColor = ConsoleColor.White;
-                    Console.Write("{0:X3}{1,-12}", libFile.Instructions[i] & 0xFFF, "(" + (Opcode)(libFile.Instructions[i] & 0xFFF) + ")");
+                    output.Write("{0:X3}{1,-14}", libFile.Instructions[i] & 0xFFF, "(" + (Opcode)(libFile.Instructions[i] & 0xFFF) + ")");
 
                     if ((i + 1) % instPerLine == 0)
                     {
-                        Console.WriteLine();
+                        output.WriteLine();
 
-                        if (libFile.Instructions.Skip(i).Take(instPerLine).Sum(s => s) == 0)
+                        int sum = 0;
+                        for (int j = 0; j < instPerLine; j++)
                         {
-                            int instructions = libFile.Instructions.Skip(i).TakeWhile(s => s == 0).Count();
+                            sum += libFile.Instructions[i + j];
+                        }
+
+                        if (sum == 0)
+                        {
+                            int instructions = 0;
+                            while (i + instructions < libFile.Instructions.Length && libFile.Instructions[i + instructions] == 0)
+                            {
+                                instructions++;
+                            }
+
                             i += instructions;
                             i -= i % instPerLine;
                             i--;
 
-                            Console.WriteLine($"... ({instructions} instructions)");
+                            output.WriteLine($"... ({instructions} instructions)");
                             continue;
                         }
                     }
@@ -465,7 +539,7 @@ namespace VM12Asm
             Console.WriteLine();
             Console.WriteLine("Done!");
 
-            FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + (executable ? ".12exe" : ".12lib")));
+            FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12exe"));
 
             if (resFile.Exists && !overwrite)
             {
@@ -475,30 +549,15 @@ namespace VM12Asm
                     goto noFile;
                 }
             }
-            
-            using (FileStream stream = File.Open(resFile.FullName, FileMode.Create))
+
+            resFile.Delete();
+
+            using (FileStream stream = resFile.Create())
             {
-                void AppendToFile(string str)
-                {
-                    byte[] bytes = Encoding.UTF8.GetBytes(str);
-                    stream.Write(bytes, 0, bytes.Length);
-                }
-                
                 if (executable == false)
                 {
-
-                    AppendToFile("{");
-
-                    AppendToFile(string.Join(",", libFile.ProcOffsets.Select(p => $"{p.Key},{p.Value}")));
-
-                    AppendToFile("}");
-
-                    AppendToFile("[");
-
-                    AppendToFile(string.Join(",", libFile.LabelUses));
-
-                    AppendToFile("]");
-
+                    RawFile nullFile = new RawFile();
+                    Error(nullFile, -1, "There is currently no support for non executable files at this time!");
                 }
 
                 using (BinaryWriter bw = new BinaryWriter(stream))
@@ -507,6 +566,30 @@ namespace VM12Asm
                     {
                         bw.Write(s);
                     }
+                }
+            }
+
+            FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12meta"));
+
+            metaFile.Delete();
+
+            using (FileStream stream = metaFile.Create())
+            using (StreamWriter writer = new StreamWriter(stream))
+            {
+                foreach (var proc in libFile.Metadata)
+                {
+                    writer.WriteLine(proc.name);
+                    writer.WriteLine($"[file:{new FileInfo(proc.source.path).Name}]");
+                    writer.WriteLine($"[location:{proc.location}]");
+                    //writer.WriteLine($"[link?]");
+                    writer.WriteLine($"[proc-line:{proc.line}]");
+                    if (proc.breaks?.Count > 0)
+                    {
+                        writer.WriteLine($"[break:{{{string.Join(",", proc?.breaks)}}}]");
+                    }
+                    writer.WriteLine($"[link-lines:{{{string.Join(",", proc.linkedLines.Select(kvp => $"{kvp.Key}:{kvp.Value}"))}}}]");
+                    writer.WriteLine($"[size:{proc.size}]");
+                    writer.WriteLine();
                 }
             }
 
@@ -526,43 +609,71 @@ namespace VM12Asm
         static string[] PreProcess(string[] lines)
         {
             string[] newLines = new string[lines.Length];
-
+            
             lines.CopyTo(newLines, 0);
-
-            for (int i = 0; i < newLines.Length; i++)
+            
+            for (int i = 0; i < lines.Length; i++)
             {
                 foreach (var conversion in preprocessorConversions)
                 {
                     newLines[i] = conversion.Key.Replace(newLines[i], conversion.Value);
                 }
+
+                if (newLines[i].EndsWith("\\"))
+                {
+                    newLines[i] = newLines[i].TrimEnd().Substring(0, newLines[i].Length - 1);
+                    bool cont = false;
+                    int forward = i + 1;
+                    do
+                    {
+                        foreach (var conversion in preprocessorConversions)
+                        {
+                            newLines[forward] = conversion.Key.Replace(newLines[forward], conversion.Value);
+                        }
+
+                        cont = newLines[forward].EndsWith("\\");
+                        newLines[i] += newLines[forward].Substring(0, newLines[forward].Length - (cont ? 1 : 0)).Trim();
+                        newLines[forward] = "";
+                        forward++;
+                    } while (cont);
+                    
+                    i = forward - 1;
+                }
             }
 
-            return newLines.Where(s => s.Trim().Length > 0).ToArray();
+            return newLines;
         }
         
-        static AsemFile Parse(string[] lines)
+        static AsemFile Parse(RawFile file)
         {
             Dictionary<string, string> usings = new Dictionary<string, string>();
             Dictionary<string, string> constants = new Dictionary<string, string>();
-            Dictionary<string, List<Token>> procs = new Dictionary<string, List<Token>>();
+            Dictionary<string, Proc> procs = new Dictionary<string, Proc>();
             Dictionary<string, List<int>> breakpoints = new Dictionary<string, List<int>>();
-            Dictionary<string, int> procLocations = new Dictionary<string, int>();
             HashSet<string> flags = new HashSet<string>();
-
-            string currProcName = null;
-            List<Token> currProc = new List<Token>();
             
-            foreach (var it_line in lines)
+            Proc currProc = new Proc();
+            currProc.tokens = new List<Token>();
+
+            int line_num = 0;
+            foreach (var it_line in file.processedlines)
             {
+                line_num++;
+
+                if (it_line.Trim(new[] { ' ', '\t', '¤' }).Length <= 0)
+                {
+                    continue;
+                }
+
                 if (it_line[0] == '¤')
                 {
-                    if (breakpoints.ContainsKey(currProcName) == false)
+                    if (breakpoints.ContainsKey(currProc.name) == false)
                     {
-                        breakpoints[currProcName] = new List<int>();
+                        breakpoints[currProc.name] = new List<int>();
                     }
                     
                     // FIXME: We are filtering out all lables and litterals, this means we need to shift the breakpoints in relevant instructions!
-                    breakpoints[currProcName].Add(currProc.Where(t => t.Type == TokenType.Instruction).Count());
+                    breakpoints[currProc.name].Add(currProc.tokens.Where(t => t.Type == TokenType.Instruction).Count());
                 }
 
                 if (it_line[0] == '!')
@@ -604,22 +715,38 @@ namespace VM12Asm
                             Match l;
                             if (opcodes.TryGetValue(token, out Opcode opcode))
                             {
-                                t = new Token(TokenType.Instruction, token, opcode);
+                                t = new Token(line_num, TokenType.Instruction, token, opcode);
                             }
                             else if ((l = label.Match(token)).Success)
                             {
-                                t = new Token(TokenType.Label, l.Value);
+                                t = new Token(line_num, TokenType.Label, l.Value);
                             }
                             else if (num.IsMatch(token) || constants.ContainsKey(token))
                             {
-                                t = new Token(TokenType.Litteral, token);
+                                t = new Token(line_num, TokenType.Litteral, token);
                             }
                             else
                             {
-                                throw new Exception($"Could not parse token: \"{token}\"");
+                                Error(file, line_num, $"Could not parse token: \"{token}\"");
+                                t = new Token();
                             }
 
-                            currProc.Add(t);
+                            if ((currProc.parameters == null || currProc.locals == null) && t.Type != TokenType.Litteral)
+                            {
+                                Error(file, line_num, $"Trying to define proc {currProc.name} without specifying parameters and local use!");
+                            }
+                            else
+                            {
+                                if (currProc.parameters == null) {
+                                    currProc.parameters = ToInt(ParseLitteral(t.Value, constants));
+                                }
+                                else if (currProc.locals == null)
+                                {
+                                    currProc.locals = ToInt(ParseLitteral(t.Value, constants));
+                                }
+                            }
+
+                            currProc.tokens.Add(t);
                         }
                     }
                     else if (line[0] == ':')
@@ -627,50 +754,72 @@ namespace VM12Asm
                         Match l = proc.Match(line);
                         if (l.Success)
                         {
-                            if (currProcName != null)
+                            if (currProc.name != null)
                             {
-                                procs[currProcName] = currProc;
+                                procs[currProc.name] = currProc;
+
+                                currProc = new Proc();
+
+                                currProc.line = line_num;
                             }
 
-                            currProcName = l.Groups[1].Value;
+                            currProc.name = l.Groups[1].Value;
+                            
+                            if (currProc.name == ":start")
+                            {
+                                currProc.parameters = 0;
+                                currProc.locals = 0;
+                            }
 
                             if (l.Groups[3].Success)
                             {
-                                procLocations[currProcName] = ToInt(ParseLitteral(l.Groups[3].Value, constants));
+                                currProc.location = ToInt(ParseLitteral(l.Groups[3].Value, constants));
 
-                                if (procLocations[currProcName] < 0x44B_000)
+                                // Interrupts does not specify parameters and locals!
+                                switch (currProc.location)
                                 {
-                                    throw new Exception($"Procs can only be placed in ROM. The proc {currProcName} was addressed to {procLocations[currProcName]}!");
+                                    case 0xFFF_FF0:
+                                    case 0xFFF_FE0:
+                                    case 0xFFF_FD0:
+                                    case 0xFFF_FC0:
+                                        currProc.parameters = 0;
+                                        currProc.locals = 0;
+                                        break;
+                                }
+
+                                if (currProc.location < 0x44B_000)
+                                {
+                                    Error(file, line_num, $"Procs can only be placed in ROM. The proc {currProc.name} was addressed to {currProc.location}!");
                                 }
                             }
 
-                            currProc = new List<Token>();
+                            currProc.tokens = new List<Token>();;
                         }
                         else
                         {
-                            throw new FormatException($"Invalid label: \"{line}\"");
+                            Error(file, line_num, $"Invalid label: \"{line}\"");
                         }
                     }
                     else
                     {
-                        throw new FormatException($"Could not parse line \"{line}\"");
+                        Error(file, line_num, $"Could not parse line \"{line}\"");
                     }
                 }
             }
 
-            procs[currProcName] = currProc;
+            procs[currProc.name] = currProc;
 
-            return new AsemFile(usings, constants, procs, breakpoints, procLocations, flags);
+            return new AsemFile(file, usings, constants, procs, breakpoints, flags);
         }
 
         static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable, out bool success)
         {
-            Dictionary<string, List<short>> assembledProcs = new Dictionary<string, List<short>>();
+            Dictionary<Proc, List<short>> assembledProcs = new Dictionary<Proc, List<short>>();
+
+            Dictionary<Proc, ProcMetadata> metadata = new Dictionary<Proc, ProcMetadata>();
 
             int offset = 0;
-
-            Dictionary<string, int> procOffests = new Dictionary<string, int>();
-
+            
             Dictionary<string, Dictionary<string, int>> proc_label_instructions = new Dictionary<string, Dictionary<string, int>>();
             
             Dictionary<string, Dictionary<int, string>> proc_label_uses = new Dictionary<string, Dictionary<int, string>>();
@@ -704,7 +853,14 @@ namespace VM12Asm
 
                     List<short> instructions = new List<short>();
 
-                    IEnumerator<Token> tokens = proc.Value.GetEnumerator();
+                    ProcMetadata procmeta = new ProcMetadata();
+                    procmeta.name = proc.Value.name;
+                    procmeta.source = file.Value.Raw;
+                    procmeta.assembledSource = file.Value;
+                    procmeta.line = proc.Value.line;
+                    procmeta.linkedLines = new Dictionary<int, int>();
+
+                    IEnumerator<Token> tokens = proc.Value.tokens.GetEnumerator();
                     
                     if (tokens.MoveNext() == false)
                     {
@@ -714,11 +870,19 @@ namespace VM12Asm
                     Token current = tokens.Current;
 
                     Token peek = tokens.Current;
-                    
+
+                    int currentSourceLine = -1;
+
                     while (tokens.MoveNext() || !peek.Equals(tokens.Current))
                     {
                         peek = tokens.Current;
-                        
+
+                        if (current.Line > currentSourceLine && (current.Type != TokenType.Label))
+                        {
+                            procmeta.linkedLines.Add(instructions.Count + 1, current.Line);
+                            currentSourceLine = current.Line;
+                        }
+
                         switch (current.Type)
                         {
                             case TokenType.Instruction:
@@ -729,8 +893,8 @@ namespace VM12Asm
                                         {
                                             // Shift breakpoints before adding instructions
                                             ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
-                                            
-                                            instructions.Add((short) Opcode.Load_lit_l);
+
+                                            instructions.Add((short)Opcode.Load_lit_l);
                                             local_label_uses[instructions.Count] = peek.Value;
                                             instructions.Add(0);
                                             instructions.Add(0);
@@ -762,50 +926,42 @@ namespace VM12Asm
                                         }
                                         else
                                         {
-                                            throw new FormatException($"{current.Opcode} can only be followed by a label or litteral!");
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} can only be followed by a label or litteral!");
                                         }
                                         tokens.MoveNext();
                                         break;
-                                    case Opcode.Load_addr:
-                                    case Opcode.Store_pc:
-                                    case Opcode.Call_pc:
-                                        if (current.Equals(peek) == false && (peek.Type == TokenType.Litteral || peek.Type == TokenType.Label))
+                                    case Opcode.Load_lit_l:
+                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+
+                                        if (peek.Type == TokenType.Label)
                                         {
-                                            Opcode op = current.Opcode ?? Opcode.Nop;
+                                            instructions.Add((short) current.Opcode);
+                                            local_label_uses[instructions.Count] = peek.Value;
+                                            instructions.Add(0);
+                                            instructions.Add(0);
 
-                                            // Shift breakpoints before adding instructions
-                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
-                                            
-                                            instructions.Add((short)op);
+                                            tokens.MoveNext();
+                                        }
+                                        else if (peek.Type == TokenType.Litteral)
+                                        {
+                                            short[] value = ParseLitteral(peek.Value , file.Value.Constants);
 
-                                            if (peek.Type == TokenType.Label)
+                                            if (value.Length <= 2)
                                             {
-                                                local_label_uses[instructions.Count] = peek.Value;
-                                                instructions.Add(0);
-                                                instructions.Add(0);
-
-                                                Console.ForegroundColor = ConsoleColor.DarkGreen;
-                                                if (verbose) Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
-                                                Console.ForegroundColor = conColor;
-                                            }
-                                            else if (peek.Type == TokenType.Litteral)
-                                            {
-                                                short[] value = ParseLitteral(peek.Value, file.Value.Constants);
-                                                
-                                                if (value.Length > 2)
-                                                {
-                                                    throw new FormatException(string.Format("The litteral {0} does not fit in 24-bits! {1} only takes 24-bit arguments!", peek.Value, current.Opcode));
-                                                }
-                                                
+                                                instructions.Add((short)current.Opcode);
                                                 instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
                                                 instructions.Add(value[0]);
+                                            }
+                                            else
+                                            {
+                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} cannot be followe by a constant bigger than two words!");
                                             }
 
                                             tokens.MoveNext();
                                         }
                                         else
                                         {
-                                            throw new FormatException($"{current.Opcode} instruction without any following litteral or label!");
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by either a label or litteral!");
                                         }
                                         break;
                                     case Opcode.Jmp:
@@ -836,19 +992,82 @@ namespace VM12Asm
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
                                             if (value.Length > 2)
                                             {
-                                                throw new FormatException(string.Format("The litteral {0} does not fit in 24-bits! {1} only takes 24-bit arguments!", peek.Value, current.Opcode));
+                                                Error(file.Value.Raw, current.Line, $"The litteral {peek.Value} does not fit in 24-bits! {current.Opcode} only takes 24-bit arguments!");
                                             }
                                             instructions.Add(value[1]);
                                             instructions.Add(value[0]);
                                         }
                                         else
                                         {
-                                            throw new FormatException($"{current.Opcode} must be followed by a label or litteral!");
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a label or litteral!");
                                         }
                                         tokens.MoveNext();
                                         break;
-                                    case Opcode.Drop_v:
-                                    case Opcode.Reclaim_v:
+                                    case Opcode.Call:
+                                        if (current.Equals(peek) == false && (peek.Type == TokenType.Litteral || peek.Type == TokenType.Label))
+                                        {
+                                            Opcode op = current.Opcode ?? Opcode.Nop;
+
+                                            // Shift breakpoints before adding instructions
+                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+
+                                            instructions.Add((short)op);
+
+                                            if (peek.Type == TokenType.Label)
+                                            {
+                                                local_label_uses[instructions.Count] = peek.Value;
+                                                instructions.Add(0);
+                                                instructions.Add(0);
+                                                Console.ForegroundColor = ConsoleColor.DarkGreen;
+                                                if (verbose) Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
+                                                Console.ForegroundColor = conColor;
+                                            }
+                                            else if (peek.Type == TokenType.Litteral)
+                                            {
+                                                short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+
+                                                if (value.Length > 2)
+                                                {
+                                                    throw new FormatException(string.Format("The litteral {0} does not fit in 24-bits! {1} only takes 24-bit arguments!", peek.Value, current.Opcode));
+                                                }
+
+                                                instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
+                                                instructions.Add(value[0]);
+                                            }
+
+                                            tokens.MoveNext();
+                                        }
+                                        else
+                                        {
+                                            throw new FormatException($"{current.Opcode} instruction without any following litteral or label!");
+                                        }
+
+                                        /*
+                                        if (peek.Type == TokenType.Label)
+                                        {
+                                            ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+
+                                            instructions.Add((short) current.Opcode);
+
+                                            local_label_uses[instructions.Count] = peek.Value;
+                                            Console.ForegroundColor = ConsoleColor.DarkGreen;
+                                            if (verbose) Console.WriteLine($"Added label {peek.Value} using at {instructions.Count:X}");
+                                            Console.ForegroundColor = conColor;
+
+                                            instructions.Add(0);
+                                            instructions.Add(0);
+                                        }
+                                        else
+                                        {
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a lable!");
+                                        }
+                                        */
+                                        break;
+                                    case Opcode.Load_local:
+                                    case Opcode.Load_local_l:
+                                    case Opcode.Store_local:
+                                    case Opcode.Store_local_l:
+                                    case Opcode.Ret_v:
                                         if (peek.Type == TokenType.Litteral)
                                         {
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
@@ -876,7 +1095,16 @@ namespace VM12Asm
                                 break;
                             case TokenType.Litteral:
                                 if (verbose) Console.WriteLine($"Litteral {current.Value}");
-                                Array.ForEach(ParseLitteral(current.Value, file.Value.Constants), (lit) => instructions.Add(lit));
+
+                                short[] values = ParseLitteral(current.Value, file.Value.Constants);
+
+                                ShiftBreakpoints(file.Value, proc.Key, instructions.Count, values.Length);
+
+                                for (int i = values.Length - 1; i >= 0; i--)
+                                {
+                                    instructions.Add(values[i]);
+                                }
+
                                 break;
                             case TokenType.Label:
                                 local_labels[current.Value] = instructions.Count;
@@ -896,7 +1124,11 @@ namespace VM12Asm
 
                     proc_label_uses[proc.Key] = local_label_uses;
 
-                    assembledProcs[proc.Key] = instructions;
+                    assembledProcs[proc.Value] = instructions;
+
+                    procmeta.size = instructions.Count;
+                    
+                    metadata[proc.Value] = procmeta;
 
                     if (verbose) Console.WriteLine("----------------------");
                 }
@@ -907,24 +1139,25 @@ namespace VM12Asm
             offset = 0;
 
             if (verbose) Console.WriteLine();
-
-            Dictionary<string, int> procLocations = files.SelectMany(f => f.Value.ProcLoactaions).ToDictionary(kvs => kvs.Key, kvs => kvs.Value);
-
+            
             foreach (var asem in assembledProcs)
             {
-                if (procLocations.TryGetValue(asem.Key, out int location))
+                if (asem.Key.location != null)
                 {
-                    location -= 0x44B_000;
-                    if (verbose) Console.WriteLine($"Proc {asem.Key} at specified offset: {location:X}");
+                    int location = asem.Key.location ?? ROM_OFFSET;
+                    if (verbose) Console.WriteLine($"Proc {asem.Key.name} at specified offset: {location:X}");
 
-                    procOffests[asem.Key] = location;
+                    // Shift location to be relative to ROM_START
+                    location -= ROM_OFFSET;
+
+                    metadata[asem.Key].location = location;
                     // FIXME: Procs can overlap!!!
                 }
                 else
                 {
-                    if (verbose) Console.WriteLine($"Proc {asem.Key} at offset: {offset:X}");
+                    if (verbose) Console.WriteLine($"Proc {asem.Key.name} at offset: {offset:X}");
 
-                    procOffests[asem.Key] = offset;
+                    metadata[asem.Key].location = offset;
                     offset += asem.Value.Count;
                 }
             }
@@ -933,41 +1166,39 @@ namespace VM12Asm
 
             foreach (var proc in assembledProcs)
             {
-                foreach (var use in proc_label_uses[proc.Key])
+                foreach (var use in proc_label_uses[proc.Key.name])
                 {
-                    if (proc_label_instructions[proc.Key].TryGetValue(use.Value, out int lbl_offset))
+                    if (proc_label_instructions[proc.Key.name].TryGetValue(use.Value, out int lbl_offset))
                     {
-                        short[] offset_inst = IntToShortArray(lbl_offset + procOffests[proc.Key] + (executable ? ROM_OFFSET : 0));
+                        short[] offset_inst = IntToShortArray(lbl_offset + metadata[proc.Key].location + (executable ? ROM_OFFSET : 0));
                         proc.Value[use.Key] = offset_inst[1];
                         proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkCyan;
-                        if (verbose) Console.WriteLine($"{use.Value,-12} matched local at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {lbl_offset + procOffests[proc.Key]:X6}");
+                        if (verbose) Console.WriteLine($"{use.Value,-12} matched local at instruction: {metadata[proc.Key].location + use.Key:X6} Offset: {lbl_offset + metadata[proc.Key].location:X6}");
                         Console.ForegroundColor = conColor;
                     }
-                    else if (procOffests.TryGetValue(use.Value, out int proc_offset))
+                    else if (metadata.ToDictionary(kvp => kvp.Key.name, kvp => kvp.Value.location).TryGetValue(use.Value, out int proc_offset))
                     {
                         short[] offset_inst = IntToShortArray(proc_offset + (executable ? ROM_OFFSET : 0));
                         proc.Value[use.Key] = offset_inst[1];
                         proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkMagenta;
-                        if (verbose) Console.WriteLine($"{use.Value,-12} matched call  at instruction: {procOffests[proc.Key] + use.Key:X6} Offset: {proc_offset:X6}");
+                        if (verbose) Console.WriteLine($"{use.Value,-12} matched call at instruction: {metadata[proc.Key].location + use.Key:X6} Offset: {proc_offset:X6}");
                         Console.ForegroundColor = conColor;
                     }
                     else
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
-                        if (verbose) Console.WriteLine($"Could not solve label! {use.Value} in proc {proc.Key}");
+                        Error(metadata[proc.Key].source, metadata[proc.Key].assembledSource.Procs[proc.Key.name].tokens.Find(t => t.Value == use.Value).Line, $"Could not solve label! {use.Value} in proc {proc.Key.name}");
+                        if (verbose) Console.WriteLine($"Could not solve label! {use.Value} in proc {proc.Key.name}");
                         Console.ForegroundColor = conColor;
                     }
                 }
 
-                if (files.Select(f => f.Value).SelectMany(f => f.Breakpoints).ToDictionary(kvs => kvs.Key, kvs => kvs.Value).TryGetValue(proc.Key, out List<int> breaks))
+                // We do this here because we are shifting the breaskpoints. If we dont shift breakpoints then we could do this much earlier
+                if (metadata[proc.Key].assembledSource.Breakpoints.TryGetValue(proc.Key.name, out List<int> breaks))
                 {
-                    foreach (var brek in breaks)
-                    {
-                        // FIXME: When loads are extended these values need to be updated!
-                        proc.Value[brek] |= 0x7000;
-                    }
+                    metadata[proc.Key].breaks = breaks;
                 }
             }
 
@@ -975,21 +1206,18 @@ namespace VM12Asm
             
             short[] compiledInstructions = new short[12275712];
 
+            int usedInstructions = 0;
+
             foreach (var proc in assembledProcs)
             {
-                proc.Value.CopyTo(compiledInstructions, procOffests[proc.Key]);
+                usedInstructions += proc.Value.Count;
+
+                proc.Value.CopyTo(compiledInstructions, metadata[proc.Key].location);
             }
-
-            List<int> lableUses = new List<int>();
-
-            foreach (var lable_use in proc_label_uses)
-            {
-                lableUses.AddRange(lable_use.Value.Keys.Select(l => l + procOffests[lable_use.Key]));
-            }
-
+            
             success = true;
 
-            return new LibFile(compiledInstructions, procOffests, lableUses);
+            return new LibFile(compiledInstructions, metadata.Values.ToArray(), usedInstructions);
         }
 
         static short[] ParseLitteral(string litteral, Dictionary<string, string> constants)
@@ -1016,7 +1244,10 @@ namespace VM12Asm
             if (litteral.StartsWith("0x"))
             {
                 litteral = litteral.Substring(2);
-                litteral = new string('0', litteral.Length % 3) + litteral;
+                if (litteral.Length % 3 != 0)
+                {
+                    litteral = new string('0', 3 - (litteral.Length % 3)) + litteral;
+                }
                 ret = Enumerable.Range(0, litteral.Length)
                     .GroupBy(x => x / 3)
                     .Select(g => g.Select(i => litteral[i]))
@@ -1028,12 +1259,30 @@ namespace VM12Asm
             else if (litteral.StartsWith("8x"))
             {
                 litteral = litteral.Substring(2);
-                litteral = new string('0', litteral.Length % 4) + litteral;
+                if (litteral.Length % 4 != 0)
+                {
+                    litteral = new string('0', 4 - (litteral.Length % 4)) + litteral;
+                }
                 ret = Enumerable.Range(0, litteral.Length)
                     .GroupBy(x => x / 4)
                     .Select(g => g.Select(i => litteral[i]))
                     .Select(s => String.Concat(s))
                     .Select(s => Convert.ToInt16(s, 8))
+                    .Reverse()
+                    .ToArray();
+            }
+            else if (litteral.StartsWith("0b"))
+            {
+                litteral = litteral.Substring(2);
+                if (litteral.Length % 12 != 0)
+                {
+                    litteral = new string('0', 12 - (litteral.Length % 12)) + litteral;
+                }
+                ret = Enumerable.Range(0, litteral.Length)
+                    .GroupBy(x => x / 12)
+                    .Select(g => g.Select(i => litteral[i]))
+                    .Select(s => String.Concat(s))
+                    .Select(s => Convert.ToInt16(s, 2))
                     .Reverse()
                     .ToArray();
             }
@@ -1074,6 +1323,19 @@ namespace VM12Asm
                 default:
                     return -1;
             }
+        }
+        
+        static void Error(RawFile file, int line, string error)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+
+            FileInfo info = new FileInfo(file.path);
+            
+            Console.WriteLine($"Error in file \"{info.Name}\" at line {line}: '{error}'");
+
+            Debugger.Break();
+
+            Environment.Exit(1);
         }
 
         static void ShiftBreakpoints(AsemFile file, string proc, int instructions, int breakpoint_offset)

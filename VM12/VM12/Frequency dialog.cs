@@ -11,17 +11,32 @@ using VM12_Opcode;
 
 namespace VM12
 {
-    public partial class Instruction_frequency : Form
+    public partial class Frequency_dialog<T> : Form where T : struct, IComparable
     {
-        Dictionary<Opcode, int> internalFreq = new Dictionary<Opcode, int>(64);
+        public delegate int EnumToInt(T e);
+
+        Dictionary<T, int> internalFreq;
         int[] freqs;
 
-        internal Instruction_frequency(int[] frequencies)
-        {
-            freqs = frequencies;
-            InitializeComponent();
+        EnumToInt etoi;
 
-            instructionFrequencyListView.Columns.Add("Opcode");
+        internal Frequency_dialog(int[] frequencies, string title, string column_name, EnumToInt etoi)
+        {
+            if (typeof(T).IsEnum == false)
+            {
+                throw new ArgumentException("T must be an enumerated type!");
+            }
+            
+            InitializeComponent();
+            freqs = frequencies;
+
+            internalFreq = new Dictionary<T, int>(Enum.GetValues(typeof(T)).Length);
+
+            this.etoi = etoi;
+
+            Text = title;
+
+            instructionFrequencyListView.Columns.Add(column_name);
             instructionFrequencyListView.Columns.Add("x Times");
         }
 
@@ -42,9 +57,9 @@ namespace VM12
 
         private void UpdateList()
         {
-            foreach (Opcode opcode in Enum.GetValues(typeof(Opcode)))
+            foreach (T eval in Enum.GetValues(typeof(T)))
             {
-                internalFreq[opcode] = freqs[(int)opcode];
+                internalFreq[eval] = freqs[etoi(eval)];
             }
 
             instructionFrequencyListView.Items.Clear();

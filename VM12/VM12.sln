@@ -1,13 +1,15 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.26430.4
+VisualStudioVersion = 15.0.26730.10
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12Asm", "VM12Asm\VM12Asm.csproj", "{0BDA1018-A90E-4429-86E4-FADD2D141260}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12", "VM12\VM12.csproj", "{2AD1940D-2DF4-45BB-982F-EBDDEF80104B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12Opcodes", "VM12Opcodes\VM12Opcodes.csproj", "{33A7121D-5329-4B6C-B604-7804DBB6E8AB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12ImageConverter", "VM12ImageConverter\VM12ImageConverter.csproj", "{45CE9C6C-F562-4D72-8637-F84FD4D85E92}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,8 +29,15 @@ Global
 		{33A7121D-5329-4B6C-B604-7804DBB6E8AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{33A7121D-5329-4B6C-B604-7804DBB6E8AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{33A7121D-5329-4B6C-B604-7804DBB6E8AB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{45CE9C6C-F562-4D72-8637-F84FD4D85E92}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{45CE9C6C-F562-4D72-8637-F84FD4D85E92}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{45CE9C6C-F562-4D72-8637-F84FD4D85E92}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{45CE9C6C-F562-4D72-8637-F84FD4D85E92}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {25A7E093-6193-4F2E-AAB6-84D6552FF8F0}
 	EndGlobalSection
 EndGlobal

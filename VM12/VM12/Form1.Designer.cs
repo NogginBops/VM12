@@ -35,6 +35,8 @@
             this.stopToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.developerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.instructionFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.interruptFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.interruptFrequencyToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
             this.hTimer = new System.Windows.Forms.Timer(this.components);
@@ -79,7 +81,9 @@
             // developerToolStripMenuItem
             // 
             this.developerToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.instructionFrequencyToolStripMenuItem});
+            this.instructionFrequencyToolStripMenuItem,
+            this.interruptFrequencyToolStripMenuItem,
+            this.interruptFrequencyToolStripMenuItem1});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -87,18 +91,33 @@
             // instructionFrequencyToolStripMenuItem
             // 
             this.instructionFrequencyToolStripMenuItem.Name = "instructionFrequencyToolStripMenuItem";
-            this.instructionFrequencyToolStripMenuItem.Size = new System.Drawing.Size(189, 22);
+            this.instructionFrequencyToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
             this.instructionFrequencyToolStripMenuItem.Text = "Instruction Frequency";
             this.instructionFrequencyToolStripMenuItem.Click += new System.EventHandler(this.instructionFrequencyToolStripMenuItem_Click);
+            // 
+            // interruptFrequencyToolStripMenuItem
+            // 
+            this.interruptFrequencyToolStripMenuItem.Name = "interruptFrequencyToolStripMenuItem";
+            this.interruptFrequencyToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.interruptFrequencyToolStripMenuItem.Text = "Missed Interrupt Frequency";
+            this.interruptFrequencyToolStripMenuItem.Click += new System.EventHandler(this.interruptFrequencyToolStripMenuItem_Click);
+            // 
+            // interruptFrequencyToolStripMenuItem1
+            // 
+            this.interruptFrequencyToolStripMenuItem1.Name = "interruptFrequencyToolStripMenuItem1";
+            this.interruptFrequencyToolStripMenuItem1.Size = new System.Drawing.Size(218, 22);
+            this.interruptFrequencyToolStripMenuItem1.Text = "Interrupt Frequency";
+            this.interruptFrequencyToolStripMenuItem1.Click += new System.EventHandler(this.interruptFrequencyToolStripMenuItem1_Click);
             // 
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
-            this.refreshTimer.Interval = 33;
+            this.refreshTimer.Interval = 8;
             this.refreshTimer.Tick += new System.EventHandler(this.RefreshTimer_Tick);
             // 
             // pbxMain
             // 
+            this.pbxMain.Cursor = System.Windows.Forms.Cursors.No;
             this.pbxMain.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pbxMain.Location = new System.Drawing.Point(0, 24);
             this.pbxMain.MinimumSize = new System.Drawing.Size(640, 480);
@@ -106,11 +125,15 @@
             this.pbxMain.Size = new System.Drawing.Size(640, 480);
             this.pbxMain.TabIndex = 1;
             this.pbxMain.TabStop = false;
+            this.pbxMain.MouseEnter += new System.EventHandler(this.pbxMain_MouseEnter);
+            this.pbxMain.MouseLeave += new System.EventHandler(this.pbxMain_MouseLeave);
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             // 
             // hTimer
             // 
+            this.hTimer.Enabled = true;
             this.hTimer.Interval = 1;
+            this.hTimer.Tick += new System.EventHandler(this.hTimer_Tick);
             // 
             // VM12Form
             // 
@@ -147,6 +170,8 @@
         private System.Windows.Forms.Timer hTimer;
         private System.Windows.Forms.ToolStripMenuItem instructionFrequencyToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem stopToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem1;
     }
 }
 

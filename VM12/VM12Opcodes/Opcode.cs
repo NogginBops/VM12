@@ -1,21 +1,19 @@
 ﻿namespace VM12_Opcode
 {
-    public enum Opcode_v2
+    public enum Opcode
     {
         Nop,
         Pop,
-        Sp, Fp,
-        Load_addr,
+        Sp, Pc,
         Load_lit, Load_lit_l,
         Load_sp, Load_sp_l,
         Load_local, Load_local_l,
-        Store_lit, Store_lit_l,
         Store_sp, Store_sp_l,
         Store_local, Store_local_l,
-        Swap, Swap_l,
+        Swap, Swap_l, Swap_s_l,
         Dup, Dup_l,
         Over, Over_l_l, Over_l_s,
-        Add, Add_l,
+        Add, Add_l, Add_c,
         Sub, Sub_l,
         Neg, Neg_l,
         Inc, Inc_l,
@@ -30,11 +28,12 @@
         Jmp_c, Jmp_cz,
         Jmp_gz, Jmp_lz,
         Jmp_z_l, Jmp_nz_l,
-        Call, Ret, Ret_1, Ret_2,
+        Call, Call_v,
+        Ret, Ret_1, Ret_2, Ret_v,
         Memc,
     }
 
-    public enum Opcode : short
+    public enum Opcode_old : short
     {
         Nop,
         Load_addr,

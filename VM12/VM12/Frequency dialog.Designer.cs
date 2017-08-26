@@ -1,6 +1,8 @@
-﻿namespace VM12
+﻿using System;
+
+namespace VM12
 {
-    partial class Instruction_frequency
+    partial class Frequency_dialog<T> where T : struct, IComparable
     {
         /// <summary>
         /// Required designer variable.
@@ -90,7 +92,7 @@
             this.Controls.Add(this.menuStrip);
             this.MainMenuStrip = this.menuStrip;
             this.Name = "Instruction_frequency";
-            this.Text = "Instruction_frequency";
+            this.Text = "Frequency_dialog";
             this.Load += new System.EventHandler(this.Instruction_frequency_Load);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();

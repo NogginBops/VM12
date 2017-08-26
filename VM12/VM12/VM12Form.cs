@@ -18,13 +18,13 @@ namespace VM12
     {
         volatile VM12 vm12;
 
-        ReadOnlyMemory read_mem;
+        Memory read_mem;
 
         Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT, PixelFormat.Format24bppRgb);
 
         byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
-        short[] vram = new short[Memory.VRAM_SIZE];
+        int[] vram = new int[Memory.VRAM_SIZE];
         
         public VM12Form()
         {
@@ -37,12 +37,8 @@ namespace VM12
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
 #endif
-
-#if DEBUG
-            refreshTimer.Interval = 100;
-#endif
         }
-
+        
         private void LoadProgram()
         {
             OpenFileDialog dialog = new OpenFileDialog();
@@ -50,7 +46,7 @@ namespace VM12
             if (dialog.ShowDialog() == DialogResult.OK)
             {
                 FileInfo inf = new FileInfo(dialog.FileName);
-
+                
                 Task.Run(() =>
                 {
 
@@ -76,7 +72,13 @@ namespace VM12
                         vm12.Stop();
                     }
 
+#if !DEBUG
                     vm12 = new VM12(rom);
+#elif DEBUG
+                    FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
+
+                    vm12 = new VM12(rom, metadataFile);
+#endif
 
                     read_mem = vm12.ReadMemory;
 
@@ -85,46 +87,79 @@ namespace VM12
                         IsBackground = true
                     };
 
+                    thread.Name = "VM12";
                     thread.Start();
                 });
             }
         }
-        
+
+        long lastIntsructionCount = -1;
+        double maxInstructionsPerSecond = 60000000000;
+        double utilization = 0;
+
+        int timer = 0;
+
         private void RefreshTimer_Tick(object sender, EventArgs e)
         {
             if (vm12 != null && vm12.Running)
             {
+                timer += refreshTimer.Interval;
+
+                if (timer > 50)
+                {
+                    long delta;
+                    if (lastIntsructionCount < 0)
+                    {
+                        lastIntsructionCount = vm12.Ticks;
+                        delta = vm12.Ticks;
+                    }
+                    else
+                    {
+                        delta = vm12.Ticks - lastIntsructionCount;
+                        lastIntsructionCount += delta;
+                    }
+
+                    utilization = delta / (maxInstructionsPerSecond * (refreshTimer.Interval / 1000d));
+
+                    if (utilization > 1)
+                    {
+                        maxInstructionsPerSecond *= utilization;
+                        utilization = 1;
+                    }
+
+                    timer = 0;
+                }
+
                 Text = vm12.Stopped ? "Stopped" : "Running";
-                Text += $" Instructions executed: {vm12.Ticks/1000000}m, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, PC: {vm12.ProgramCounter}, SP: {vm12.StackPointer}, Calls: {vm12.Calls}";
+                Text += $" Instructions executed: {vm12.Ticks/1000000}m, Utilization: {utilization:P}, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, FP: {vm12.FPWatermark}, SP: {vm12.SPWatermark}";
             }
             else
             {
                 Text = "Uninitialized";
             }
             
-            if (read_mem.HasMemory)
+            if (read_mem != null)
             {
                 read_mem.GetVRAM(vram, 0);
                 
                 BitmapData bData = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.WriteOnly, bitmap.PixelFormat);
 
-                byte bitsPerPixel = 24;
+                const byte bitsPerPixel = 24;
+                const byte bytesPerPixel = bitsPerPixel / 8;
 
                 int size = bData.Stride * bData.Height;
-
-                Text += $", Size: {size}, Vram Size: {vram.Length}";
-
+                
                 System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
                 
-                for (int i = 0; i < size; i += bitsPerPixel / 8)
+                for (int i = 0; i < size; i += bytesPerPixel)
                 {
-                    int index = i / (bitsPerPixel / 8);
+                    int index = i / (bytesPerPixel);
 
-                    short val = vram[index];
+                    int val = vram[index];
 
-                    byte r = (byte)((val & 0x00F) * 16);
-                    byte g = (byte)(((val >> 4) & 0x00F) * 16);
-                    byte b = (byte)(((val >> 8) & 0x00F) * 16);
+                    byte r = (byte)((val & 0x00F) << 4);
+                    byte g = (byte)(((val >> 4) & 0x00F) << 4);
+                    byte b = (byte)(((val >> 8) & 0x00F) << 4);
 
                     data[i] = r;
                     data[i + 1] = g;
@@ -151,9 +186,33 @@ namespace VM12
 #if DEBUG
             if (vm12 != null)
             {
-                Instruction_frequency ifreq = new Instruction_frequency(vm12.instructionFreq);
+                Frequency_dialog<VM12_Opcode.Opcode> instructionFreq = new Frequency_dialog<VM12_Opcode.Opcode>(vm12.instructionFreq, "Opcode Frequencies", "Opcode", op => (int) op);
+                
+                instructionFreq.Show();
+            }
+#endif
+        }
 
-                ifreq.ShowDialog();
+        private void interruptFrequencyToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+#if DEBUG
+            if (vm12 != null)
+            {
+                Frequency_dialog<InterruptType> missedInterruptFreq = new Frequency_dialog<InterruptType>(vm12.MissedInterruptFreq, "Missed interrupt frequencies", "Interrupt", VM12.InterruptTypeToInt);
+
+                missedInterruptFreq.Show();
+            }
+#endif
+        }
+
+        private void interruptFrequencyToolStripMenuItem1_Click(object sender, EventArgs e)
+        {
+#if DEBUG
+            if (vm12 != null)
+            {
+                Frequency_dialog<InterruptType> interruptFreq = new Frequency_dialog<InterruptType>(vm12.InterruptFreq, "Interrupt frequencies", "Interrupt", VM12.InterruptTypeToInt);
+
+                interruptFreq.Show();
             }
 #endif
         }
@@ -234,6 +293,10 @@ namespace VM12
         private void stopToolStripMenuItem_Click(object sender, EventArgs e)
         {
             vm12?.Stop();
+
+            while (vm12.Running);
+
+            vm12 = null;
         }
 
         private void openToolStripMenuItem_Click(object sender, EventArgs e)
@@ -246,10 +309,25 @@ namespace VM12
 
         private void pbxMain_MouseMove(object sender, MouseEventArgs e)
         {
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X - lastPosX), (short)(e.Y - lastPosY) }));
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y) }));
 
             lastPosX = e.X;
             lastPosY = e.Y;
+        }
+
+        private void pbxMain_MouseEnter(object sender, EventArgs e)
+        {
+            Cursor.Hide();
+        }
+
+        private void pbxMain_MouseLeave(object sender, EventArgs e)
+        {
+            Cursor.Show();
+        }
+
+        private void hTimer_Tick(object sender, EventArgs e)
+        {
+            vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new short[] { (short) hTimer.Interval }));
         }
     }
 }
