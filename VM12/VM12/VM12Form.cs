@@ -105,7 +105,7 @@ namespace VM12
             {
                 timer += refreshTimer.Interval;
 
-                if (timer > 50)
+                if (timer > 100)
                 {
                     long delta;
                     if (lastIntsructionCount < 0)
@@ -128,10 +128,10 @@ namespace VM12
                     }
 
                     timer = 0;
-                }
 
-                Text = vm12.Stopped ? "Stopped" : "Running";
-                Text += $" Instructions executed: {vm12.Ticks/1000000}m, Utilization: {utilization:P}, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, FP: {vm12.FPWatermark}, SP: {vm12.SPWatermark}";
+                    Text = vm12.Stopped ? "Stopped" : "Running";
+                    Text += $" Instructions executed: {vm12.Ticks / 1000000}m, Utilization: {utilization:P}, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, FP: {vm12.FPWatermark}, SP: {vm12.SPWatermark}";
+                }
             }
             else
             {
