@@ -125,14 +125,16 @@
             this.pbxMain.Size = new System.Drawing.Size(640, 480);
             this.pbxMain.TabIndex = 1;
             this.pbxMain.TabStop = false;
+            this.pbxMain.MouseDown += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseDown);
             this.pbxMain.MouseEnter += new System.EventHandler(this.pbxMain_MouseEnter);
             this.pbxMain.MouseLeave += new System.EventHandler(this.pbxMain_MouseLeave);
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
+            this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
             // 
             // hTimer
             // 
             this.hTimer.Enabled = true;
-            this.hTimer.Interval = 1;
+            this.hTimer.Interval = 2;
             this.hTimer.Tick += new System.EventHandler(this.hTimer_Tick);
             // 
             // VM12Form

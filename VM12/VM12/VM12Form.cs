@@ -307,22 +307,52 @@ namespace VM12
         int lastPosX;
         int lastPosY;
 
+        private void PressButtons(MouseButtons buttons)
+        {
+            currentButtons |= (int)buttons >> 20;
+        }
+
+        private void ReleaseButtons(MouseButtons buttons)
+        {
+            currentButtons &= ~((int)buttons >> 20);
+        }
+
+        int currentButtons;
+
         private void pbxMain_MouseMove(object sender, MouseEventArgs e)
         {
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y) }));
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y), (short)currentButtons }));
 
             lastPosX = e.X;
             lastPosY = e.Y;
         }
 
+        private void pbxMain_MouseDown(object sender, MouseEventArgs e)
+        {
+            PressButtons(e.Button);
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y), (short)currentButtons }));
+        }
+
+        private void pbxMain_MouseUp(object sender, MouseEventArgs e)
+        {
+            ReleaseButtons(e.Button);
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y), (short)currentButtons }));
+        }
+        
         private void pbxMain_MouseEnter(object sender, EventArgs e)
         {
-            Cursor.Hide();
+            if (vm12 != null)
+            {
+                Cursor.Hide();
+            }
         }
 
         private void pbxMain_MouseLeave(object sender, EventArgs e)
         {
-            Cursor.Show();
+            if (vm12 != null)
+            {
+                Cursor.Show();
+            }
         }
 
         private void hTimer_Tick(object sender, EventArgs e)

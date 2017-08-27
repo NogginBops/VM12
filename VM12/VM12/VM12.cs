@@ -200,7 +200,7 @@ namespace VM12
         }
 #elif DEBUG
 
-        public bool BreaksEnabled = false;
+        public bool BreaksEnabled = true;
 
         public static int InterruptTypeToInt(InterruptType type)
         {
