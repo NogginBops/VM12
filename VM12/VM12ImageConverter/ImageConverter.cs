@@ -25,11 +25,11 @@ namespace VM12ImageConverter
     {
         public static void Main(params string[] args)
         {
-            string path = Path.Combine("E:", "Google Drive", "12VM", "Image.png");
+            string path = Path.Combine("E:", "Google Drive", "12VM", "bbt_437.png");
             
             Bitmap map = (Bitmap) Image.FromFile(path);
 
-            string result = ConvertImage(map, ImageType.tcs, "test_tcs", null);
+            string result = ConvertImage(map, ImageType.font, "std_font", null);
 
             string resultPath = Path.ChangeExtension(path, ".12asm");
 
@@ -73,7 +73,64 @@ namespace VM12ImageConverter
 
         private static StringBuilder CreateFont(byte[] data, int width, int height, ImageType type, string name, int? location)
         {
-            return null;
+            const int fontWidth = 8;
+            const int fontHeight = 12;
+
+            StringBuilder sb = new StringBuilder(4 * width * height);
+
+            sb.AppendLine($"; Generated font data \"{name}\"");
+            sb.AppendLine();
+            sb.AppendLine("!noprintouts");
+            sb.AppendLine();
+            if (location != null)
+            {
+                sb.AppendLine($"<{name}_font = {location}>");
+            }
+
+            sb.Append($":{name}");
+
+            if (location != null)
+            {
+                sb.Append("\t\t@{name}_sprite");
+            }
+
+            sb.AppendLine();
+
+            int fWidth = (width / fontWidth);
+            int fHeight = (height / fontHeight);
+            int[,,] fdata = new int[fWidth, fHeight, 8];
+
+            for (int y = 0; y < height; y += fontHeight)
+            {
+                for (int x = 0; x < width; x += fontWidth)
+                {
+                    sb.Append("\t");
+
+                    for (int w = 0; w < fontWidth; w++)
+                    {
+                        int iy = y / fontHeight;
+                        int ix = x / fontWidth;
+                        for (int h = 0; h < fontHeight; h++)
+                        {
+                            fdata[ix, iy, w] <<= 1;
+                            fdata[ix, iy, w] |= data[((x + w) + (width * (y + h))) * 4] > 0 ? 1 : 0;
+                            //Console.WriteLine($"x: {x}, y: {y}, w: {w}, h: {h}, index: {(x + w) + (width * (y + h))}, data: {data[((x + w) + (width * (y + h))) * 4]}");
+                        }
+                        //Console.WriteLine($"(X:{x}, Y: {y}, W: {w}): Data: {Convert.ToString(fdata[ix, iy, w], 2).PadLeft(12, '0')}");
+
+                        sb.Append($"0x{fdata[ix, iy, w]:X3} ");
+
+                        if ((w + 1) % 4 == 0)
+                        {
+                            sb.AppendLine();
+                            sb.Append("\t");
+                        }
+                    }
+                    sb.AppendLine();
+                }
+            }
+            
+            return sb;
         }
 
         private static StringBuilder CreateTcs(byte[] data, int width, int height, ImageType type, string name, int? location)

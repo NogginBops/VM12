@@ -15,20 +15,23 @@ namespace VM12Asm
         {
             Instruction,
             Litteral,
-            Label
+            Label,
+            Argument
         }
 
         struct Token
         {
             public readonly int Line;
             public readonly TokenType Type;
+            public readonly bool Breakpoint;
             public readonly string Value;
             public readonly Opcode? Opcode;
 
-            public Token(int line, TokenType type, string value, Opcode? opcode = null)
+            public Token(int line, TokenType type, string value, bool breakpoint, Opcode? opcode = null)
             {
                 Line = line;
                 Type = type;
+                Breakpoint = breakpoint;
                 Value = value;
                 Opcode = opcode;
             }
@@ -36,6 +39,11 @@ namespace VM12Asm
             public bool Equals(Token t)
             {
                 return (Line == t.Line) && (Type == t.Type) && (Value == t.Value) && (Opcode == t.Opcode);
+            }
+
+            public override string ToString()
+            {
+                return $"{{{Type}: {(Type == TokenType.Instruction ? Opcode.ToString() : Value)}}}";
             }
         }
 
@@ -109,7 +117,11 @@ namespace VM12Asm
         const int ROM_SIZE = 12275712;
 
         const short ROM_OFFSET_UPPER_BITS = 0x44B;
-        
+
+        public delegate string TemplateFormater(params object[] values);
+
+        static TemplateFormater sname = (o) => string.Format("(?<!:)\\b{0}\\b", o);
+
         static Dictionary<Regex, string> preprocessorConversions = new Dictionary<Regex, string>()
         {
             { new Regex(";.*"), "" },
@@ -125,6 +137,7 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bloadl\\s+@(\\S+)"), "load.lit.l $1 load.sp.l" },
             { new Regex("(?<!:)\\bload\\s+\\[SP\\]"), "load.sp" },
             { new Regex("(?<!:)\\bloadl\\s+\\[SP\\]"), "load.sp.l" },
+            { new Regex("(?<!:)\\bload\\s+('.')"), "load.lit $1" },
             { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+\\[SP\\]"), "store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+(\\d+)"), "store.local $1" },
@@ -133,47 +146,68 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bstorel\\s+#(\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit.l $1 store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+@(\\S+)"), "load.lit.l $1 swap.s.l store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+@(\\S+)"), "load.lit.l $1 swap.l store.sp.l" },
-            { new Regex("(?<!:)\\blswap\\b"), "swap.l" },
-            { new Regex("(?<!:)\\bslswap\\b"), "swap.s.l" },
-            { new Regex("(?<!:)\\bldup\\b"), "dup.l" },
-            { new Regex("(?<!:)\\blover\\b"), "over.l.l" },
-            { new Regex("(?<!:)\\blovers\\b"), "over.l.s" },
-            { new Regex("(?<!:)\\bladd\\b"), "add.l" },
-            { new Regex("(?<!:)\\badc\\b"), "add.c" },
-            { new Regex("(?<!:)\\blsub\\b"), "sub.l" },
-            { new Regex("(?<!:)\\blneg\\b"), "neg.l" },
-            { new Regex("(?<!:)\\blinc\\b"), "inc.l" },
-            { new Regex("(?<!:)\\bldec\\b"), "dec.l" },
-            { new Regex("(?<!:)\\bcss\\b"), "c.ss" },
-            { new Regex("(?<!:)\\bcse\\b"), "c.se" },
-            { new Regex("(?<!:)\\bccl\\b"), "c.cl" },
-            { new Regex("(?<!:)\\bcflp\\b"), "c.flp" },
-            { new Regex("(?<!:)\\brtcl\\b"), "rot.l.c" },
-            { new Regex("(?<!:)\\brtcr\\b"), "rot.r.c" },
-            { new Regex("(?<!:)\\bjz\\b"), "jmp.z" },
-            { new Regex("(?<!:)\\bjnz\\b"), "jmp.nz" },
-            { new Regex("(?<!:)\\bjc\\b"), "jmp.c" },
-            { new Regex("(?<!:)\\bjcz\\b"), "jmp.cz" },
-            { new Regex("(?<!:)\\bjgz\\b"), "jmp.gz" },
-            { new Regex("(?<!:)\\bjlz\\b"), "jmp.lz" },
-            { new Regex("(?<!:)\\bjzl\\b"), "jmp.z.l" },
-            { new Regex("(?<!:)\\bjnzl\\b"), "jmp.nz.l" },
             { new Regex("::(?!\\S)"), "call.v" },
             { new Regex("::(?!\\s)"), "call :" },
-            { new Regex("(?<!:)\\bret1\\b"), "ret.1" },
-            { new Regex("(?<!:)\\bret2\\b"), "ret.2" },
-            { new Regex("(?<!:)\\bretv\\b"), "ret.v" },
+            { new Regex(sname("lswap")), "swap.l" },
+            { new Regex(sname("slswap")), "swap.s.l" },
+            { new Regex(sname("ldup")), "dup.l" },
+            { new Regex(sname("lover")), "over.l.l" },
+            { new Regex(sname("lovers")), "over.l.s" },
+            { new Regex(sname("ladd")), "add.l" },
+            { new Regex(sname("adc")), "add.c" },
+            { new Regex(sname("lsub")), "sub.l" },
+            { new Regex(sname("lneg")), "neg.l" },
+            { new Regex(sname("linc")), "inc.l" },
+            { new Regex(sname("ldec")), "dec.l" },
+            { new Regex(sname("css")), "c.ss" },
+            { new Regex(sname("cse")), "c.se" },
+            { new Regex(sname("ccl")), "c.cl" },
+            { new Regex(sname("cflp")), "c.flp" },
+            { new Regex(sname("rtcl")), "rot.l.c" },
+            { new Regex(sname("rtcr")), "rot.r.c" },
+            { new Regex(sname("jmp")), "jmp JM.Jmp" },
+            { new Regex(sname("jz")), "jmp JM.Z" },
+            { new Regex(sname("jnz")), "jmp JM.Nz" },
+            { new Regex(sname("jc")), "jmp JM.C" },
+            { new Regex(sname("jcz")), "jmp JM.Cz" },
+            { new Regex(sname("jgz")), "jmp JM.Gz" },
+            { new Regex(sname("jlz")), "jmp JM.Lz" },
+            { new Regex(sname("jge")), "jmp JM.Ge" },
+            { new Regex(sname("jeq")), "jmp JM.Eq" },
+            { new Regex(sname("jle")), "jmp JM.Le" },
+            { new Regex(sname("jneq")), "jmp JM.Neq" },
+            { new Regex(sname("jzl")), "jmp JM.Z.l" },
+            { new Regex(sname("jnzl")), "jmp JM.Nz.l" },
+            { new Regex(sname("jlzl")), "jmp JM.Lz.l" },
+            { new Regex(sname("jgzl")), "jmp JM.Gz.l" },
+            { new Regex(sname("ret1")), "ret.1" },
+            { new Regex(sname("ret2")), "ret.2" },
+            { new Regex(sname("retv")), "ret.v" },
+            { new Regex("(?<!:)\\binc\\s+(\\d+)"), "inc.local $1" },
+            { new Regex("(?<!:)\\blinc\\s+(\\d+)"), "inc.local.l $1" },
+            { new Regex("(?<!:)\\binc.l\\s+(\\d+)"), "inc.local.l $1" },
+            { new Regex("(?<!:)\\bdec\\s+(\\d+)"), "dec.local $1" },
+            { new Regex("(?<!:)\\bldec\\s+(\\d+)"), "dec.local.l $1" },
+            { new Regex("(?<!:)\\bdec.l\\s+(\\d+)"), "dec.local.l $1" },
+            { new Regex(sname("mul2")), "mul.2" },
+            { new Regex(sname("fcb")), "fc.b" },
+            { new Regex(sname("lmul")), "mul.l" },
+            { new Regex(sname("lmul2")), "mul.2.l" },
         };
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
 
-        static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(0x[0-9A-Fa-f_]+|8x[0-7_]+|[0-9_]+)>");
+        static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)>");
 
         static Regex label = new Regex(":[A-Za-z][A-Za-z0-9_]*");
 
         static Regex proc = new Regex("(:[A-Za-z][A-Za-z0-9_]*)(\\s+@(.*))?");
 
-        static Regex num = new Regex("\\b(0x[0-9A-Fa-f_]+|8x[0-7_]+|2x[0-1]|[0-9_]+)");
+        static Regex num = new Regex("(?<!\\S)\\b(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)\\b(?!\\S)");
+
+        static Regex chr = new Regex("'(.)'");
+
+        static Regex str = new Regex("\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"");
 
         static Dictionary<string, Opcode> opcodes = new Dictionary<string, Opcode>()
         {
@@ -225,14 +259,14 @@ namespace VM12Asm
             { "dsi", Opcode.Dsi },
             { "hlt", Opcode.Hlt },
             { "jmp", Opcode.Jmp },
-            { "jmp.z", Opcode.Jmp_z },
-            { "jmp.nz", Opcode.Jmp_nz },
-            { "jmp.c", Opcode.Jmp_c },
-            { "jmp.cz", Opcode.Jmp_cz },
-            { "jmp.gz", Opcode.Jmp_gz },
-            { "jmp.lz", Opcode.Jmp_lz },
-            { "jmp.z.l", Opcode.Jmp_z_l },
-            { "jmp.nz.l", Opcode.Jmp_nz_l },
+            // { "jmp.z", Opcode.Jmp_z },
+            // { "jmp.nz", Opcode.Jmp_nz },
+            // { "jmp.c", Opcode.Jmp_c },
+            // { "jmp.cz", Opcode.Jmp_cz },
+            // { "jmp.gz", Opcode.Jmp_gz },
+            // { "jmp.lz", Opcode.Jmp_lz },
+            // { "jmp.z.l", Opcode.Jmp_z_l },
+            // { "jmp.nz.l", Opcode.Jmp_nz_l },
             { "call", Opcode.Call },
             { "call.v", Opcode.Call_v },
             { "ret", Opcode.Ret },
@@ -240,6 +274,44 @@ namespace VM12Asm
             { "ret.2", Opcode.Ret_2 },
             { "ret.v", Opcode.Ret_v },
             { "memc", Opcode.Memc },
+
+            { "inc.local", Opcode.Inc_local },
+            { "inc.local.l", Opcode.Inc_local_l },
+            { "dec.local", Opcode.Dec_local },
+            { "dec.local.l", Opcode.Dec_local_l },
+            { "mul.2", Opcode.Mul_2 },
+            { "fc", Opcode.Fc },
+            { "fc.b", Opcode.Fc_b },
+            // { "jmp.lz.l", Opcode.Jmp_lz_l },
+            // { "jmp.gz.l", Opcode.Jmp_gz_l },
+            { "mul.l", Opcode.Mul_l },
+            { "mul.2.l", Opcode.Mul_2_l },
+        };
+
+        static Dictionary<string, int> arguments = new Dictionary<string, int>()
+        {
+            { "JM.Jmp", (int) JumpMode.Jmp },
+            { "JM.Z", (int) JumpMode.Z },
+            { "JM.Nz", (int) JumpMode.Nz },
+            { "JM.C", (int) JumpMode.C },
+            { "JM.Cz", (int) JumpMode.Cz },
+            { "JM.Gz", (int) JumpMode.Gz },
+            { "JM.Lz", (int) JumpMode.Lz },
+            { "JM.Ge", (int) JumpMode.Ge },
+            { "JM.Le", (int) JumpMode.Le },
+            { "JM.Eq", (int) JumpMode.Eq },
+            { "JM.Neq", (int) JumpMode.Neq },
+            { "JM.Ro", (int) JumpMode.Ro },
+            
+            { "JM.Z.l", (int) JumpMode.Z_l },
+            { "JM.Nz.l", (int) JumpMode.Nz_l },
+            { "JM.Gz.l", (int) JumpMode.Gz_l },
+            { "JM.Lz.l", (int) JumpMode.Lz_l },
+            { "JM.Ge.l", (int) JumpMode.Ge_l },
+            { "JM.Le.l", (int) JumpMode.Le_l },
+            { "JM.Eq.l", (int) JumpMode.Eq_l },
+            { "JM.Neq.l", (int) JumpMode.Neq_l },
+            { "JM.Ro.l", (int) JumpMode.Ro_l },
         };
 
         static ConsoleColor conColor = Console.ForegroundColor;
@@ -258,6 +330,13 @@ namespace VM12Asm
             bool overwrite = false;
             bool hold = false;
             bool open = false;
+            
+            long preprocessTime = 0;
+            long parseTime = 0;
+            long assemblyTime = 0;
+            Stopwatch watch = new Stopwatch();
+            Stopwatch total = new Stopwatch();
+            total.Start();
 
             while (enumerator.MoveNext())
             {
@@ -290,7 +369,7 @@ namespace VM12Asm
                         break;
                 }
             }
-
+            
             while (File.Exists(file) == false)
             {
                 Console.Write("Input file: ");
@@ -302,42 +381,28 @@ namespace VM12Asm
                 Console.Write("Destination filename: ");
                 name = Console.ReadLine();
             }
-
-            RawFile rawFile = new RawFile();
-
-            rawFile.path = file;
-            rawFile.rawlines = File.ReadAllLines(file);
-
+            
             Console.WriteLine();
             Console.WriteLine();
 
             Console.WriteLine("Preprocessing...");
-
-            rawFile.processedlines = PreProcess(rawFile.rawlines);
             
             Console.WriteLine("Parsing...");
-
-            AsemFile asmFile = Parse(rawFile);
-
+            
             #region Usings
 
             Dictionary<string, AsemFile> files = new Dictionary<string, AsemFile>();
 
             Stack<string> remainingUsings = new Stack<string>();
 
-            FileInfo fileInf = new FileInfo(rawFile.path);
+            remainingUsings.Push(Path.GetFileName(file));
+
+            FileInfo fileInf = new FileInfo(file);
             DirectoryInfo dirInf = fileInf.Directory;
             
             FileInfo[] dirFiles = dirInf.GetFiles($".{Path.DirectorySeparatorChar}*.12asm", SearchOption.AllDirectories);
             
-            foreach (var use in asmFile.Usings.Values)
-            {
-                remainingUsings.Push(use);
-            }
-
             // TODO: Files with the same name but differnet directories
-            files[fileInf.Name] = asmFile;
-
             while (remainingUsings.Count > 0)
             {
                 string use = remainingUsings.Pop();
@@ -349,15 +414,21 @@ namespace VM12Asm
 
                 FileInfo fi = dirFiles.First(f => f.Name == use);
 
-                rawFile = new RawFile();
+                RawFile rawFile = new RawFile();
 
                 rawFile.path = fi.FullName;
 
                 rawFile.rawlines = File.ReadAllLines(fi.FullName);
 
+                watch.Restart();
                 rawFile.processedlines = PreProcess(rawFile.rawlines);
+                watch.Stop();
+                preprocessTime += watch.ElapsedTicks;
 
-                asmFile = Parse(rawFile);
+                watch.Restart();
+                AsemFile asmFile = Parse(rawFile);
+                watch.Stop();
+                parseTime += watch.ElapsedTicks;
 
                 files[use] = asmFile;
 
@@ -370,11 +441,14 @@ namespace VM12Asm
                 }
             }
 
-            foreach (var f in files)
+            if (verbose)
             {
-                Console.WriteLine(f);
+                foreach (var f in files)
+                {
+                    Console.WriteLine(f);
+                }
             }
-
+            
             #endregion
 
             if (verbose)
@@ -429,7 +503,7 @@ namespace VM12Asm
                         int i = 0;
                         foreach (var token in proc.Value.tokens)
                         {
-                            if (asm.Value.Breakpoints.TryGetValue(proc.Key, out List<int> breaks) && breaks.Contains(i))
+                            if (token.Breakpoint)
                             {
                                 Console.ForegroundColor = ConsoleColor.Red;
                                 Console.Write("¤");
@@ -451,6 +525,10 @@ namespace VM12Asm
                                     Console.ForegroundColor = ConsoleColor.Magenta;
                                     Console.WriteLine("\t" + token.Value);
                                     break;
+                                case TokenType.Argument:
+                                    Console.ForegroundColor = ConsoleColor.Cyan;
+                                    Console.WriteLine(token.Value);
+                                    break;
                                 default:
                                     Console.ForegroundColor = ConsoleColor.Red;
                                     Console.WriteLine("!!ERROR!!");
@@ -462,21 +540,39 @@ namespace VM12Asm
                     }
                 }
 
+                Console.ForegroundColor = conColor;
+                Console.WriteLine();
+
                 #endregion
             }
-
-            Console.ForegroundColor = conColor;
-
-            Console.WriteLine();
-            Console.WriteLine("Assembling...");
             
+            Console.WriteLine("Assembling...");
+
+            watch.Restart();
             LibFile libFile = Assemble(files, executable, out bool success);
+            watch.Stop();
+            assemblyTime += watch.ElapsedTicks;
 
             if (success == false)
             {
                 goto noFile;
             }
-            
+
+            total.Stop();
+
+            double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 100;
+            double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 100;
+            double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 100;
+            double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
+            double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
+
+            Console.WriteLine($"Success!");
+            Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms");
+            Console.WriteLine($"Parse: {parse_ms:F4} ms");
+            Console.WriteLine($"Assembly: {assembly_ms:F4} ms");
+            Console.WriteLine($"Sum: {total_ms_sum:F4} ms");
+            Console.WriteLine($"Total: {total_ms:F4} ms");
+
             if (verbose)
             {
                 bool toFile = false;
@@ -512,7 +608,10 @@ namespace VM12Asm
                         int sum = 0;
                         for (int j = 0; j < instPerLine; j++)
                         {
-                            sum += libFile.Instructions[i + j];
+                            if (i + j < libFile.Instructions.Length)
+                            {
+                                sum += libFile.Instructions[i + j];
+                            }
                         }
 
                         if (sum == 0)
@@ -665,13 +764,16 @@ namespace VM12Asm
                     continue;
                 }
 
+                bool breakpoint = false;
                 if (it_line[0] == '¤')
                 {
                     if (breakpoints.ContainsKey(currProc.name) == false)
                     {
                         breakpoints[currProc.name] = new List<int>();
                     }
-                    
+
+                    breakpoint = true;
+
                     // FIXME: We are filtering out all lables and litterals, this means we need to shift the breakpoints in relevant instructions!
                     breakpoints[currProc.name].Add(currProc.tokens.Where(t => t.Type == TokenType.Instruction).Count());
                 }
@@ -703,6 +805,12 @@ namespace VM12Asm
                 {
                     constants[c.Groups[1].Value] = c.Groups[2].Value;
                 }
+                else if ((c = str.Match(line)).Success)
+                {
+                    Token string_tok = new Token(line_num, TokenType.Litteral, c.Value, breakpoint);
+
+                    currProc.tokens.Add(string_tok);
+                }
                 else
                 {
                     if (char.IsWhiteSpace(line, 0))
@@ -715,15 +823,23 @@ namespace VM12Asm
                             Match l;
                             if (opcodes.TryGetValue(token, out Opcode opcode))
                             {
-                                t = new Token(line_num, TokenType.Instruction, token, opcode);
+                                t = new Token(line_num, TokenType.Instruction, token, breakpoint, opcode);
+                            }
+                            else if (arguments.TryGetValue(token, out int arg))
+                            {
+                                t = new Token(line_num, TokenType.Argument, token, breakpoint);
                             }
                             else if ((l = label.Match(token)).Success)
                             {
-                                t = new Token(line_num, TokenType.Label, l.Value);
+                                t = new Token(line_num, TokenType.Label, l.Value, breakpoint);
                             }
                             else if (num.IsMatch(token) || constants.ContainsKey(token))
                             {
-                                t = new Token(line_num, TokenType.Litteral, token);
+                                t = new Token(line_num, TokenType.Litteral, token, breakpoint);
+                            }
+                            else if ((l = chr.Match(token)).Success)
+                            {
+                                t = new Token(line_num, TokenType.Litteral, l.Value, breakpoint);
                             }
                             else
                             {
@@ -838,7 +954,7 @@ namespace VM12Asm
 
                 bool temp_verbose = verbose;
 
-                verbose = !file.Value.Flags.Contains("!noprintouts");
+                verbose = verbose && !file.Value.Flags.Contains("!noprintouts");
 
                 foreach (var proc in file.Value.Procs)
                 {
@@ -965,18 +1081,29 @@ namespace VM12Asm
                                         }
                                         break;
                                     case Opcode.Jmp:
-                                    case Opcode.Jmp_z:
-                                    case Opcode.Jmp_nz:
-                                    case Opcode.Jmp_cz:
-                                    case Opcode.Jmp_c:
-                                    case Opcode.Jmp_gz:
-                                    case Opcode.Jmp_lz:
-                                    case Opcode.Jmp_z_l:
-                                    case Opcode.Jmp_nz_l:
                                         // Shift breakpoints before adding instructions
                                         ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
 
                                         instructions.Add((short)current.Opcode);
+
+                                        if (peek.Type == TokenType.Argument)
+                                        {
+                                            JumpMode mode = (JumpMode) arguments[peek.Value];
+                                            if (Enum.IsDefined(typeof(JumpMode), mode))
+                                            {
+                                                instructions.Add((short)mode);
+                                                tokens.MoveNext();
+                                                peek = tokens.Current;
+                                            }
+                                            else
+                                            {
+                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by an argument of type {nameof(JumpMode)}! Got: \"{mode}\"");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a {nameof(JumpMode)}!");
+                                        }
 
                                         if (peek.Type == TokenType.Label)
                                         {
@@ -1028,7 +1155,7 @@ namespace VM12Asm
 
                                                 if (value.Length > 2)
                                                 {
-                                                    throw new FormatException(string.Format("The litteral {0} does not fit in 24-bits! {1} only takes 24-bit arguments!", peek.Value, current.Opcode));
+                                                    Error(file.Value.Raw, current.Line, $"The litteral {peek.Value} does not fit in 24-bits! {current.Opcode} only takes 24-bit arguments!");
                                                 }
 
                                                 instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
@@ -1039,7 +1166,7 @@ namespace VM12Asm
                                         }
                                         else
                                         {
-                                            throw new FormatException($"{current.Opcode} instruction without any following litteral or label!");
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} instruction without any following litteral or label!");
                                         }
 
                                         /*
@@ -1068,12 +1195,16 @@ namespace VM12Asm
                                     case Opcode.Store_local:
                                     case Opcode.Store_local_l:
                                     case Opcode.Ret_v:
+                                    case Opcode.Inc_local:
+                                    case Opcode.Inc_local_l:
+                                    case Opcode.Dec_local:
+                                    case Opcode.Dec_local_l:
                                         if (peek.Type == TokenType.Litteral)
                                         {
                                             short[] value = ParseLitteral(peek.Value, file.Value.Constants);
                                             if (value.Length > 1)
                                             {
-                                                throw new FormatException($"{current.Opcode} only takes a single word argument!");
+                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} only takes a single word argument!");
                                             }
 
                                             ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 1);
@@ -1085,7 +1216,7 @@ namespace VM12Asm
                                         }
                                         else
                                         {
-                                            throw new FormatException($"{current.Opcode} must be followed by a littera!");
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a littera!");
                                         }
                                         break;
                                     default:
@@ -1112,6 +1243,9 @@ namespace VM12Asm
                                 Console.ForegroundColor = ConsoleColor.DarkCyan;
                                 if (verbose) Console.WriteLine($"Found label def {current.Value} at index: {instructions.Count:X}");
                                 Console.ForegroundColor = conColor;
+                                break;
+                            case TokenType.Argument:
+                                Error(file.Value.Raw, current.Line, $"Unhandled argument: \"{current.Value}\"!");
                                 break;
                         }
                         
@@ -1227,6 +1361,15 @@ namespace VM12Asm
             {
                 value = ParseNumber(litteral);
             }
+            else if (chr.Match(litteral).Success)
+            {
+                value = ParseString(litteral, true);
+            }
+            else if (str.Match(litteral).Success)
+            {
+                // TODO: Have a "raw" flag!
+                value = ParseString(litteral, false);
+            }
             else if (constants.TryGetValue(litteral, out string val_str))
             {
                 value = ParseNumber(val_str);
@@ -1300,6 +1443,21 @@ namespace VM12Asm
             }
             
             return ret;
+        }
+
+        static short[] ParseString(string litteral, bool raw)
+        {
+            // This might return veird things for weird strings. But this compiler isn't made to be robust
+            short[] data = Array.ConvertAll(Encoding.ASCII.GetBytes(litteral.Substring(1, litteral.Length - 2)), b => (short)b);
+            Array.Reverse(data);
+            if (!raw)
+            {
+                int str_length = data.Length;
+                Array.Resize(ref data, data.Length + 2);
+                data[data.Length - 2] = (short)(str_length & 0xFFF);
+                data[data.Length - 1] = (short)((str_length << 12) & 0xFFF);
+            }
+            return data;
         }
 
         static short[] IntToShortArray(int i)

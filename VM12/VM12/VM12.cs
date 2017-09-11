@@ -200,7 +200,7 @@ namespace VM12
         }
 #elif DEBUG
 
-        public bool BreaksEnabled = true;
+        public const bool BreaksEnabled = true;
 
         public static int InterruptTypeToInt(InterruptType type)
         {
@@ -224,12 +224,14 @@ namespace VM12
         public int[] InterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
 
         public int[] MissedInterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
-        
-        public int[] instructionFreq = new int[64];
+
+        public int[] instructionFreq = new int[Enum.GetValues(typeof(Opcode)).Length];
+
+        public int[] instructionTimes = new int[Enum.GetValues(typeof(Opcode)).Length];
 
         #region Debug
 
-        class ProcMetadata
+        public class ProcMetadata
         {
             public string name;
             public string file;
@@ -273,7 +275,7 @@ namespace VM12
             return null;
         }
 
-        ProcMetadata CurrentMetadata => GetMetadataFromOffset(PC);
+        public ProcMetadata CurrentMetadata => GetMetadataFromOffset(PC);
         
         bool[] breaks;
 
@@ -293,7 +295,7 @@ namespace VM12
             return GetSourceCodeLineFromMetadataAndOffset(meta, offset);
         }
 
-        int GetSourceCodeLineFromMetadataAndOffset(ProcMetadata meta, int offset)
+        public int GetSourceCodeLineFromMetadataAndOffset(ProcMetadata meta, int offset)
         {
             int localOffset = offset - meta.location;
 
@@ -313,7 +315,7 @@ namespace VM12
             return line;
         }
 
-        int CurrentSourceCodeLine => GetSourceCodeLineFromOffset(PC);
+        public int CurrentSourceCodeLine => GetSourceCodeLineFromOffset(PC);
         
         string CurrentSource
         {
@@ -391,7 +393,7 @@ namespace VM12
 
         StackFrame ConstructStackFrame(int fp, int pc)
         {
-            if (fp < 0 || fp == 0x00ffffff)
+            if (fp < 0 || fp == 0x00000000)
             {
                 ProcMetadata main = GetMetadataFromOffset(pc);
 
@@ -587,12 +589,24 @@ namespace VM12
             //sw.Start();
 
             Running = true;
-            
+
+            Stopwatch watch = new Stopwatch();
+
             fixed (int* mem = MEM)
             {
+                // Add start frame
+                this.FP = 0;
+                mem[this.FP] = 0;       // Return address is 0
+                mem[this.FP + 1] = 0;
+                mem[this.FP + 2] = 0;   // Last FP is at the same location
+                mem[this.FP + 3] = 0;
+                mem[this.FP + 4] = this.locals = 0; ;   // No locals
+                this.SP = this.FP + 4;
+                
                 int PC = this.PC;
                 int SP = this.SP;
                 int FP = this.FP;
+                int FPloc = this.FP;
 
                 while (true)
                 {
@@ -619,6 +633,7 @@ namespace VM12
                         mem[++SP] = (short)intrr.Args.Length;       // Locals
                         FP = SP - 4;                                // Set the Frame Pointer
                         locals = mem[FP + 4];
+                        FPloc = FP - locals;
                         PC = (int)intrr.Type;
 
                         intrr = null;
@@ -634,8 +649,7 @@ namespace VM12
                         ;
                         //Debugger.Break();
                     }
-
-                    //var a = CurrentStackFrame;
+                    
 #endif
                     switch (op)
                     {
@@ -686,12 +700,12 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Load_local:
-                            mem[SP + 1] = mem[FP - this.locals + mem[PC + 1]];
+                            mem[SP + 1] = mem[FPloc + mem[PC + 1]];
                             SP++;
                             PC += 2;
                             break;
                         case Opcode.Load_local_l:
-                            int local_addr = FP - this.locals + mem[PC + 1];
+                            int local_addr = FPloc + mem[PC + 1];
                             mem[SP + 1] = mem[local_addr];
                             mem[SP + 2] = mem[local_addr + 1];
                             SP += 2;
@@ -711,13 +725,13 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Store_local:
-                            local_addr = FP - this.locals + (mem[PC + 1] & 0xFFF);
+                            local_addr = FPloc + mem[PC + 1];
                             mem[local_addr] = mem[SP];
                             SP--;
                             PC += 2;
                             break;
                         case Opcode.Store_local_l:
-                            local_addr = FP - this.locals + (mem[PC + 1] & 0xFFF);
+                            local_addr = FPloc + mem[PC + 1];
                             mem[local_addr] = mem[SP - 1];
                             mem[local_addr + 1] = mem[SP];
                             SP -= 2;
@@ -843,8 +857,8 @@ namespace VM12
                             break;
                         case Opcode.Dec_l:
                             uint ldec_value = ((uint)(mem[SP - 1] << 12) | (ushort)(mem[SP])) - 1;
-                            mem[SP] = (int) ldec_value & 0xFFF;
-                            mem[SP - 1] = (int) (ldec_value >> 12) & 0xFFF;
+                            mem[SP] = (int)ldec_value & 0xFFF;
+                            mem[SP - 1] = (int)(ldec_value >> 12) & 0xFFF;
                             carry = ldec_value == uint.MaxValue;
                             PC++;
                             break;
@@ -884,22 +898,32 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Rot_l_c:
-                            uint rot_l_value = (uint) mem[SP];
+                            uint rot_l_value = (uint)mem[SP];
                             bool rot_l_c = (rot_l_value & 0x800) != 0;
                             mem[SP] = (((int)rot_l_value << 1) | (carry ? 1 : 0)) & 0x0FFF;
                             carry = rot_l_c;
                             PC++;
                             break;
                         case Opcode.Rot_r_c:
-                            uint rot_r_value = (uint) mem[SP];
+                            uint rot_r_value = (uint)mem[SP];
                             bool rot_r_c = (rot_r_value & 0x001) != 0;
                             mem[SP] = (((int)rot_r_value >> 1) | (carry ? 0x800 : 0)) & 0x0FFF;
                             carry = rot_r_c;
                             PC++;
                             break;
                         case Opcode.Mul:
+                            int mul_value = (mem[SP - 1] * mem[SP]);
+                            carry = mul_value > 0xFFF ? true : false;
+                            mem[SP - 1] = mul_value & 0xFFF;
+                            SP--;
+                            PC++;
                             break;
                         case Opcode.Div:
+                            int div_value = (mem[SP - 1] / mem[SP]);
+                            carry = div_value > 0xFFF ? true : false;
+                            mem[SP - 1] = div_value & 0xFFF;
+                            SP--;
+                            PC++;
                             break;
                         case Opcode.Eni:
                             interruptsEnabled = true;
@@ -923,93 +947,184 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Jmp:
-                            PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            break;
-                        case Opcode.Jmp_z:
-                            if (mem[SP] == 0)
+                            JumpMode mode = (JumpMode) mem[++PC];
+                            switch (mode)
                             {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
+                                case JumpMode.Jmp:
+                                    PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    break;
+                                case JumpMode.Z:
+                                    if (mem[SP] == 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP--;
+                                    break;
+                                case JumpMode.Nz:
+                                    if (mem[SP] != 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP--;
+                                    break;
+                                case JumpMode.C:
+                                    if (carry == true)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    break;
+                                case JumpMode.Cz:
+                                    if (carry == false)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    break;
+                                case JumpMode.Gz:
+                                    if (mem[SP] > 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP--;
+                                    break;
+                                case JumpMode.Lz:
+                                    if ((mem[SP] & 0x800) > 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP--;
+                                    break;
+                                case JumpMode.Ge:
+                                    if (mem[SP] >= 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP--;
+                                    break;
+                                case JumpMode.Le:
+                                    int le_temp = mem[SP] - 0x800;
+                                    if (le_temp == 0 || (le_temp & 0x800) >= 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP--;
+                                    break;
+                                case JumpMode.Eq:
+                                    if (mem[SP - 1] == mem[SP])
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
+                                    break;
+                                case JumpMode.Neq:
+                                    if (mem[SP - 1] != mem[SP])
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
+                                    break;
+                                case JumpMode.Ro:
+                                    int sign_ext(int i) => (int)((i & 0x800) != 0 ? (uint)(i & 0xFFFF_F800) : (uint)i);
+                                    PC += sign_ext(mem[SP]);
+                                    SP--;
+                                    break;
+                                case JumpMode.Z_l:
+                                    if ((mem[SP] | mem[SP - 1]) == 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
+                                    break;
+                                case JumpMode.Nz_l:
+                                    if ((mem[SP] | mem[SP - 1]) != 0)
+                                    {
+                                        PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
+                                    break;
+                                case JumpMode.Gz_l:
+                                    if ((mem[SP - 1] << 12 | mem[SP]) > 0)
+                                    {
+                                        PC = mem[PC + 1] << 12 | mem[PC + 2];
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
+                                    break;
+                                case JumpMode.Lz_l:
+                                    if ((mem[SP - 1] << 12 | mem[SP]) < 0)
+                                    {
+                                        PC = mem[PC + 1] << 12 | mem[PC + 2];
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
+                                    break;
+                                case JumpMode.Ge_l:
+                                    break;
+                                case JumpMode.Le_l:
+                                    break;
+                                case JumpMode.Eq_l:
+                                    break;
+                                case JumpMode.Neq_l:
+                                    break;
+                                case JumpMode.Ro_l:
+                                    break;
+                                default:
+                                    break;
                             }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            SP--;
-                            break;
-                        case Opcode.Jmp_nz:
-                            if (mem[SP] != 0)
-                            {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            SP--;
-                            break;
-                        case Opcode.Jmp_c:
-                            if (carry == true)
-                            {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            break;
-                        case Opcode.Jmp_cz:
-                            if (carry == false)
-                            {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            break;
-                        case Opcode.Jmp_gz:
-                            if (mem[SP] > 0)
-                            {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            SP--;
-                            break;
-                        case Opcode.Jmp_lz:
-                            if ((mem[SP] & 0x800) > 0)
-                            {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            SP--;
-                            break;
-                        case Opcode.Jmp_z_l:
-                            if ((mem[SP] | mem[SP - 1]) == 0)
-                            {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            SP -= 2;
-                            break;
-                        case Opcode.Jmp_nz_l:
-                            if ((mem[SP] | mem[SP - 1]) != 0)
-                            {
-                                PC = (mem[++PC] << 12) | (ushort)(mem[++PC]); //ToInt(mem[++PC], mem[++PC]);
-                            }
-                            else
-                            {
-                                PC += 3;
-                            }
-                            SP -= 2;
+                            
                             break;
                         case Opcode.Call:
                             int call_addr = (mem[PC + 1] << 12) | (ushort)(mem[PC + 2]);
@@ -1026,6 +1141,7 @@ namespace VM12
                             mem[++SP] = last_fp & 0xFFF;
                             mem[++SP] = locals;                  // Locals
                             this.locals = locals;
+                            FPloc = FP - locals;
                             break;
                         case Opcode.Call_v:
                             break;
@@ -1034,41 +1150,121 @@ namespace VM12
                             PC = mem[FP] << 12 | (ushort) mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
                             this.locals = mem[FP + 4];
+                            FPloc = FP - this.locals;
                             break;
                         case Opcode.Ret_1:
                             int ret_val = mem[SP];
                             SP = FP - 1 - mem[FP + 4] + 1;
-                            mem[SP] = ret_val;
                             PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
                             this.locals = mem[FP + 4];
+                            FPloc = FP - this.locals;
+                            mem[SP] = ret_val;
                             break;
                         case Opcode.Ret_2:
                             int ret_val_1 = mem[SP - 1];
                             int ret_val_2 = mem[SP];
                             SP = FP - 1 - mem[FP + 4] + 2;
+                            PC = mem[FP] << 12 | mem[FP + 1];
+                            FP = mem[FP + 2] << 12 | mem[FP + 3];
+                            this.locals = mem[FP + 4];
+                            FPloc = FP - this.locals;
                             mem[SP - 1] = ret_val_1;
                             mem[SP] = ret_val_2;
-                            PC = mem[FP] << 12 | (ushort)mem[FP + 1];
-                            FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
-                            this.locals = mem[FP + 4];
                             break;
                         case Opcode.Ret_v:
                             break;
                         case Opcode.Memc:
                             //const int INT_SIZE = 4;
-                            int srcOffset = (mem[SP - 5] << 12) | (ushort)(mem[SP - 4]);
-                            int destOffset = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]);
-                            int length = (mem[SP - 1] << 12) | (ushort)(mem[SP]); // * INT_SIZE;
+                            int srcOffset = (mem[SP - 5] << 12) | (mem[SP - 4]);
+                            int destOffset = (mem[SP - 3] << 12) | (mem[SP - 2]);
+                            int length = (mem[SP - 1] << 12) | (mem[SP]); // * INT_SIZE;
                             Array.Copy(MEM, srcOffset, MEM, destOffset, length);
                             //Buffer.BlockCopy(MEM, srcOffset, MEM, destOffset, length);
                             SP -= 6;
                             PC++;
                             break;
+                        case Opcode.Inc_local:
+                            local_addr = FPloc + mem[PC + 1];
+                            mem[local_addr]++;
+                            PC += 2;
+                            break;
+                        case Opcode.Inc_local_l:
+                            local_addr = FPloc + mem[PC + 1];
+                            int linc_local_value = ((mem[local_addr] << 12) | (mem[local_addr + 1])) + 1;
+                            mem[local_addr + 1] = linc_local_value & 0xFFF;
+                            mem[local_addr] = (linc_local_value >> 12) & 0xFFF;
+                            carry = (linc_local_value >> 12) > 0xFFF;
+                            PC += 2;
+                            break;
+                        case Opcode.Dec_local:
+                            local_addr = FPloc + mem[PC + 1];
+                            int dec_local_value = mem[local_addr] - 1;
+                            carry = dec_local_value < 0;
+                            mem[local_addr] = dec_local_value;
+                            PC += 2;
+                            break;
+                        case Opcode.Dec_local_l:
+                            local_addr = FPloc + mem[PC + 1];
+                            uint ldec_local_value = ((uint)(mem[local_addr] << 12) | (ushort)(mem[local_addr + 1])) - 1;
+                            mem[local_addr + 1] = (int)ldec_local_value & 0xFFF;
+                            mem[local_addr] = (int)(ldec_local_value >> 12) & 0xFFF;
+                            carry = ldec_local_value == uint.MaxValue;
+                            PC += 2;
+                            break;
+                        case Opcode.Mul_2:
+                            int mul_2_value = (mem[SP - 1] * mem[SP]);
+                            carry = mul_2_value > 0xFFF_FFF ? true : false;
+                            mem[SP] = mul_2_value & 0xFFF;
+                            mem[SP - 1] = (mul_2_value >> 12) & 0xFFF;
+                            PC++;
+                            break;
+                        case Opcode.Fc:
+                            int color = mem[SP];
+                            int char_addr = mem[SP - 2] << 12 | mem[SP - 1];
+                            int vram_addr = mem[SP - 4] << 12 | mem[SP - 3];
+                            if (vram_addr < Memory.VRAM_START || vram_addr >= Memory.ROM_START)
+                            {
+                                Debugger.Break();
+                            }
+                            int start_vram = vram_addr;
+                            for (int x = 0; x < 8; x++)
+                            {
+                                int char_data = mem[char_addr];
+                                if (char_data != 0)
+                                {
+                                    for (int y = 0; y < 12; y++)
+                                    {
+                                        if ((char_data & 0x800) != 0)
+                                        {
+                                            mem[vram_addr] = color;
+                                        }
+                                        vram_addr += SCREEN_WIDTH;
+                                        char_data <<= 1;
+                                    }
+                                }
+                                start_vram += 1;
+                                vram_addr = start_vram;
+                                char_addr += 1;
+                            }
+                            SP -= 5;
+                            PC++;
+                            break;
+                        case Opcode.Mul_l:
+                            int mul_l_value = ((mem[SP - 3] << 12 | mem[SP - 2]) * (mem[SP - 1] << 12 | mem[SP]));
+                            carry = mul_l_value > 0xFFF_FFF ? true : false;
+                            mem[SP - 3] = (mul_l_value >> 12) & 0xFFF;
+                            mem[SP - 2] = mul_l_value & 0xFFF;
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Mul_2_l:
+
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }
-
+                    
                     programTime++;
 
                     this.PC = PC;
@@ -1076,6 +1272,7 @@ namespace VM12
                     this.FP = FP;
 
 #if DEBUG
+
                     if (SP > SPWatermark)
                     {
                         SPWatermark = SP;

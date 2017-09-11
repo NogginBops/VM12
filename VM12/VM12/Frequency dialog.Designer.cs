@@ -36,6 +36,7 @@ namespace VM12
             this.menuStrip = new System.Windows.Forms.MenuStrip();
             this.optionsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.fractionsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -68,7 +69,8 @@ namespace VM12
             // optionsToolStripMenuItem
             // 
             this.optionsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.refreshToolStripMenuItem});
+            this.refreshToolStripMenuItem,
+            this.fractionsToolStripMenuItem});
             this.optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
             this.optionsToolStripMenuItem.Size = new System.Drawing.Size(61, 20);
             this.optionsToolStripMenuItem.Text = "Options";
@@ -83,7 +85,15 @@ namespace VM12
             this.refreshToolStripMenuItem.Text = "Refresh";
             this.refreshToolStripMenuItem.Click += new System.EventHandler(this.refreshToolStripMenuItem_Click);
             // 
-            // Instruction_frequency
+            // fractionsToolStripMenuItem
+            // 
+            this.fractionsToolStripMenuItem.CheckOnClick = true;
+            this.fractionsToolStripMenuItem.Name = "fractionsToolStripMenuItem";
+            this.fractionsToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.fractionsToolStripMenuItem.Text = "Fractions";
+            this.fractionsToolStripMenuItem.Click += new System.EventHandler(this.fractionsToolStripMenuItem_Click);
+            // 
+            // Frequency_dialog
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
@@ -91,7 +101,7 @@ namespace VM12
             this.Controls.Add(this.instructionFrequencyListView);
             this.Controls.Add(this.menuStrip);
             this.MainMenuStrip = this.menuStrip;
-            this.Name = "Instruction_frequency";
+            this.Name = "Frequency_dialog";
             this.Text = "Frequency_dialog";
             this.Load += new System.EventHandler(this.Instruction_frequency_Load);
             this.menuStrip.ResumeLayout(false);
@@ -108,5 +118,6 @@ namespace VM12
         private System.Windows.Forms.MenuStrip menuStrip;
         private System.Windows.Forms.ToolStripMenuItem optionsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem refreshToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem fractionsToolStripMenuItem;
     }
 }

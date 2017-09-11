@@ -1,5 +1,22 @@
 ﻿namespace VM12_Opcode
 {
+    public enum JumpMode
+    {
+        Jmp,
+        Z, Nz,
+        C, Cz,
+        Gz, Lz,
+        Ge, Le,
+        Eq, Neq,
+        Ro,
+        
+        Z_l = 128, Nz_l,
+        Gz_l, Lz_l,
+        Ge_l, Le_l,
+        Eq_l, Neq_l,
+        Ro_l
+    }
+
     public enum Opcode
     {
         Nop,
@@ -24,13 +41,20 @@
         Mul, Div,
         Eni, Dsi, Hlt,
         Jmp,
-        Jmp_z, Jmp_nz,
-        Jmp_c, Jmp_cz,
-        Jmp_gz, Jmp_lz,
-        Jmp_z_l, Jmp_nz_l,
+        _Jmp_z, _Jmp_nz,
+        _Jmp_c, _Jmp_cz,
+        _Jmp_gz, _Jmp_lz, 
+        _Jmp_z_l, _Jmp_nz_l,
         Call, Call_v,
         Ret, Ret_1, Ret_2, Ret_v,
         Memc,
+        
+        Inc_local, Inc_local_l,
+        Dec_local, Dec_local_l,
+        Mul_2,
+        Fc, Fc_b,
+        _Jmp_lz_l, _Jmp_gz_l,
+        Mul_l, Mul_2_l,
     }
 
     public enum Opcode_old : short

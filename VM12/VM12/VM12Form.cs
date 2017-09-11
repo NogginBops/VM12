@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Windows.Forms;
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
 
 namespace VM12
 {
@@ -25,18 +26,56 @@ namespace VM12
         byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
         int[] vram = new int[Memory.VRAM_SIZE];
+
+        System.Threading.Timer perfTimer;
         
+        Dictionary<string, int> sourceHitCount = new Dictionary<string, int>();
+
+        private void MeasurePerf(object state)
+        {
+            if (vm12 != null)
+            {
+                VM12.ProcMetadata data = vm12.CurrentMetadata;
+                if (data != null)
+                {
+                    string key = $"{data.file}:{vm12.GetSourceCodeLineFromMetadataAndOffset(data, vm12.ProgramCounter)}";
+                    if (sourceHitCount.TryGetValue(key, out int val))
+                    {
+                        sourceHitCount[key] = val + 1;
+                    }
+                    else
+                    {
+                        sourceHitCount[key] = 1;
+                    }
+                }
+            }
+        }
+
         public VM12Form()
         {
             InitializeComponent();
-
+            
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
 
             Shown += (s, e1) => LoadProgram();
 
+            // SetSize(480);
+
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
 #endif
+        }
+
+        private void SetSize(int height, InterpolationMode scaleMode = InterpolationMode.Default)
+        {
+            SetSize((int)((height / (decimal)3) * 4), height, scaleMode);
+        }
+
+        private void SetSize(int width, int height, InterpolationMode scaleMode = InterpolationMode.Default)
+        {
+            this.Width = width + 16;
+            this.Height = height + 63;
+            pbxMain.SizeMode = PictureBoxSizeMode.StretchImage;
         }
         
         private void LoadProgram()
@@ -70,6 +109,7 @@ namespace VM12
                     if (vm12 != null && vm12.Running)
                     {
                         vm12.Stop();
+                        perfTimer.Dispose();
                     }
 
 #if !DEBUG
@@ -78,6 +118,8 @@ namespace VM12
                     FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
 
                     vm12 = new VM12(rom, metadataFile);
+
+                    
 #endif
 
                     read_mem = vm12.ReadMemory;
@@ -89,12 +131,14 @@ namespace VM12
 
                     thread.Name = "VM12";
                     thread.Start();
+
+                    perfTimer = new System.Threading.Timer(MeasurePerf, null, 0, 1);
                 });
             }
         }
 
         long lastIntsructionCount = -1;
-        double maxInstructionsPerSecond = 60000000000;
+        double maxInstructionsPerSecond = 600000000;
         double utilization = 0;
 
         int timer = 0;
@@ -130,7 +174,7 @@ namespace VM12
                     timer = 0;
 
                     Text = vm12.Stopped ? "Stopped" : "Running";
-                    Text += $" Instructions executed: {vm12.Ticks / 1000000}m, Utilization: {utilization:P}, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, FP: {vm12.FPWatermark}, SP: {vm12.SPWatermark}";
+                    Text += $" Inst executed: {vm12.Ticks / 1000000}m, Util: {utilization:P}, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, SP: {vm12.SPWatermark}, FP: {vm12.FPWatermark}, ";
                 }
             }
             else
@@ -216,78 +260,17 @@ namespace VM12
             }
 #endif
         }
-
-        //TODO: Fix more resonable keybindings and more info about releases and presses of buttons
-        static Dictionary<Keys, short> keycode_transformations = new Dictionary<Keys, short>()
-        {
-            { Keys.A, 0 },
-            { Keys.B, 1 },
-            { Keys.C, 2 },
-            { Keys.D, 3 },
-            { Keys.E, 4 },
-            { Keys.F, 5 },
-            { Keys.G, 6 },
-            { Keys.H, 7 },
-            { Keys.I, 8 },
-            { Keys.J, 9 },
-            { Keys.K, 10 },
-            { Keys.L, 11 },
-            { Keys.M, 12 },
-            { Keys.N, 13 },
-            { Keys.O, 14 },
-            { Keys.P, 15 },
-            { Keys.Q, 16 },
-            { Keys.R, 17 },
-            { Keys.S, 18 },
-            { Keys.T, 19 },
-            { Keys.U, 20 },
-            { Keys.V, 21 },
-            { Keys.W, 22 },
-            { Keys.X, 23 },
-            { Keys.Y, 24 },
-            { Keys.Z, 25 },
-
-            { Keys.D0, 26 },
-            { Keys.D1, 27 },
-            { Keys.D2, 28 },
-            { Keys.D3, 29 },
-            { Keys.D4, 30 },
-            { Keys.D5, 31 },
-            { Keys.D6, 32 },
-            { Keys.D7, 33 },
-            { Keys.D8, 34 },
-            { Keys.D9, 35 },
-            
-            { Keys.D1 | Keys.Shift, 36 }, // !
-            { Keys.Oemplus | Keys.Shift, 37 }, // ?
-            { Keys.OemPeriod | Keys.Shift, 38 }, // :
-            { Keys.Oemcomma | Keys.Shift, 39 }, // ;
-            { Keys.OemPeriod, 40 }, // .
-            { Keys.Oemcomma, 41 }, // ,
-            { Keys.D8 | Keys.Shift, 42 }, // (
-            { Keys.D9 | Keys.Shift, 43 }, // )
-            { Keys.Oemplus, 44 }, // +
-            { Keys.OemMinus, 45 }, // -
-            { Keys.D7 | Keys.Shift, 46 }, // /
-            { Keys.D2 | Keys.Shift, 47 }, // "
-            { Keys.OemMinus | Keys.Shift, 48 }, // _
-            { Keys.Space, 49 }
-        };
-
+        
         private void VM12Form_KeyDown(object sender, KeyEventArgs e)
         {
-            if (keycode_transformations.TryGetValue(e.KeyCode | ModifierKeys, out short code))
-            {
-                vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { code }));
-            }
+            Debug.WriteLine($"Keycode: {(int)e.KeyCode:X2}");
+            
+            vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { (short) 1, (short) e.KeyCode }));
         }
 
         private void VM12Form_KeyUp(object sender, KeyEventArgs e)
         {
-            if (keycode_transformations.TryGetValue(e.KeyCode | ModifierKeys, out short code))
-            {
-                vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { code }));
-            }
+            vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { (short) 0, (short) e.KeyCode }));
         }
 
         private void stopToolStripMenuItem_Click(object sender, EventArgs e)
@@ -318,25 +301,46 @@ namespace VM12
         }
 
         int currentButtons;
+        
+        private int map(int value, int min, int max, int newMin, int newMax)
+        {
+            if (min == max)
+            {
+                return newMin;
+            }
+            else
+            {
+                return (int)(newMin + (((double)(value - min) / (max - min)) * newMax));
+            }
+        }
 
         private void pbxMain_MouseMove(object sender, MouseEventArgs e)
         {
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y), (short)currentButtons }));
+            int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
+            int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
-            lastPosX = e.X;
-            lastPosY = e.Y;
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(x), (short)(y), (short)currentButtons }));
+
+            lastPosX = x;
+            lastPosY = y;
         }
 
         private void pbxMain_MouseDown(object sender, MouseEventArgs e)
         {
+            int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
+            int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
+
             PressButtons(e.Button);
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y), (short)currentButtons }));
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(x), (short)(y), (short)currentButtons }));
         }
 
         private void pbxMain_MouseUp(object sender, MouseEventArgs e)
         {
+            int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
+            int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
+
             ReleaseButtons(e.Button);
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(e.X), (short)(e.Y), (short)currentButtons }));
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(x), (short)(y), (short)currentButtons }));
         }
         
         private void pbxMain_MouseEnter(object sender, EventArgs e)
@@ -358,6 +362,18 @@ namespace VM12
         private void hTimer_Tick(object sender, EventArgs e)
         {
             vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new short[] { (short) hTimer.Interval }));
+        }
+
+        private void instructionTimesToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+#if DEBUG
+            if (vm12 != null)
+            {
+                //Frequency_dialog<VM12_Opcode.Opcode> instructionFreq = new Frequency_dialog<VM12_Opcode.Opcode>(sourceHitCount, "Opcode Times", "Opcode", op => (int)op);
+
+                //instructionFreq.Show();
+            }
+#endif
         }
     }
 }

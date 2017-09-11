@@ -37,6 +37,7 @@
             this.instructionFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.interruptFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.interruptFrequencyToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
+            this.instructionTimesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
             this.hTimer = new System.Windows.Forms.Timer(this.components);
@@ -83,7 +84,8 @@
             this.developerToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.instructionFrequencyToolStripMenuItem,
             this.interruptFrequencyToolStripMenuItem,
-            this.interruptFrequencyToolStripMenuItem1});
+            this.interruptFrequencyToolStripMenuItem1,
+            this.instructionTimesToolStripMenuItem});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -109,6 +111,13 @@
             this.interruptFrequencyToolStripMenuItem1.Text = "Interrupt Frequency";
             this.interruptFrequencyToolStripMenuItem1.Click += new System.EventHandler(this.interruptFrequencyToolStripMenuItem1_Click);
             // 
+            // instructionTimesToolStripMenuItem
+            // 
+            this.instructionTimesToolStripMenuItem.Name = "instructionTimesToolStripMenuItem";
+            this.instructionTimesToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.instructionTimesToolStripMenuItem.Text = "Instruction Times";
+            this.instructionTimesToolStripMenuItem.Click += new System.EventHandler(this.instructionTimesToolStripMenuItem_Click);
+            // 
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
@@ -117,12 +126,13 @@
             // 
             // pbxMain
             // 
-            this.pbxMain.Cursor = System.Windows.Forms.Cursors.No;
+            this.pbxMain.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Stretch;
+            this.pbxMain.Cursor = System.Windows.Forms.Cursors.Default;
             this.pbxMain.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pbxMain.Location = new System.Drawing.Point(0, 24);
-            this.pbxMain.MinimumSize = new System.Drawing.Size(640, 480);
             this.pbxMain.Name = "pbxMain";
             this.pbxMain.Size = new System.Drawing.Size(640, 480);
+            this.pbxMain.SizeMode = System.Windows.Forms.PictureBoxSizeMode.StretchImage;
             this.pbxMain.TabIndex = 1;
             this.pbxMain.TabStop = false;
             this.pbxMain.MouseDown += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseDown);
@@ -174,6 +184,7 @@
         private System.Windows.Forms.ToolStripMenuItem stopToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem1;
+        private System.Windows.Forms.ToolStripMenuItem instructionTimesToolStripMenuItem;
     }
 }
 
