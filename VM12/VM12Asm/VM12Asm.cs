@@ -78,9 +78,14 @@ namespace VM12Asm
                 Raw = raw;
                 Usings = usigns;
                 Constants = constants;
-                Procs = procs; //.OrderBy(proc => proc.Key == "start" ? 1 : 0).ToDictionary(kpv => kpv.Key, kpv => kpv.Value);
+                Procs = procs;
                 Breakpoints = breakpoints;
                 Flags = flags;
+            }
+
+            public override string ToString()
+            {
+                return $"{{AsemFile: Procs: {Procs.Count}, Breaks: {Breakpoints.Count}, Flags: '{string.Join(",", Flags)}' }}";
             }
         }
 
@@ -117,6 +122,8 @@ namespace VM12Asm
         const int ROM_SIZE = 12275712;
 
         const short ROM_OFFSET_UPPER_BITS = 0x44B;
+
+        const int VRAM_OFFSET = 0x400_000;
 
         public delegate string TemplateFormater(params object[] values);
 
@@ -197,7 +204,7 @@ namespace VM12Asm
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
 
-        static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)>");
+        static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+|extern|auto\\((0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)\\))>");
 
         static Regex label = new Regex(":[A-Za-z][A-Za-z0-9_]*");
 
@@ -208,6 +215,8 @@ namespace VM12Asm
         static Regex chr = new Regex("'(.)'");
 
         static Regex str = new Regex("\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"");
+
+        static Regex auto = new Regex("auto\\((.*)\\)");
 
         static Dictionary<string, Opcode> opcodes = new Dictionary<string, Opcode>()
         {
@@ -317,6 +326,16 @@ namespace VM12Asm
         static ConsoleColor conColor = Console.ForegroundColor;
 
         static bool verbose = false;
+
+        static bool dump_mem = false;
+
+        static int warnings = 0;
+
+        static Dictionary<string, string> globalConstants = new Dictionary<string, string>();
+
+        static int autoVars = VRAM_OFFSET - 1;
+
+        const int STACK_SIZE = 0x100_000;
 
         public static void Main(params string[] args)
         {
@@ -566,14 +585,15 @@ namespace VM12Asm
             double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
             double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
 
-            Console.WriteLine($"Success!");
+            string warningString = $"Assembled with {warnings} warning{(warnings > 0 ? "" : "s")}.";
+            Console.WriteLine($"Success! {warningString}");
             Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms");
             Console.WriteLine($"Parse: {parse_ms:F4} ms");
             Console.WriteLine($"Assembly: {assembly_ms:F4} ms");
             Console.WriteLine($"Sum: {total_ms_sum:F4} ms");
             Console.WriteLine($"Total: {total_ms:F4} ms");
 
-            if (verbose)
+            if (dump_mem)
             {
                 bool toFile = false;
                 TextWriter output = Console.Out;
@@ -636,7 +656,7 @@ namespace VM12Asm
             }
             
             Console.WriteLine();
-            Console.WriteLine("Done!");
+            Console.WriteLine($"Done! {warningString}");
 
             FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12exe"));
 
@@ -750,7 +770,8 @@ namespace VM12Asm
             Dictionary<string, Proc> procs = new Dictionary<string, Proc>();
             Dictionary<string, List<int>> breakpoints = new Dictionary<string, List<int>>();
             HashSet<string> flags = new HashSet<string>();
-            
+            bool export_const = false;
+
             Proc currProc = new Proc();
             currProc.tokens = new List<Token>();
 
@@ -781,6 +802,14 @@ namespace VM12Asm
                 if (it_line[0] == '!')
                 {
                     flags.Add(it_line);
+                    if (it_line.Trim().Equals("!global"))
+                    {
+                        export_const = true;
+                    }
+                    else if (it_line.Trim().Equals("!private"))
+                    {
+                        export_const = false;
+                    }
                     continue;
                 }
 
@@ -803,7 +832,44 @@ namespace VM12Asm
                 }
                 else if ((c = constant.Match(line)).Success)
                 {
-                    constants[c.Groups[1].Value] = c.Groups[2].Value;
+                    string value = c.Groups[2].Value;
+
+                    Match mauto;
+                    if ((mauto = auto.Match(value)).Success)
+                    {
+                        int size = ToInt(ParseLitteral(file, line_num, mauto.Groups[1].Value, constants));
+                        if (size <= 0)
+                        {
+                            Error(file, line_num, $"Auto const ''{c.Groups[1].Value}' cannot be defined with a length of {size}!");
+                        }
+
+                        if (autoVars - size < STACK_SIZE)
+                        {
+                            Error(file, line_num, $"Auto variable '{c.Groups[1].Value}' cannot be allocated! (Required: {size}, Available: {autoVars - STACK_SIZE}, Diff: {size - (autoVars - STACK_SIZE)})");
+                        }
+
+                        autoVars -= size;
+                        value = $"0x{(autoVars >> 12) & 0xFFF:X3}_{autoVars & 0xFFF:X3}";
+
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.WriteLine($"Defined auto var '{c.Groups[1].Value}' of size {size} to addr {value}");
+                        Console.ForegroundColor = conColor;
+                    }
+
+                    constants[c.Groups[1].Value] = value;
+                    if (export_const)
+                    {
+                        if (value.Equals("extern"))
+                        {
+                            Error(file, line_num, $"Exporing extern constant '{c.Groups[1].Value}'");
+                        }
+
+                        if (globalConstants.ContainsKey(c.Groups[1].Value))
+                        {
+                            Warning(file, line_num, $"Redefining global constant '{c.Groups[1].Value}'");
+                        }
+                        globalConstants[c.Groups[1].Value] = value;
+                    }
                 }
                 else if ((c = str.Match(line)).Success)
                 {
@@ -854,11 +920,11 @@ namespace VM12Asm
                             else
                             {
                                 if (currProc.parameters == null) {
-                                    currProc.parameters = ToInt(ParseLitteral(t.Value, constants));
+                                    currProc.parameters = ToInt(ParseLitteral(file, line_num, t.Value, constants));
                                 }
                                 else if (currProc.locals == null)
                                 {
-                                    currProc.locals = ToInt(ParseLitteral(t.Value, constants));
+                                    currProc.locals = ToInt(ParseLitteral(file, line_num, t.Value, constants));
                                 }
                             }
 
@@ -889,7 +955,7 @@ namespace VM12Asm
 
                             if (l.Groups[3].Success)
                             {
-                                currProc.location = ToInt(ParseLitteral(l.Groups[3].Value, constants));
+                                currProc.location = ToInt(ParseLitteral(file, line_num, l.Groups[3].Value, constants));
 
                                 // Interrupts does not specify parameters and locals!
                                 switch (currProc.location)
@@ -922,8 +988,15 @@ namespace VM12Asm
                     }
                 }
             }
-
-            procs[currProc.name] = currProc;
+            
+            if(currProc.name != null)
+            {
+                procs[currProc.name] = currProc;
+            }
+            else if (currProc.tokens.Count > 0)
+            {
+                Warning(file, currProc.line, $"File contains code but has no proc lable! (This code will be ignored)");
+            }
 
             return new AsemFile(file, usings, constants, procs, breakpoints, flags);
         }
@@ -947,9 +1020,24 @@ namespace VM12Asm
                 success = false;
                 return default(LibFile);
             }
-
+            
             foreach (var file in files)
             {
+                // Resolve all extern consts
+                var externs = file.Value.Constants.Where(kvp => kvp.Value.Equals("extern")).Select(kvp => kvp.Key).ToList();
+
+                foreach (var ext in externs)
+                {
+                    if (globalConstants.TryGetValue(ext, out string value))
+                    {
+                        file.Value.Constants[ext] = value;
+                    }
+                    else
+                    {
+                        Error(file.Value.Raw, 0, $"Could not solve value of extern const '{ext}'");
+                    }
+                }
+
                 offset = 0;
 
                 bool temp_verbose = verbose;
@@ -1017,7 +1105,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
 
                                             if (value.Length == 2)
                                             {
@@ -1060,7 +1148,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(peek.Value , file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
 
                                             if (value.Length <= 2)
                                             {
@@ -1116,7 +1204,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
                                             if (value.Length > 2)
                                             {
                                                 Error(file.Value.Raw, current.Line, $"The litteral {peek.Value} does not fit in 24-bits! {current.Opcode} only takes 24-bit arguments!");
@@ -1151,7 +1239,7 @@ namespace VM12Asm
                                             }
                                             else if (peek.Type == TokenType.Litteral)
                                             {
-                                                short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                                short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
 
                                                 if (value.Length > 2)
                                                 {
@@ -1201,7 +1289,7 @@ namespace VM12Asm
                                     case Opcode.Dec_local_l:
                                         if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(peek.Value, file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
                                             if (value.Length > 1)
                                             {
                                                 Error(file.Value.Raw, current.Line, $"{current.Opcode} only takes a single word argument!");
@@ -1227,7 +1315,7 @@ namespace VM12Asm
                             case TokenType.Litteral:
                                 if (verbose) Console.WriteLine($"Litteral {current.Value}");
 
-                                short[] values = ParseLitteral(current.Value, file.Value.Constants);
+                                short[] values = ParseLitteral(file.Value.Raw, current.Line, current.Value, file.Value.Constants);
 
                                 ShiftBreakpoints(file.Value, proc.Key, instructions.Count, values.Length);
 
@@ -1296,6 +1384,22 @@ namespace VM12Asm
                 }
             }
 
+            var metadataArray = metadata.Values.ToArray();
+
+            for (int i = 0; i < metadataArray.Length - 1; i++)
+            {
+                for (int j = i + 1; j < metadataArray.Length; j++)
+                {
+                    var meta1 = metadataArray[i];
+                    var meta2 = metadataArray[j];
+
+                    if (meta1.location <= meta2.location + (meta2.size - 1) && meta2.location <= meta1.location + (meta1.size - 1))
+                    {
+                        Warning(meta1.source, meta1.line, $"The procs {meta1.name} and {meta2.name} overlap!");
+                    }
+                }
+            }
+
             if (verbose) Console.WriteLine();
 
             foreach (var proc in assembledProcs)
@@ -1322,10 +1426,7 @@ namespace VM12Asm
                     }
                     else
                     {
-                        Console.ForegroundColor = ConsoleColor.Red;
                         Error(metadata[proc.Key].source, metadata[proc.Key].assembledSource.Procs[proc.Key.name].tokens.Find(t => t.Value == use.Value).Line, $"Could not solve label! {use.Value} in proc {proc.Key.name}");
-                        if (verbose) Console.WriteLine($"Could not solve label! {use.Value} in proc {proc.Key.name}");
-                        Console.ForegroundColor = conColor;
                     }
                 }
 
@@ -1354,109 +1455,136 @@ namespace VM12Asm
             return new LibFile(compiledInstructions, metadata.Values.ToArray(), usedInstructions);
         }
 
-        static short[] ParseLitteral(string litteral, Dictionary<string, string> constants)
+        static short[] ParseLitteral(RawFile file, int line, string litteral, Dictionary<string, string> constants)
         {
+            string val_str;
             short[] value = new short[0];
             if (num.IsMatch(litteral))
             {
-                value = ParseNumber(litteral);
+                value = ParseNumber(file, line, litteral);
             }
             else if (chr.Match(litteral).Success)
             {
-                value = ParseString(litteral, true);
+                value = ParseString(file, line, litteral, true);
             }
             else if (str.Match(litteral).Success)
             {
                 // TODO: Have a "raw" flag!
-                value = ParseString(litteral, false);
+                value = ParseString(file, line, litteral, false);
             }
-            else if (constants.TryGetValue(litteral, out string val_str))
+            else if (constants.TryGetValue(litteral, out val_str))
             {
-                value = ParseNumber(val_str);
+                value = ParseNumber(file, line, val_str);
+            }
+            else if (globalConstants.TryGetValue(litteral, out val_str))
+            {
+                value = ParseNumber(file, line, val_str);
             }
 
             return value;
         }
 
-        static short[] ParseNumber(string litteral)
+        static short[] ParseNumber(RawFile file, int line, string litteral)
         {
             litteral = litteral.Replace("_", "");
 
-            short[] ret;
-            
-            if (litteral.StartsWith("0x"))
-            {
-                litteral = litteral.Substring(2);
-                if (litteral.Length % 3 != 0)
-                {
-                    litteral = new string('0', 3 - (litteral.Length % 3)) + litteral;
-                }
-                ret = Enumerable.Range(0, litteral.Length)
-                    .GroupBy(x => x / 3)
-                    .Select(g => g.Select(i => litteral[i]))
-                    .Select(s => String.Concat(s))
-                    .Select(s => Convert.ToInt16(s, 16))
-                    .Reverse()
-                    .ToArray();
-            }
-            else if (litteral.StartsWith("8x"))
-            {
-                litteral = litteral.Substring(2);
-                if (litteral.Length % 4 != 0)
-                {
-                    litteral = new string('0', 4 - (litteral.Length % 4)) + litteral;
-                }
-                ret = Enumerable.Range(0, litteral.Length)
-                    .GroupBy(x => x / 4)
-                    .Select(g => g.Select(i => litteral[i]))
-                    .Select(s => String.Concat(s))
-                    .Select(s => Convert.ToInt16(s, 8))
-                    .Reverse()
-                    .ToArray();
-            }
-            else if (litteral.StartsWith("0b"))
-            {
-                litteral = litteral.Substring(2);
-                if (litteral.Length % 12 != 0)
-                {
-                    litteral = new string('0', 12 - (litteral.Length % 12)) + litteral;
-                }
-                ret = Enumerable.Range(0, litteral.Length)
-                    .GroupBy(x => x / 12)
-                    .Select(g => g.Select(i => litteral[i]))
-                    .Select(s => String.Concat(s))
-                    .Select(s => Convert.ToInt16(s, 2))
-                    .Reverse()
-                    .ToArray();
-            }
-            else
-            {
-                List<short> values = new List<short>();
-                int value = Convert.ToInt32(litteral, 10);
-                int itt = 0;
-                do
-                {
-                    values.Add((short)((value >> (12 * itt)) & _12BIT_MASK));
-                } while ((value >> (12 * itt++)) >= 4096);
+            short[] ret = null;
 
-                ret = values.ToArray();
+            try
+            {
+                if (litteral.StartsWith("0x"))
+                {
+                    litteral = litteral.Substring(2);
+                    if (litteral.Length % 3 != 0)
+                    {
+                        litteral = new string('0', 3 - (litteral.Length % 3)) + litteral;
+                    }
+                    ret = Enumerable.Range(0, litteral.Length)
+                        .GroupBy(x => x / 3)
+                        .Select(g => g.Select(i => litteral[i]))
+                        .Select(s => String.Concat(s))
+                        .Select(s => Convert.ToInt16(s, 16))
+                        .Reverse()
+                        .ToArray();
+                }
+                else if (litteral.StartsWith("8x"))
+                {
+                    litteral = litteral.Substring(2);
+                    if (litteral.Length % 4 != 0)
+                    {
+                        litteral = new string('0', 4 - (litteral.Length % 4)) + litteral;
+                    }
+                    ret = Enumerable.Range(0, litteral.Length)
+                        .GroupBy(x => x / 4)
+                        .Select(g => g.Select(i => litteral[i]))
+                        .Select(s => String.Concat(s))
+                        .Select(s => Convert.ToInt16(s, 8))
+                        .Reverse()
+                        .ToArray();
+                }
+                else if (litteral.StartsWith("0b"))
+                {
+                    litteral = litteral.Substring(2);
+                    if (litteral.Length % 12 != 0)
+                    {
+                        litteral = new string('0', 12 - (litteral.Length % 12)) + litteral;
+                    }
+                    ret = Enumerable.Range(0, litteral.Length)
+                        .GroupBy(x => x / 12)
+                        .Select(g => g.Select(i => litteral[i]))
+                        .Select(s => String.Concat(s))
+                        .Select(s => Convert.ToInt16(s, 2))
+                        .Reverse()
+                        .ToArray();
+                }
+                else
+                {
+                    List<short> values = new List<short>();
+                    int value = Convert.ToInt32(litteral, 10);
+                    int itt = 0;
+                    do
+                    {
+                        values.Add((short)((value >> (12 * itt)) & _12BIT_MASK));
+                    } while ((value >> (12 * itt++)) >= 4096);
+
+                    ret = values.ToArray();
+                }
+            }
+            catch (Exception e)
+            {
+                Error(file, line, $"Error when parsing number '{litteral}': '{e}'");
+#if DEBUG
+                throw e;
+#endif
             }
             
             return ret;
         }
 
-        static short[] ParseString(string litteral, bool raw)
+        static short[] ParseString(RawFile file, int line, string litteral, bool raw)
         {
             // This might return veird things for weird strings. But this compiler isn't made to be robust
-            short[] data = Array.ConvertAll(Encoding.ASCII.GetBytes(litteral.Substring(1, litteral.Length - 2)), b => (short)b);
-            Array.Reverse(data);
-            if (!raw)
+            short[] data = null;
+            try
             {
-                int str_length = data.Length;
-                Array.Resize(ref data, data.Length + 2);
-                data[data.Length - 2] = (short)(str_length & 0xFFF);
-                data[data.Length - 1] = (short)((str_length << 12) & 0xFFF);
+                data = Array.ConvertAll(Encoding.ASCII.GetBytes(litteral.Substring(1, litteral.Length - 2)), b => (short)b);
+                Array.Reverse(data);
+                if (!raw)
+                {
+                    int str_length = data.Length;
+                    Array.Resize(ref data, data.Length + 2);
+                    data[data.Length - 2] = (short)(str_length & 0xFFF);
+                    data[data.Length - 1] = (short)((str_length << 12) & 0xFFF);
+                }
             }
+            catch (Exception e)
+            {
+                Error(file, line, $"Error when parsing string '{litteral}': '{e.Message}'");
+#if DEBUG
+                throw e;
+#endif
+            }
+
             return data;
         }
 
@@ -1482,16 +1610,35 @@ namespace VM12Asm
                     return -1;
             }
         }
+
+        static void Warning(RawFile file, int line, string warning)
+        {
+            ConsoleColor orig = Console.ForegroundColor;
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+
+            FileInfo info = new FileInfo(file.path);
+
+            Console.WriteLine($"Warning in file \"{info.Name}\" at line {line}: '{warning}'");
+
+            warnings++;
+
+            Console.ForegroundColor = orig;
+        }
         
         static void Error(RawFile file, int line, string error)
         {
             Console.ForegroundColor = ConsoleColor.Red;
 
             FileInfo info = new FileInfo(file.path);
-            
-            Console.WriteLine($"Error in file \"{info.Name}\" at line {line}: '{error}'");
 
+            string message = $"Error in file \"{info.Name}\" at line {line}: '{error}'";
+
+            Console.WriteLine(message);
+
+#if DEBUG
             Debugger.Break();
+#endif
 
             Environment.Exit(1);
         }

@@ -811,7 +811,7 @@ namespace VM12
                         case Opcode.Sub:
                             // TODO: The sign might not work here!
                             int sub_temp = mem[SP - 1] - mem[SP];
-                            carry = sub_temp > 0xFFF;
+                            carry = ((uint) sub_temp) > 0xFFF;
                             SP--;
                             mem[SP] = sub_temp - (carry ? 0x1000 : 0);
                             PC++;
@@ -821,7 +821,7 @@ namespace VM12
                             int sub2 = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]); //ToInt(mem[SP - 3], mem[SP - 2]);
                             SP -= 2;
                             sub2 -= sub1;
-                            carry = sub2 >> 12 > 0xFFF;
+                            carry = ((uint)sub2 >> 12) > 0xFFF;
                             mem[SP - 1] = sub2 >> 12;
                             mem[SP] = sub2 & 0xFFF;
                             PC++;
@@ -1124,7 +1124,6 @@ namespace VM12
                                 default:
                                     break;
                             }
-                            
                             break;
                         case Opcode.Call:
                             int call_addr = (mem[PC + 1] << 12) | (ushort)(mem[PC + 2]);
