@@ -1,4 +1,6 @@
-﻿using System;
+﻿#define BREAKS
+
+using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Linq;
@@ -24,9 +26,9 @@ namespace VM12
     class Interrupt
     {
         public readonly InterruptType Type;
-        public readonly short[] Args;
+        public readonly int[] Args;
 
-        public Interrupt(InterruptType type, short[] args)
+        public Interrupt(InterruptType type, int[] args)
         {
             Type = type;
             Args = args;
@@ -67,7 +69,7 @@ namespace VM12
         {
             Array.Copy(MEM, VRAM_START + index, vram, 0, vram.Length);
         }
-
+        
         public void GetROM(int[] rom, int index)
         {
             Array.Copy(MEM, ROM_START + index, rom, 0, rom.Length);
@@ -99,54 +101,18 @@ namespace VM12
             }
         }
     }
-
-    struct ReadOnlyMemory
-    {
-        readonly Memory mem;
-
-        public bool HasMemory => mem != null;
-
-        public ReadOnlyMemory(Memory mem)
-        {
-            this.mem = mem;
-        }
-
-        public void GetRAM(int[] ram, int index)
-        {
-            mem.GetRAM(ram, index);
-        }
-
-        public void GetVRAM(int[] vram, int index)
-        {
-            mem.GetVRAM(vram, index);
-        }
-
-        public void GetROM(int[] rom, int index)
-        {
-            mem.GetROM(rom, index);
-        }
-
-        public int this[int i]
-        {
-            get => mem[i];
-        }
-    }
-
-    class VM12
+    
+    unsafe class VM12
     {
         public const int SCREEN_WIDTH = 640;
         public const int SCREEN_HEIGHT = 480;
 
-        int[] MEM = new int[Memory.MEM_SIZE];
-
-        Memory memory;
-
-        public Memory ReadMemory => memory;
-
+        public int[] MEM = new int[Memory.MEM_SIZE];
+        
         HashSet<InterruptType> activeInterrupts = new HashSet<InterruptType>();
 
         volatile Interrupt intrr = null;
-        
+
         public void Interrupt(Interrupt interrupt)
         {
             if (interruptsEnabled && intrr == null)
@@ -188,19 +154,18 @@ namespace VM12
         public int FramePointer => FP;
         public bool InterruptsEnabled => interruptsEnabled;
         public long Ticks => programTime;
-        
+
         public int SPWatermark = int.MinValue;
         public int FPWatermark = int.MinValue;
 
 #if !DEBUG
         public VM12(short[] ROM)
         {
-            memory = new Memory(MEM);
-            memory.SetROM(Array.ConvertAll(ROM, i => (int) i));
+            Array.Copy(ROM, 0, MEM, Memory.ROM_START, ROM.Length);
         }
 #elif DEBUG
 
-        public const bool BreaksEnabled = true;
+        // public const bool BreaksEnabled = true;
 
         public static int InterruptTypeToInt(InterruptType type)
         {
@@ -258,6 +223,57 @@ namespace VM12
             public StackFrame prev;
             public int locals;
             public int[] localValues;
+        }
+
+        struct AutoConst
+        {
+            public readonly string Name;
+            public readonly int Addr;
+            public readonly int Length;
+
+            public AutoConst(string name, int addr, int length)
+            {
+                Name = name;
+                Addr = addr;
+                Length = length;
+            }
+        }
+
+        Dictionary<string, AutoConst> autoConsts = new Dictionary<string, AutoConst>();
+
+        int GetConstValue(string name)
+        {
+            AutoConst constant = autoConsts[name];
+            return GetConstValue(constant);
+        }
+
+        int GetConstValue(AutoConst constant)
+        {
+            switch (constant.Length)
+            {
+                case 1:
+                    return MEM[constant.Addr];
+                case 2:
+                    return MEM[constant.Addr] << 12 | MEM[constant.Addr + 1];
+                default:
+                    // TODO: Maybe better printout
+                    return MEM[constant.Addr] << 12 | MEM[constant.Addr + 1];
+            }
+        }
+
+        Dictionary<string, int> ConstValues
+        {
+            get 
+            {
+                Dictionary<string, int> values = new Dictionary<string, int>();
+
+                foreach (var c in autoConsts)
+                {
+                    values[c.Key] = GetConstValue(c.Value);
+                }
+
+                return values;
+            }
         }
 
         List<ProcMetadata> metadata = new List<ProcMetadata>();
@@ -468,11 +484,10 @@ namespace VM12
         
         public VM12(short[] ROM, FileInfo metadata)
         {
-            memory = new Memory(MEM);
-            memory.SetROM(Array.ConvertAll(ROM, i => (int) i));
-
+            Array.Copy(ROM, 0, MEM, Memory.ROM_START, ROM.Length);
+            
             ParseMetadata(metadata);
-
+            
             breaks = new bool[MEM.Length];
             foreach (var data in this.metadata)
             {
@@ -517,6 +532,21 @@ namespace VM12
                         string argument = match.Groups[2].Value;
                         switch (command)
                         {
+                            case "constant":
+                                string[] values = argument.Split(new[] { '{', ',', '}' }, StringSplitOptions.RemoveEmptyEntries);
+
+                                if (values.Length != 3)
+                                {
+                                    throw new ArgumentException("A constant entry must consist of three values; name, length, addr!");
+                                }
+
+                                int length = int.Parse(values[1]);
+                                int addr = Convert.ToInt32(values[2].Substring(2).Replace("_", ""), 16);
+
+                                AutoConst constant = new AutoConst(values[0], addr, length);
+
+                                autoConsts[values[0]] = constant;
+                                break;
                             case "file":
                                 currMetadata.file = argument;
 
@@ -584,14 +614,8 @@ namespace VM12
 
         public unsafe void Start()
         {
-            //Stopwatch sw = new Stopwatch();
-
-            //sw.Start();
-
             Running = true;
-
-            Stopwatch watch = new Stopwatch();
-
+            
             fixed (int* mem = MEM)
             {
                 // Add start frame
@@ -603,9 +627,9 @@ namespace VM12
                 mem[this.FP + 4] = this.locals = 0; ;   // No locals
                 this.SP = this.FP + 4;
                 
-                int PC = this.PC;
-                int SP = this.SP;
-                int FP = this.FP;
+                //int PC = this.PC;
+                //int SP = this.SP;
+                //int FP = this.FP;
                 int FPloc = this.FP;
 
                 while (true)
@@ -625,13 +649,13 @@ namespace VM12
                         }
 
                         int last_fp = FP;
-                        mem[++SP] = (short)((PC >> 12) & 0xFFF);    // Return addr
+                        mem[++SP] = (PC >> 12) & 0xFFF;     // Return addr
                         //FP = SP;
-                        mem[++SP] = (short)(PC & 0xFFF);
-                        mem[++SP] = (short)((FP >> 12) & 0xFFF);    // Prev FP
-                        mem[++SP] = (short)(FP & 0xFFF);
-                        mem[++SP] = (short)intrr.Args.Length;       // Locals
-                        FP = SP - 4;                                // Set the Frame Pointer
+                        mem[++SP] = PC & 0xFFF;
+                        mem[++SP] = (FP >> 12) & 0xFFF;     // Prev FP
+                        mem[++SP] = FP & 0xFFF;
+                        mem[++SP] = intrr.Args.Length;      // Locals
+                        FP = SP - 4;                        // Set the Frame Pointer
                         locals = mem[FP + 4];
                         FPloc = FP - locals;
                         PC = (int)intrr.Type;
@@ -643,13 +667,13 @@ namespace VM12
 
 #if DEBUG
                     instructionFreq[(int)op]++;
-
-                    if (BreaksEnabled && breaks[PC])
+#if BREAKS
+                    if (breaks[PC])
                     {
                         ;
                         //Debugger.Break();
                     }
-                    
+#endif
 #endif
                     switch (op)
                     {
@@ -659,7 +683,7 @@ namespace VM12
                         case Opcode.Pop:
                             SP--;
 #if DEBUG
-                            if (FP > -1 && SP < FP + 4)
+                            if (FP > 0 && SP < FP + 4)
                             {
                                 Debugger.Break();
                             }
@@ -688,7 +712,7 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Load_sp:
-                            int load_sp_address = (mem[SP - 1] << 12) | (ushort)(mem[SP]); //ToInt(mem[SP - 1], mem[SP]);
+                            int load_sp_address = (mem[SP - 1] << 12) | (ushort)(mem[SP]);
                             mem[SP - 1] = mem[load_sp_address];
                             SP--;
                             PC++;
@@ -797,8 +821,8 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Add_l:
-                            int add1 = (mem[SP - 1] << 12) | (ushort)(mem[SP]); //ToInt(mem[SP - 1], mem[SP]);
-                            int add2 = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]); //ToInt(mem[SP - 3], mem[SP - 2]);
+                            int add1 = (mem[SP - 1] << 12) | (ushort)(mem[SP]);
+                            int add2 = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]);
                             SP -= 2;
                             add2 += add1;
                             carry = add2 >> 12 > 0xFFF;
@@ -813,12 +837,12 @@ namespace VM12
                             int sub_temp = mem[SP - 1] - mem[SP];
                             carry = ((uint) sub_temp) > 0xFFF;
                             SP--;
-                            mem[SP] = sub_temp - (carry ? 0x1000 : 0);
+                            mem[SP] = sub_temp & 0xFFF;
                             PC++;
                             break;
                         case Opcode.Sub_l:
-                            int sub1 = (mem[SP - 1] << 12) | (ushort)(mem[SP]); //ToInt(mem[SP - 1], mem[SP]);
-                            int sub2 = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]); //ToInt(mem[SP - 3], mem[SP - 2]);
+                            int sub1 = (mem[SP - 1] << 12) | (ushort)(mem[SP]);
+                            int sub2 = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]);
                             SP -= 2;
                             sub2 -= sub1;
                             carry = ((uint)sub2 >> 12) > 0xFFF;
@@ -831,7 +855,7 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Neg_l:
-                            int neg_l_val = -((mem[SP - 1] << 12) | (ushort)(mem[SP])); //-ToInt(mem[SP - 1], mem[SP]);
+                            int neg_l_val = -((mem[SP - 1] << 12) | (ushort)(mem[SP]));
                             mem[SP] = neg_l_val & 0xFFF;
                             mem[SP - 1] = neg_l_val >> 12;
                             PC++;
@@ -913,14 +937,14 @@ namespace VM12
                             break;
                         case Opcode.Mul:
                             int mul_value = (mem[SP - 1] * mem[SP]);
-                            carry = mul_value > 0xFFF ? true : false;
+                            carry = mul_value > 0xFFF;
                             mem[SP - 1] = mul_value & 0xFFF;
                             SP--;
                             PC++;
                             break;
                         case Opcode.Div:
                             int div_value = (mem[SP - 1] / mem[SP]);
-                            carry = div_value > 0xFFF ? true : false;
+                            carry = div_value > 0xFFF;
                             mem[SP - 1] = div_value & 0xFFF;
                             SP--;
                             PC++;
@@ -996,7 +1020,7 @@ namespace VM12
                                     }
                                     break;
                                 case JumpMode.Gz:
-                                    if (mem[SP] > 0)
+                                    if ((mem[SP] & 0x800) == 0)
                                     {
                                         PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
                                     }
@@ -1029,8 +1053,8 @@ namespace VM12
                                     SP--;
                                     break;
                                 case JumpMode.Le:
-                                    int le_temp = mem[SP] - 0x800;
-                                    if (le_temp == 0 || (le_temp & 0x800) >= 0)
+                                    int le_temp = mem[SP];
+                                    if (le_temp == 0 || (le_temp & 0x800) > 0)
                                     {
                                         PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
                                     }
@@ -1101,7 +1125,7 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Lz_l:
-                                    if ((mem[SP - 1] << 12 | mem[SP]) < 0)
+                                    if ((mem[SP - 1] & 0x800) > 0)
                                     {
                                         PC = mem[PC + 1] << 12 | mem[PC + 2];
                                     }
@@ -1172,6 +1196,21 @@ namespace VM12
                             mem[SP] = ret_val_2;
                             break;
                         case Opcode.Ret_v:
+                            int return_values = mem[PC + 1];
+                            int* values = stackalloc int[return_values];
+                            for (int i = 0; i < return_values; i++)
+                            {
+                                values[i] = mem[SP - i];
+                            }
+                            SP = FP - 1 - mem[FP + 4] + return_values;
+                            PC = mem[FP] << 12 | (ushort)mem[FP + 1];
+                            FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
+                            this.locals = mem[FP + 4];
+                            FPloc = FP - this.locals;
+                            for (int i = 0; i < return_values; i++)
+                            {
+                                mem[SP - i] = values[i];
+                            }
                             break;
                         case Opcode.Memc:
                             //const int INT_SIZE = 4;
@@ -1260,18 +1299,24 @@ namespace VM12
                         case Opcode.Mul_2_l:
 
                             break;
+                        case Opcode.Div_l:
+                            int div_l_value = (mem[SP - 3] << 12 | mem[SP - 2]) / (mem[SP - 1] << 12 | mem[SP]);
+                            mem[SP - 2] = div_l_value & 0xFFF;
+                            mem[SP - 3] = (div_l_value >> 12) & 0xFFF;
+                            SP -= 2;
+                            PC++;
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }
                     
                     programTime++;
 
-                    this.PC = PC;
-                    this.SP = SP;
-                    this.FP = FP;
+                    // this.PC = PC;
+                    // this.SP = SP;
+                    // this.FP = FP;
 
 #if DEBUG
-
                     if (SP > SPWatermark)
                     {
                         SPWatermark = SP;

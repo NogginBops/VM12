@@ -1,5 +1,25 @@
 ﻿namespace VM12_Opcode
 {
+    public enum BlitMode : int
+    {
+        Black,
+        And,
+        AndNotB,    // A And !B
+        Dest,
+        NotAAndB,   // !A And B
+        Src,
+        Xor,
+        Or,
+        Nor,
+        Xnor,
+        NotB,
+        OrNotB,     // A Or !B
+        NotA,
+        NotAOrB,    // !A Or B
+        Nand,
+        White
+    }
+
     public enum JumpMode
     {
         Jmp,
@@ -55,6 +75,8 @@
         Fc, Fc_b,
         _Jmp_lz_l, _Jmp_gz_l,
         Mul_l, Mul_2_l,
+        Div_l,
+        Blit, Blit_mask
     }
 
     public enum Opcode_old : short

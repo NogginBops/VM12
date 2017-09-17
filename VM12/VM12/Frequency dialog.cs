@@ -14,6 +14,13 @@ namespace VM12
 {
     public partial class Frequency_dialog<T> : Form where T : struct, IComparable
     {
+        public enum DisplayMode
+        {
+            Numbers,
+            Fractions,
+            AveragePerSecond
+        }
+
         public delegate int EnumToInt(T e);
         
         Dictionary<T, int> internalFreq;
@@ -21,10 +28,10 @@ namespace VM12
 
         int[] currentData;
 
-        bool showFractions = false;
-
+        DisplayMode mode = DisplayMode.Numbers;
+        
         EnumToInt etoi;
-
+        
         internal Frequency_dialog(int[] frequencies, string title, string column_name, EnumToInt etoi)
         {
             if (typeof(T).IsEnum == false)
@@ -33,6 +40,9 @@ namespace VM12
             }
             
             InitializeComponent();
+
+            displayModeComboBox.ComboBox.Items.AddRange(Enum.GetValues(typeof(DisplayMode)).Cast<DisplayMode>().Select(e => e.ToString()).ToArray());
+            
             freqs = frequencies;
             currentData = new int[freqs.Length];
             Array.Copy(freqs, currentData, freqs.Length);
@@ -44,9 +54,12 @@ namespace VM12
             Text = title;
 
             instructionFrequencyListView.Columns.Add(column_name);
-            instructionFrequencyListView.Columns.Add("x Times");
+            var header = instructionFrequencyListView.Columns.Add("x Times");
+            header.Width *= 2;
 
             instructionFrequencyListView.Items.Add("Totals", "Totals", 0).SubItems.Add("0");
+
+            displayModeComboBox.SelectedIndex = displayModeComboBox.FindString(mode.ToString());
         }
 
         private void Instruction_frequency_Load(object sender, EventArgs e)
@@ -58,11 +71,19 @@ namespace VM12
         {
             refreshInstructionFreqTimer.Enabled = refreshToolStripMenuItem.Checked;
         }
-
-        private void fractionsToolStripMenuItem_Click(object sender, EventArgs e)
+        
+        private void displayModeComboBox_SelectedIndexChanged(object sender, EventArgs e)
         {
-            showFractions = fractionsToolStripMenuItem.Checked;
+            UpdateMode();
             UpdateList();
+        }
+
+        private void UpdateMode()
+        {
+            if (Enum.TryParse(displayModeComboBox.SelectedItem.ToString(), out DisplayMode mode))
+            {
+                this.mode = mode;
+            }
         }
 
         private void refreshInstructionFreqTimer_Tick(object sender, EventArgs e)
@@ -85,12 +106,38 @@ namespace VM12
 
             int total = internalFreq.Sum(kvp => kvp.Value);
 
+            long delta = ((DateTimeOffset)DateTime.Now).ToUnixTimeSeconds() - VM12Form.StartTime;
+
             string getValueString(int value)
             {
-                return showFractions ? string.Format("{0:P6}", (float)value / total) : value.ToString();
+                switch (mode)
+                {
+                    case DisplayMode.Numbers:
+                        return value.ToString();
+                    case DisplayMode.Fractions:
+                        return string.Format("{0:P6}", (float)value / total);
+                    case DisplayMode.AveragePerSecond:
+                        return $"{(value / delta).ToString()}/s";
+                    default:
+                        return "Unkown mode!";
+                }
             }
-            
-            instructionFrequencyListView.Items["Totals"].SubItems[1].Text = total.ToString();
+
+            string getTotalString(int value)
+            {
+                switch (mode)
+                {
+                    case DisplayMode.Numbers:
+                    case DisplayMode.Fractions:
+                        return value.ToString();
+                    case DisplayMode.AveragePerSecond:
+                        return $"{value / delta}/s";
+                    default:
+                        return "Unkown mode!";
+                }
+            }
+
+            instructionFrequencyListView.Items["Totals"].SubItems[1].Text = getTotalString(total);
 
             foreach (var kvp in internalFreq.Where(kvp => kvp.Value > 0).OrderByDescending(kvp => kvp.Value))
             {
@@ -179,6 +226,19 @@ namespace VM12
                     yp = true;
                 }
 
+                // FIXME!! This is not robust!!!
+                if (xs[xs.Length - 1] == 's')
+                {
+                    xs = xs.Substring(0, xs.Length - 2);
+                    xp = true;
+                }
+
+                if (ys[ys.Length - 1] == 's')
+                {
+                    ys = ys.Substring(0, ys.Length - 2);
+                    yp = true;
+                }
+
                 if (xp == true && yp == false)
                 {
                     return 1;
@@ -188,7 +248,14 @@ namespace VM12
                     return -1;
                 }
 
-                returnVal = Math.Sign(double.Parse(xs) - double.Parse(ys));
+                if (double.TryParse(xs, out double xr) && double.TryParse(ys, out double yr))
+                {
+                    returnVal = Math.Sign(xr - yr);
+                }
+                else
+                {
+                    returnVal = string.Compare(xs, ys);
+                }
             }
             else
             {

@@ -12,6 +12,7 @@ using System.IO;
 using System.Windows.Forms;
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 
 namespace VM12
 {
@@ -19,18 +20,23 @@ namespace VM12
     {
         volatile VM12 vm12;
 
-        Memory read_mem;
+        public static long StartTime = -1;
 
-        Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT, PixelFormat.Format24bppRgb);
+        static byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
-        byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
+        private static GCHandle BitsHandle = GCHandle.Alloc(data, GCHandleType.Pinned);
 
+        Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT, VM12.SCREEN_WIDTH * 3, PixelFormat.Format24bppRgb, BitsHandle.AddrOfPinnedObject());
+        
         int[] vram = new int[Memory.VRAM_SIZE];
 
-        System.Threading.Timer perfTimer;
-        
-        Dictionary<string, int> sourceHitCount = new Dictionary<string, int>();
+        System.Threading.Thread hTimer;
 
+#if DEBUG
+        System.Threading.Timer perfTimer;
+
+        Dictionary<string, int> sourceHitCount = new Dictionary<string, int>();
+        
         private void MeasurePerf(object state)
         {
             if (vm12 != null)
@@ -50,6 +56,7 @@ namespace VM12
                 }
             }
         }
+#endif
 
         public VM12Form()
         {
@@ -109,21 +116,19 @@ namespace VM12
                     if (vm12 != null && vm12.Running)
                     {
                         vm12.Stop();
+#if DEBUG
                         perfTimer.Dispose();
+#endif
                     }
-
-#if !DEBUG
-                    vm12 = new VM12(rom);
-#elif DEBUG
+                    
+#if DEBUG
                     FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
 
                     vm12 = new VM12(rom, metadataFile);
-
-                    
+#else
+                    vm12 = new VM12(rom);
 #endif
-
-                    read_mem = vm12.ReadMemory;
-
+                    
                     Thread thread = new Thread(vm12.Start)
                     {
                         IsBackground = true
@@ -132,7 +137,22 @@ namespace VM12
                     thread.Name = "VM12";
                     thread.Start();
 
+                    StartTime = ((DateTimeOffset)DateTime.Now).ToUnixTimeSeconds();
+
+                    hTimer?.Interrupt();
+                    hTimer = new Thread(hTime_Thread)
+                    {
+                        IsBackground = true
+                    };
+
+                    hTimer.Name = "hTimer";
+                    hTimer.Start();
+
+                    pbxMain.Image = bitmap;
+
+#if DEBUG
                     perfTimer = new System.Threading.Timer(MeasurePerf, null, 0, 1);
+#endif
                 });
             }
         }
@@ -170,7 +190,7 @@ namespace VM12
                         maxInstructionsPerSecond *= utilization;
                         utilization = 1;
                     }
-
+                    
                     timer = 0;
 
                     Text = vm12.Stopped ? "Stopped" : "Running";
@@ -182,47 +202,55 @@ namespace VM12
                 Text = "Uninitialized";
             }
             
-            if (read_mem != null)
+            if (vm12 != null)
             {
-                read_mem.GetVRAM(vram, 0);
-                
-                BitmapData bData = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.WriteOnly, bitmap.PixelFormat);
+                // BitmapData bData = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.WriteOnly, bitmap.PixelFormat);
 
                 const byte bitsPerPixel = 24;
                 const byte bytesPerPixel = bitsPerPixel / 8;
 
-                int size = bData.Stride * bData.Height;
+                const int size = VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT; // bData.Stride * bData.Height;
+
+                // System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
                 
-                System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
-                
-                for (int i = 0; i < size; i += bytesPerPixel)
+                unsafe
                 {
-                    int index = i / (bytesPerPixel);
+                    fixed (int* mem = vm12.MEM)
+                    {
+                        int* vram = mem + Memory.VRAM_START;
+                        for (int i = 0; i < size; i += bytesPerPixel)
+                        {
+                            int index = i / (bytesPerPixel);
 
-                    int val = vram[index];
+                            int val = vram[index];
 
-                    byte r = (byte)((val & 0x00F) << 4);
-                    byte g = (byte)(((val >> 4) & 0x00F) << 4);
-                    byte b = (byte)(((val >> 8) & 0x00F) << 4);
-
-                    data[i] = r;
-                    data[i + 1] = g;
-                    data[i + 2] = b;
+                            // r
+                            data[i] = (byte)((val & 0x00F) << 4);
+                            // g
+                            data[i + 1] = (byte)(val & 0x0F0);
+                            // b
+                            data[i + 2] = (byte)((val >> 4) & 0x0F0);
+                        }
+                    }
                 }
+                
+                // System.Runtime.InteropServices.Marshal.Copy(data, 0, bData.Scan0, data.Length);
 
-                System.Runtime.InteropServices.Marshal.Copy(data, 0, bData.Scan0, data.Length);
-
-                bitmap.UnlockBits(bData);
+                // bitmap.UnlockBits(bData);
             }
 
-            pbxMain.Image = bitmap;
+            // pbxMain.Image = bitmap;
 
-            vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, new short[0]));
+            pbxMain.Invalidate();
+
+            vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, new int[0]));
         }
 
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
         {
             vm12?.Stop();
+
+            BitsHandle.Free();
         }
 
         private void instructionFrequencyToolStripMenuItem_Click(object sender, EventArgs e)
@@ -265,12 +293,12 @@ namespace VM12
         {
             Debug.WriteLine($"Keycode: {(int)e.KeyCode:X2}");
             
-            vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { (short) 1, (short) e.KeyCode }));
+            vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 1, (int) e.KeyCode & 0xFFF }));
         }
 
         private void VM12Form_KeyUp(object sender, KeyEventArgs e)
         {
-            vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { (short) 0, (short) e.KeyCode }));
+            vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 0, (int) e.KeyCode & 0xFFF }));
         }
 
         private void stopToolStripMenuItem_Click(object sender, EventArgs e)
@@ -319,7 +347,7 @@ namespace VM12
             int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(x), (short)(y), (short)currentButtons }));
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
 
             lastPosX = x;
             lastPosY = y;
@@ -331,7 +359,7 @@ namespace VM12
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
             PressButtons(e.Button);
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(x), (short)(y), (short)currentButtons }));
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
         }
 
         private void pbxMain_MouseUp(object sender, MouseEventArgs e)
@@ -340,7 +368,7 @@ namespace VM12
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
             ReleaseButtons(e.Button);
-            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new short[] { (short)(x), (short)(y), (short)currentButtons }));
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
         }
         
         private void pbxMain_MouseEnter(object sender, EventArgs e)
@@ -359,9 +387,25 @@ namespace VM12
             }
         }
 
-        private void hTimer_Tick(object sender, EventArgs e)
+        //private void hTimer_Tick(object sender, EventArgs e)
+        //{
+        //    vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new int[] { hTimer.Interval }));
+        //}
+
+        private void hTime_Thread(object state)
         {
-            vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new short[] { (short) hTimer.Interval }));
+            Stopwatch hTimer_watch = new Stopwatch();
+
+            while (true)
+            {
+                long elapsed = hTimer_watch.ElapsedMilliseconds;
+                
+                vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new int[] { (int) elapsed & 0xFFF }));
+
+                hTimer_watch.Restart();
+
+                Thread.Sleep(9);
+            }
         }
 
         private void instructionTimesToolStripMenuItem_Click(object sender, EventArgs e)

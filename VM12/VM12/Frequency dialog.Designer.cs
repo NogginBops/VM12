@@ -36,7 +36,7 @@ namespace VM12
             this.menuStrip = new System.Windows.Forms.MenuStrip();
             this.optionsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.fractionsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.displayModeComboBox = new System.Windows.Forms.ToolStripComboBox();
             this.menuStrip.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -70,7 +70,7 @@ namespace VM12
             // 
             this.optionsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.refreshToolStripMenuItem,
-            this.fractionsToolStripMenuItem});
+            this.displayModeComboBox});
             this.optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
             this.optionsToolStripMenuItem.Size = new System.Drawing.Size(61, 20);
             this.optionsToolStripMenuItem.Text = "Options";
@@ -81,17 +81,16 @@ namespace VM12
             this.refreshToolStripMenuItem.CheckOnClick = true;
             this.refreshToolStripMenuItem.CheckState = System.Windows.Forms.CheckState.Checked;
             this.refreshToolStripMenuItem.Name = "refreshToolStripMenuItem";
-            this.refreshToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.refreshToolStripMenuItem.Size = new System.Drawing.Size(181, 22);
             this.refreshToolStripMenuItem.Text = "Refresh";
             this.refreshToolStripMenuItem.Click += new System.EventHandler(this.refreshToolStripMenuItem_Click);
             // 
-            // fractionsToolStripMenuItem
+            // displayModeComboBox
             // 
-            this.fractionsToolStripMenuItem.CheckOnClick = true;
-            this.fractionsToolStripMenuItem.Name = "fractionsToolStripMenuItem";
-            this.fractionsToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
-            this.fractionsToolStripMenuItem.Text = "Fractions";
-            this.fractionsToolStripMenuItem.Click += new System.EventHandler(this.fractionsToolStripMenuItem_Click);
+            this.displayModeComboBox.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.displayModeComboBox.Name = "displayModeComboBox";
+            this.displayModeComboBox.Size = new System.Drawing.Size(121, 23);
+            this.displayModeComboBox.SelectedIndexChanged += new System.EventHandler(this.displayModeComboBox_SelectedIndexChanged);
             // 
             // Frequency_dialog
             // 
@@ -118,6 +117,6 @@ namespace VM12
         private System.Windows.Forms.MenuStrip menuStrip;
         private System.Windows.Forms.ToolStripMenuItem optionsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem refreshToolStripMenuItem;
-        private System.Windows.Forms.ToolStripMenuItem fractionsToolStripMenuItem;
+        private System.Windows.Forms.ToolStripComboBox displayModeComboBox;
     }
 }

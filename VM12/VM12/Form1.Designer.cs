@@ -40,7 +40,6 @@
             this.instructionTimesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
-            this.hTimer = new System.Windows.Forms.Timer(this.components);
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -121,7 +120,7 @@
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
-            this.refreshTimer.Interval = 8;
+            this.refreshTimer.Interval = 1;
             this.refreshTimer.Tick += new System.EventHandler(this.RefreshTimer_Tick);
             // 
             // pbxMain
@@ -140,12 +139,6 @@
             this.pbxMain.MouseLeave += new System.EventHandler(this.pbxMain_MouseLeave);
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
-            // 
-            // hTimer
-            // 
-            this.hTimer.Enabled = true;
-            this.hTimer.Interval = 2;
-            this.hTimer.Tick += new System.EventHandler(this.hTimer_Tick);
             // 
             // VM12Form
             // 
@@ -179,7 +172,6 @@
         private System.Windows.Forms.ToolStripMenuItem developerToolStripMenuItem;
         private System.Windows.Forms.Timer refreshTimer;
         private System.Windows.Forms.PictureBox pbxMain;
-        private System.Windows.Forms.Timer hTimer;
         private System.Windows.Forms.ToolStripMenuItem instructionFrequencyToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem stopToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem;

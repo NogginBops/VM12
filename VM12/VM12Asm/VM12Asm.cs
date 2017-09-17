@@ -115,6 +115,18 @@ namespace VM12Asm
             public List<int> breaks;
         }
 
+        struct AutoConst
+        {
+            public readonly string Value;
+            public readonly int Length;
+
+            public AutoConst(string value, int length)
+            {
+                this.Value = value;
+                this.Length = length;
+            }
+        }
+
         const int _12BIT_MASK = 0x0FFF;
 
         const int ROM_OFFSET = 0x44B_000;
@@ -200,6 +212,9 @@ namespace VM12Asm
             { new Regex(sname("fcb")), "fc.b" },
             { new Regex(sname("lmul")), "mul.l" },
             { new Regex(sname("lmul2")), "mul.2.l" },
+            { new Regex(sname("ldiv")), "div.l" },
+            { new Regex(sname("blitm")), "blit.mask" },
+
         };
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
@@ -295,6 +310,9 @@ namespace VM12Asm
             // { "jmp.gz.l", Opcode.Jmp_gz_l },
             { "mul.l", Opcode.Mul_l },
             { "mul.2.l", Opcode.Mul_2_l },
+            { "div.l", Opcode.Div_l },
+            { "blit", Opcode.Blit },
+            { "blit.mask", Opcode.Blit_mask },
         };
 
         static Dictionary<string, int> arguments = new Dictionary<string, int>()
@@ -332,6 +350,8 @@ namespace VM12Asm
         static int warnings = 0;
 
         static Dictionary<string, string> globalConstants = new Dictionary<string, string>();
+
+        static Dictionary<string, AutoConst> autoConstants = new Dictionary<string, AutoConst>();
 
         static int autoVars = VRAM_OFFSET - 1;
 
@@ -695,6 +715,13 @@ namespace VM12Asm
             using (FileStream stream = metaFile.Create())
             using (StreamWriter writer = new StreamWriter(stream))
             {
+                foreach (var constant in autoConstants)
+                {
+                    writer.WriteLine($"[constant:{{{constant.Key},{constant.Value.Length},{constant.Value.Value}}}]");
+                }
+
+                writer.WriteLine();
+
                 foreach (var proc in libFile.Metadata)
                 {
                     writer.WriteLine(proc.name);
@@ -854,6 +881,8 @@ namespace VM12Asm
                         Console.ForegroundColor = ConsoleColor.Cyan;
                         Console.WriteLine($"Defined auto var '{c.Groups[1].Value}' of size {size} to addr {value}");
                         Console.ForegroundColor = conColor;
+
+                        autoConstants[c.Groups[1].Value] = new AutoConst(value, size);
                     }
 
                     constants[c.Groups[1].Value] = value;
@@ -1305,6 +1334,33 @@ namespace VM12Asm
                                         else
                                         {
                                             Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a littera!");
+                                        }
+                                        break;
+                                    case Opcode.Blit:
+                                    case Opcode.Blit_mask:
+                                        // Shift breakpoints before adding instructions
+                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+
+                                        instructions.Add((short)current.Opcode);
+
+                                        if (peek.Type == TokenType.Argument)
+                                        {
+                                            JumpMode mode = (JumpMode)arguments[peek.Value];
+                                            // TODO: Figure out 3ary boolean functions
+                                            if (Enum.IsDefined(typeof(JumpMode), mode))
+                                            {
+                                                instructions.Add((short)mode);
+                                                tokens.MoveNext();
+                                                peek = tokens.Current;
+                                            }
+                                            else
+                                            {
+                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by an argument of type {nameof(BlitMode)}! Got: \"{mode}\"");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a {nameof(BlitMode)}!");
                                         }
                                         break;
                                     default:
