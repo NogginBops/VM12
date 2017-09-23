@@ -192,13 +192,17 @@ namespace VM12Asm
             { new Regex(sname("jgz")), "jmp JM.Gz" },
             { new Regex(sname("jlz")), "jmp JM.Lz" },
             { new Regex(sname("jge")), "jmp JM.Ge" },
-            { new Regex(sname("jeq")), "jmp JM.Eq" },
             { new Regex(sname("jle")), "jmp JM.Le" },
+            { new Regex(sname("jeq")), "jmp JM.Eq" },
             { new Regex(sname("jneq")), "jmp JM.Neq" },
             { new Regex(sname("jzl")), "jmp JM.Z.l" },
             { new Regex(sname("jnzl")), "jmp JM.Nz.l" },
-            { new Regex(sname("jlzl")), "jmp JM.Lz.l" },
             { new Regex(sname("jgzl")), "jmp JM.Gz.l" },
+            { new Regex(sname("jlzl")), "jmp JM.Lz.l" },
+            { new Regex(sname("jgel")), "jmp JM.Ge.l" },
+            { new Regex(sname("jlel")), "jmp JM.Le.l" },
+            { new Regex(sname("jeql")), "jmp JM.Eq.l" },
+            { new Regex(sname("jneql")), "jmp JM.Neq.l" },
             { new Regex(sname("ret1")), "ret.1" },
             { new Regex(sname("ret2")), "ret.2" },
             { new Regex(sname("retv")), "ret.v" },
@@ -345,17 +349,31 @@ namespace VM12Asm
 
         static bool verbose = false;
 
-        static bool dump_mem = false;
-
-        static int warnings = 0;
-
+        static bool dump_mem = true;
+        
         static Dictionary<string, string> globalConstants = new Dictionary<string, string>();
 
         static Dictionary<string, AutoConst> autoConstants = new Dictionary<string, AutoConst>();
 
+        static int warnings = 0;
+
         static int autoVars = VRAM_OFFSET - 1;
 
         const int STACK_SIZE = 0x100_000;
+
+        public static void Reset()
+        {
+            verbose = false;
+
+            dump_mem = false;
+
+            globalConstants = new Dictionary<string, string>();
+
+            autoConstants = new Dictionary<string, AutoConst>();
+
+            warnings = 0;
+            autoVars = VRAM_OFFSET - 1;
+        }
 
         public static void Main(params string[] args)
         {

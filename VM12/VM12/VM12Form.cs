@@ -101,6 +101,8 @@ namespace VM12
                         VM12Asm.VM12Asm.Main("-src", inf.FullName, "-dst", Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
 
                         inf = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12exe"));
+
+                        VM12Asm.VM12Asm.Reset();
                     }
 
                     short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
@@ -129,23 +131,24 @@ namespace VM12
                     vm12 = new VM12(rom);
 #endif
                     
-                    Thread thread = new Thread(vm12.Start)
+                    // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!
+                    Thread thread = new Thread(() => { vm12.Start(); vm12 = null; })
                     {
-                        IsBackground = true
+                        Name = "VM12",
+                        IsBackground = true,
                     };
 
-                    thread.Name = "VM12";
                     thread.Start();
-
+                    
                     StartTime = ((DateTimeOffset)DateTime.Now).ToUnixTimeSeconds();
 
                     hTimer?.Interrupt();
                     hTimer = new Thread(hTime_Thread)
                     {
-                        IsBackground = true
+                        Name = "hTimer",
+                        IsBackground = true,
                     };
-
-                    hTimer.Name = "hTimer";
+                    
                     hTimer.Start();
 
                     pbxMain.Image = bitmap;

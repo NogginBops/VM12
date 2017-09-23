@@ -147,7 +147,8 @@ namespace VM12
 
         private const float TimerInterval = 10000000;
 
-        public bool Running { get; set; }
+        public bool Started { get; set; } = false;
+        public bool Running { get; set; } = false;
         public bool Stopped => halt && !interruptsEnabled;
         public int ProgramCounter => PC;
         public int StackPointer => SP;
@@ -615,6 +616,7 @@ namespace VM12
         public unsafe void Start()
         {
             Running = true;
+            Started = true;
             
             fixed (int* mem = MEM)
             {
@@ -670,6 +672,7 @@ namespace VM12
 #if BREAKS
                     if (breaks[PC])
                     {
+
                         ;
                         //Debugger.Break();
                     }
@@ -1140,8 +1143,27 @@ namespace VM12
                                 case JumpMode.Le_l:
                                     break;
                                 case JumpMode.Eq_l:
+                                    if ((mem[SP - 3] << 12 | mem[SP - 2]) == (mem[SP - 1] << 12 | mem[SP]))
+                                    {
+                                        PC = mem[PC + 1] << 12 | mem[PC + 2];
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 4;
+                                    break;
                                     break;
                                 case JumpMode.Neq_l:
+                                    if ((mem[SP - 3] << 12 | mem[SP - 2]) != (mem[SP - 1] << 12 | mem[SP]))
+                                    {
+                                        PC = mem[PC + 1] << 12 | mem[PC + 2];
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 4;
                                     break;
                                 case JumpMode.Ro_l:
                                     break;
