@@ -104,7 +104,7 @@ namespace VM12
 
                         VM12Asm.VM12Asm.Reset();
                     }
-
+                    
                     short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
 
                     using (BinaryReader br = new BinaryReader(File.OpenRead(inf.FullName)))
