@@ -63,7 +63,7 @@ namespace VM12
             InitializeComponent();
             
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
-
+            
             Shown += (s, e1) => LoadProgram();
 
             // SetSize(480);
@@ -419,6 +419,40 @@ namespace VM12
                 //Frequency_dialog<VM12_Opcode.Opcode> instructionFreq = new Frequency_dialog<VM12_Opcode.Opcode>(sourceHitCount, "Opcode Times", "Opcode", op => (int)op);
 
                 //instructionFreq.Show();
+            }
+#endif
+        }
+
+        private void heapViewToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+#if DEBUG
+            if (vm12 != null)
+            {
+                const int metadata_size = 65536;
+                const int block_size = 64;
+
+                // FIXME: autoConsts should not be public
+                Dictionary<string, VM12.AutoConst> autoCosnts = vm12.autoConsts;
+                
+                int metadata_addr = autoCosnts.TryGetValue("metadata", out VM12.AutoConst m_addr) ? m_addr.Addr : throw new Exception();
+                int heap_addr = autoCosnts.TryGetValue("metadata", out VM12.AutoConst h_addr) ? h_addr.Addr : throw new Exception();
+
+                HeapView.Heap heap_struct;
+
+                unsafe
+                {
+                    fixed (int* mem = vm12.MEM)
+                    {
+                        int* metadata = mem + metadata_addr;
+                        int* heap = mem + heap_addr;
+
+                        heap_struct = new HeapView.Heap(metadata, metadata_size, heap, block_size);
+                    }
+                }
+
+                HeapView view = new HeapView(heap_struct);
+
+                view.Show();
             }
 #endif
         }

@@ -226,7 +226,7 @@ namespace VM12
             public int[] localValues;
         }
 
-        struct AutoConst
+        public struct AutoConst
         {
             public readonly string Name;
             public readonly int Addr;
@@ -240,7 +240,7 @@ namespace VM12
             }
         }
 
-        Dictionary<string, AutoConst> autoConsts = new Dictionary<string, AutoConst>();
+        public Dictionary<string, AutoConst> autoConsts { get; private set; } = new Dictionary<string, AutoConst>();
 
         int GetConstValue(string name)
         {
@@ -607,6 +607,11 @@ namespace VM12
                     }
                 }
             }
+
+            if (currMetadata != null)
+            {
+                metadata.Add(currMetadata);
+            }
         }
 #endif
 
@@ -672,7 +677,7 @@ namespace VM12
 #if BREAKS
                     if (breaks[PC])
                     {
-
+                        interruptsEnabled = false;
                         ;
                         //Debugger.Break();
                     }

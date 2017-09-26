@@ -40,6 +40,7 @@
             this.instructionTimesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
+            this.heapViewToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -84,7 +85,8 @@
             this.instructionFrequencyToolStripMenuItem,
             this.interruptFrequencyToolStripMenuItem,
             this.interruptFrequencyToolStripMenuItem1,
-            this.instructionTimesToolStripMenuItem});
+            this.instructionTimesToolStripMenuItem,
+            this.heapViewToolStripMenuItem});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -140,6 +142,13 @@
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
             // 
+            // heapViewToolStripMenuItem
+            // 
+            this.heapViewToolStripMenuItem.Name = "heapViewToolStripMenuItem";
+            this.heapViewToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.heapViewToolStripMenuItem.Text = "Heap View";
+            this.heapViewToolStripMenuItem.Click += new System.EventHandler(this.heapViewToolStripMenuItem_Click);
+            // 
             // VM12Form
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -177,6 +186,7 @@
         private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem1;
         private System.Windows.Forms.ToolStripMenuItem instructionTimesToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem heapViewToolStripMenuItem;
     }
 }
 
