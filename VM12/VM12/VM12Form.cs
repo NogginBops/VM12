@@ -66,6 +66,8 @@ namespace VM12
             
             Shown += (s, e1) => LoadProgram();
 
+            pbxMain.Image = bitmap;
+
             // SetSize(480);
 
 #if !DEBUG
@@ -150,9 +152,7 @@ namespace VM12
                     };
                     
                     hTimer.Start();
-
-                    pbxMain.Image = bitmap;
-
+                    
 #if DEBUG
                     perfTimer = new System.Threading.Timer(MeasurePerf, null, 0, 1);
 #endif
@@ -308,7 +308,7 @@ namespace VM12
         {
             vm12?.Stop();
 
-            while (vm12.Running);
+            while (vm12?.Running ?? false);
 
             vm12 = null;
         }
@@ -407,7 +407,14 @@ namespace VM12
 
                 hTimer_watch.Restart();
 
-                Thread.Sleep(9);
+                try
+                {
+                    Thread.Sleep(9);
+                }
+                catch
+                {
+                    return;
+                }
             }
         }
 

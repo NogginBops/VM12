@@ -673,7 +673,8 @@ namespace VM12
                     Opcode op = (Opcode)(mem[PC]);
 
 #if DEBUG
-                    instructionFreq[(int)op]++;
+                    
+instructionFreq[(int)op]++;
 #if BREAKS
                     if (breaks[PC])
                     {
@@ -854,18 +855,18 @@ namespace VM12
                             SP -= 2;
                             sub2 -= sub1;
                             carry = ((uint)sub2 >> 12) > 0xFFF;
-                            mem[SP - 1] = sub2 >> 12;
+                            mem[SP - 1] = (sub2 >> 12) & 0xFFF;
                             mem[SP] = sub2 & 0xFFF;
                             PC++;
                             break;
                         case Opcode.Neg:
-                            mem[SP] = -mem[SP];
+                            mem[SP] = (-mem[SP]) & 0xFFF;
                             PC++;
                             break;
                         case Opcode.Neg_l:
                             int neg_l_val = -((mem[SP - 1] << 12) | (ushort)(mem[SP]));
                             mem[SP] = neg_l_val & 0xFFF;
-                            mem[SP - 1] = neg_l_val >> 12;
+                            mem[SP - 1] = (neg_l_val >> 12) & 0xFFF;
                             PC++;
                             break;
                         case Opcode.Inc:
@@ -910,7 +911,7 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Not:
-                            mem[SP] = ~mem[SP];
+                            mem[SP] = (~mem[SP]) & 0xFFF;
                             PC++;
                             break;
                         case Opcode.C_ss:
@@ -1157,7 +1158,6 @@ namespace VM12
                                         PC += 3;
                                     }
                                     SP -= 4;
-                                    break;
                                     break;
                                 case JumpMode.Neq_l:
                                     if ((mem[SP - 3] << 12 | mem[SP - 2]) != (mem[SP - 1] << 12 | mem[SP]))

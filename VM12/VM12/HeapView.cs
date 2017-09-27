@@ -34,6 +34,8 @@ namespace VM12
         }
 
         private Heap heap;
+
+        private Bitmap img;
         
         public HeapView(Heap heap)
         {
@@ -42,86 +44,100 @@ namespace VM12
             this.heap = heap;
 
             heapViewRefreshTimer.Enabled = true;
+
+            img = new Bitmap(1920, 1080, PixelFormat.Format24bppRgb);
+
+            heapViewImg.Image = img;
+            heapViewImg.Width = 100;
         }
 
         // TODO: Calculate heap regions before drawing
 
         // FIXME: Drawing performance is really bad
-        
-        private void heapViewImg_Paint(object sender, PaintEventArgs e)
+
+        const int min_horizontal_width = 4;
+
+        private void RedrawImage()
         {
-            Graphics g = e.Graphics;
+            Graphics g = Graphics.FromImage(img);
+            
+            g.FillRectangle(Brushes.White, 0, 0, heapViewImg.Width, heapViewImg.Height);
 
             int cells = (heap.metadataSize / 2);
-
-            float mArea = (float)(heapViewImg.Width * heapViewImg.Height) / cells;
-
-            float mSide = (float)Math.Sqrt(mArea);
-
-            float vCount = (float)Math.Ceiling((heapViewImg.Height / mSide));
-
-            float vSide = heapViewImg.Height / vCount;
-
-            float hCount = (float)Math.Ceiling((cells / vCount));
-
-            float hSide = heapViewImg.Width / hCount;
             
-            Random rand = new Random();
+            float vCount = 256;
+            float hCount = 128;
             
-            Color color = Color.FromArgb(255, rand.Next(256), rand.Next(256), rand.Next(256));
+            if (heapViewImg.Width >= heapViewImg.Height)
+            {
+                vCount = 128;
+                hCount = 256;
+            }
+
+            // TODO: Scroll bars when view is too small
+
+            float vSide = Math.Max(heapViewImg.Height / vCount, 4);
+
+            float hSide = Math.Max(heapViewImg.Width / hCount, 4);
+            
+            // TODO: Better colors
+            Color[] colors = { Color.Red, Color.Blue, Color.Green, Color.Cyan, Color.Magenta, Color.Yellow, Color.Black };
+
+            Color GetColor(int index)
+            {
+                while (index >= colors.Length)
+                {
+                    index -= colors.Length;
+                }
+
+                while (index < 0)
+                {
+                    index += colors.Length;
+                }
+
+                return colors[index];
+            }
 
             int occupied = 0;
-            
+
+            int region = 0;
+
             using (SolidBrush b = new SolidBrush(Color.Black))
             using (Pen p = new Pen(Color.Gray))
             {
-                for (int y = 0; y < vCount; y++)
+                for (int c = 0; c < cells; c++)
                 {
-                    for (int x = 0; x < hCount; x++)
+                    int offset = c * 2;
+
+                    int data = heap.metadata[offset] << 12 | heap.metadata[offset + 1];
+                    
+                    if (data != 0)
                     {
-                        int offset = ((int)(x + (y * hCount)) * 2);
-
-                        if (offset > heap.metadataSize)
+                        if (data == 1)
                         {
-                            continue;
-                            throw new ArgumentException();
+                            region++;
                         }
-                        
-                        int data = heap.metadata[offset] << 12 | heap.metadata[offset + 1];
 
-                        if (data == 0)
-                        {
-                            //b.Color = Color.LightGray;
-                        }
-                        else
-                        {
-                            occupied++;
+                        occupied++;
 
-                            if (data == 1)
-                            {
-                                //color = Color.FromArgb(255, rand.Next(256), rand.Next(256), rand.Next(256));
-                                //b.Color = color;
-                            }
+                        int x = (int)(c % hCount);
+                        int y = (int)(c / hCount);
 
-                            g.FillRectangle(b, x * hSide, y * vSide, hSide, vSide);
-                        }
-                        
-                        //g.DrawRectangle(p, (float)(x * hSide), (float)(y * vSide), (float)hSide, (float)vSide);
+                        b.Color = GetColor(region);
+                        g.FillRectangle(b, x * hSide, y * vSide, hSide, vSide);
                     }
                 }
-
+                
                 for (int y = 0; y < vCount; ++y)
                 {
-                    g.DrawLine(p, 0, y * hSide, hCount * hSide, y * vSide);
+                    g.DrawLine(p, 0, y * vSide, heapViewImg.Width, y * vSide);
                 }
 
                 for (int x = 0; x < hCount; x++)
                 {
-                    g.DrawLine(p, x * hSide, 0, x * hSide, hCount * vSide);
+                    g.DrawLine(p, x * hSide, 0, x * hSide, heapViewImg.Height);
                 }
             }
-
-            g.DrawString($"Occupied: {occupied}", Font, Brushes.Black, 10, 10);
         }
 
         private void heapViewImg_Resize(object sender, EventArgs e)
@@ -131,6 +147,7 @@ namespace VM12
 
         private void heapViewRefreshTimer_Tick(object sender, EventArgs e)
         {
+            RedrawImage();
             heapViewImg.Invalidate();
         }
 
