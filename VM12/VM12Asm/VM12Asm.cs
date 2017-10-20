@@ -47,7 +47,7 @@ namespace VM12Asm
             }
         }
 
-        struct Proc
+        class Proc
         {
             public string name;
             public int line;
@@ -137,7 +137,7 @@ namespace VM12Asm
 
         const int VRAM_OFFSET = 0x400_000;
 
-        public delegate string TemplateFormater(params object[] values);
+        delegate string TemplateFormater(params object[] values);
 
         static TemplateFormater sname = (o) => string.Format("(?<!:)\\b{0}\\b", o);
 
@@ -157,6 +157,7 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bload\\s+\\[SP\\]"), "load.sp" },
             { new Regex("(?<!:)\\bloadl\\s+\\[SP\\]"), "load.sp.l" },
             { new Regex("(?<!:)\\bload\\s+('.')"), "load.lit $1" },
+            { new Regex("(?<!:)\\bload\\s+(\".*?\")"), "load.lit.l $1" },
             { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+\\[SP\\]"), "store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+(\\d+)"), "store.local $1" },
@@ -225,15 +226,15 @@ namespace VM12Asm
 
         static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+|extern|auto\\((0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)\\))>");
 
-        static Regex label = new Regex(":[A-Za-z][A-Za-z0-9_]*");
+        static Regex label = new Regex(":[A-Za-z_][A-Za-z0-9_]*");
 
-        static Regex proc = new Regex("(:[A-Za-z][A-Za-z0-9_]*)(\\s+@(.*))?");
+        static Regex proc = new Regex("(:[A-Za-z_][A-Za-z0-9_]*)(\\s+@(.*))?");
 
         static Regex num = new Regex("(?<!\\S)\\b(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)\\b(?!\\S)");
 
         static Regex chr = new Regex("'(.)'");
 
-        static Regex str = new Regex("\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"");
+        static Regex str = new Regex("^\\s*\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"$");
 
         static Regex auto = new Regex("auto\\((.*)\\)");
 
@@ -357,6 +358,12 @@ namespace VM12Asm
 
         static int warnings = 0;
 
+        static int autoStringIndex = 0;
+
+        static Dictionary<string, string> autoStrings = new Dictionary<string, string>();
+
+        static StringBuilder autoStringsFile = new StringBuilder(1000);
+
         static int autoVars = VRAM_OFFSET - 1;
 
         const int STACK_SIZE = 0x100_000;
@@ -443,7 +450,10 @@ namespace VM12Asm
             Console.WriteLine();
 
             Console.WriteLine("Preprocessing...");
-            
+
+            autoStringsFile.AppendLine("!global");
+            autoStringsFile.AppendLine();
+
             Console.WriteLine("Parsing...");
             
             #region Usings
@@ -497,6 +507,18 @@ namespace VM12Asm
                     }
                 }
             }
+
+            RawFile rawAutoStrings = new RawFile();
+            rawAutoStrings.path = "AutoStrings";
+            rawAutoStrings.rawlines = autoStringsFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            rawAutoStrings.processedlines = rawAutoStrings.rawlines;
+
+            watch.Restart();
+            AsemFile autoStringAsem = Parse(rawAutoStrings);
+            watch.Stop();
+            parseTime += watch.ElapsedTicks;
+
+            files["AutoStrings.12asm"] = autoStringAsem;
 
             if (verbose)
             {
@@ -920,7 +942,7 @@ namespace VM12Asm
                 }
                 else if ((c = str.Match(line)).Success)
                 {
-                    Token string_tok = new Token(line_num, TokenType.Litteral, c.Value, breakpoint);
+                    Token string_tok = new Token(line_num, TokenType.Litteral, c.Value.Trim(), breakpoint);
 
                     currProc.tokens.Add(string_tok);
                 }
@@ -928,7 +950,15 @@ namespace VM12Asm
                 {
                     if (char.IsWhiteSpace(line, 0))
                     {
-                        string[] tokens = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        string[] SplitNotStrings(string input, char[] chars)
+                        {
+                            return Regex.Matches(input, @"[\""].+?[\""]|[^ ]+")
+                                .Cast<Match>()
+                                .Select(m => m.Value)
+                                .ToArray();
+                        }
+
+                        string[] tokens = SplitNotStrings(line, new[] { ' ', '\t' }); //line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
                         foreach (var token in tokens)
                         {
@@ -953,6 +983,24 @@ namespace VM12Asm
                             else if ((l = chr.Match(token)).Success)
                             {
                                 t = new Token(line_num, TokenType.Litteral, l.Value, breakpoint);
+                            }
+                            else if ((l = str.Match(token)).Success)
+                            {
+                                string str = l.Value.Trim();
+                                string lableName;
+                                if (autoStrings.TryGetValue(str, out lableName) == false)
+                                {
+                                    lableName = $":__str_{autoStringIndex++}__";
+                                    autoStringsFile.AppendLine(lableName);
+                                    autoStringsFile.Append('\t').AppendLine(str);
+                                    autoStrings[str] = lableName;
+
+                                    Console.ForegroundColor = ConsoleColor.Magenta;
+                                    Console.WriteLine($"Created inline string '{lableName}' with value {str}");
+                                    Console.ForegroundColor = conColor;
+                                }
+
+                                t = new Token(line_num, TokenType.Label, lableName, breakpoint);
                             }
                             else
                             {
@@ -983,17 +1031,14 @@ namespace VM12Asm
                         Match l = proc.Match(line);
                         if (l.Success)
                         {
-                            if (currProc.name != null)
-                            {
-                                procs[currProc.name] = currProc;
+                            currProc = new Proc();
 
-                                currProc = new Proc();
-
-                                currProc.line = line_num;
-                            }
+                            currProc.line = line_num;
 
                             currProc.name = l.Groups[1].Value;
-                            
+
+                            procs[currProc.name] = currProc;
+
                             if (currProc.name == ":start")
                             {
                                 currProc.parameters = 0;
@@ -1704,9 +1749,19 @@ namespace VM12Asm
         {
             Console.ForegroundColor = ConsoleColor.Red;
 
-            FileInfo info = new FileInfo(file.path);
+            string message;
 
-            string message = $"Error in file \"{info.Name}\" at line {line}: '{error}'";
+            if (File.Exists(file.path))
+            {
+                FileInfo info = new FileInfo(file.path);
+
+                message = $"Error in file \"{info.Name}\" at line {line}: '{error}'";
+
+            }
+            else
+            {
+                message = $"Error in generated file \"{file.path}\" at line {line}: '{error}'";
+            }
 
             Console.WriteLine(message);
 

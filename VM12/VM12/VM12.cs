@@ -34,8 +34,7 @@ namespace VM12
             Args = args;
         }
     }
-
-    class Memory
+    unsafe class VM12
     {
         public const int RAM_SIZE = 4194304;
         public const int VRAM_SIZE = 307200;
@@ -46,69 +45,19 @@ namespace VM12
         public const int ROM_START = RAM_SIZE + VRAM_SIZE;
 
         public const int MEM_SIZE = RAM_SIZE + VRAM_SIZE + ROM_SIZE;
-
-        public readonly int[] MEM;
-
-        public Memory(int[] mem)
-        {
-            MEM = mem;
-        }
-
-        //public readonly short[] RAM = new short[RAM_SIZE];
-
-        //public readonly short[] VRAM = new short[VRAM_SIZE];
-
-        //public readonly short[] ROM = new short[ROM_SIZE];
-
-        public void GetRAM(int[] ram, int index)
-        {
-            Array.Copy(MEM, RAM_START + index, ram, 0, ram.Length);
-        }
-
-        public void GetVRAM(int[] vram, int index)
-        {
-            Array.Copy(MEM, VRAM_START + index, vram, 0, vram.Length);
-        }
         
-        public void GetROM(int[] rom, int index)
-        {
-            Array.Copy(MEM, ROM_START + index, rom, 0, rom.Length);
-        }
-
-        public void SetROM(int[] ROM)
-        {
-            Array.Copy(ROM, 0, MEM, ROM_START, ROM.Length);
-        }
-
-        //TODO: Fix memory access overhead!
-        public int this[int i]
-        {
-            get => MEM[i];
-            set
-            {
-                if (i < ROM_START)
-                {
-                    MEM[i] = value;
-                }
-                else if (i < ROM_START + ROM_SIZE)
-                {
-                    throw new ArgumentException($"Cannot modify ROM! At index {i:X}");
-                }
-                else
-                {
-                    throw new IndexOutOfRangeException();
-                }
-            }
-        }
-    }
-    
-    unsafe class VM12
-    {
         public const int SCREEN_WIDTH = 640;
         public const int SCREEN_HEIGHT = 480;
 
-        public int[] MEM = new int[Memory.MEM_SIZE];
-        
+        public int[] MEM = new int[MEM_SIZE];
+
+        public const int STORAGE_START_ADDR = 0;
+        public const int STORAGE_SIZE = 357_913_941;
+
+        private FileInfo storageFile;
+
+        public byte[] STORAGE = new byte[STORAGE_SIZE * 3];
+
         HashSet<InterruptType> activeInterrupts = new HashSet<InterruptType>();
 
         volatile Interrupt intrr = null;
@@ -138,7 +87,7 @@ namespace VM12
 
         AutoResetEvent interrupt_event = new AutoResetEvent(false);
 
-        int PC = Memory.ROM_START;
+        int PC = ROM_START;
         int SP = -1;
         int FP = -1;
         int locals = 0;
@@ -302,7 +251,14 @@ namespace VM12
         {
             ProcMetadata data = GetMetadataFromOffset(offset);
 
-            return source[data.file][GetSourceCodeLineFromMetadataAndOffset(data, offset) - 1];
+            if (source.TryGetValue(data.file, out string[] lines))
+            {
+                return lines[GetSourceCodeLineFromMetadataAndOffset(data, offset) - 1];
+            }
+            else
+            {
+                return "Source not available!";
+            }
         }
 
         int GetSourceCodeLineFromOffset(int offset)
@@ -483,9 +439,9 @@ namespace VM12
         
         #endregion
         
-        public VM12(short[] ROM, FileInfo metadata)
+        public VM12(short[] ROM, FileInfo metadata, FileInfo storage)
         {
-            Array.Copy(ROM, 0, MEM, Memory.ROM_START, ROM.Length);
+            Array.Copy(ROM, 0, MEM, ROM_START, ROM.Length);
             
             ParseMetadata(metadata);
             
@@ -499,6 +455,14 @@ namespace VM12
                     breaks[data.location + b] = true;
                 }
             }
+
+            /*
+            storageFile = storage;
+            using (FileStream stream = storage.OpenRead())
+            {
+                stream.Read(STORAGE, 0, (int) storage.Length);
+            }
+            */
         }
 
         Regex command = new Regex("^\\[(\\S+?):(.+)\\]$");
@@ -553,13 +517,17 @@ namespace VM12
 
                                 if (!source.ContainsKey(currMetadata.file))
                                 {
-                                    source[currMetadata.file] = File.ReadAllLines(Path.Combine(metadataFile.DirectoryName, currMetadata.file));
+                                    string path = Path.Combine(metadataFile.DirectoryName, currMetadata.file);
+                                    if (File.Exists(path))
+                                    {
+                                        source[currMetadata.file] = File.ReadAllLines(path);
+                                    }
                                 }
                                 break;
                             case "location":
                                 if (int.TryParse(argument, out int location))
                                 {
-                                    currMetadata.location = Memory.ROM_START + location;
+                                    currMetadata.location = ROM_START + location;
                                 }
                                 else
                                 {
@@ -631,8 +599,10 @@ namespace VM12
                 mem[this.FP + 1] = 0;
                 mem[this.FP + 2] = 0;   // Last FP is at the same location
                 mem[this.FP + 3] = 0;
-                mem[this.FP + 4] = this.locals = 0; ;   // No locals
-                this.SP = this.FP + 4;
+                mem[this.FP + 4] = 0; ;   // No locals
+                mem[this.FP + 5] = 0;
+                this.locals = 0;
+                this.SP = this.FP + 5;
                 
                 //int PC = this.PC;
                 //int SP = this.SP;
@@ -656,14 +626,15 @@ namespace VM12
                         }
 
                         int last_fp = FP;
-                        mem[++SP] = (PC >> 12) & 0xFFF;     // Return addr
+                        mem[++SP] = (PC >> 12) & 0xFFF;         // Return addr
                         //FP = SP;
                         mem[++SP] = PC & 0xFFF;
-                        mem[++SP] = (FP >> 12) & 0xFFF;     // Prev FP
+                        mem[++SP] = (FP >> 12) & 0xFFF;         // Prev FP
                         mem[++SP] = FP & 0xFFF;
-                        mem[++SP] = intrr.Args.Length;      // Locals
-                        FP = SP - 4;                        // Set the Frame Pointer
-                        locals = mem[FP + 4];
+                        mem[++SP] = (intrr.Args.Length >> 12) & 0xFFF;
+                        mem[++SP] = intrr.Args.Length & 0xFFF;  // Locals
+                        FP = SP - 5;                            // Set the Frame Pointer
+                        locals = mem[FP + 4] << 12 | mem[FP + 5];
                         FPloc = FP - locals;
                         PC = (int)intrr.Type;
 
@@ -674,7 +645,7 @@ namespace VM12
 
 #if DEBUG
                     
-instructionFreq[(int)op]++;
+                    instructionFreq[(int)op]++;
 #if BREAKS
                     if (breaks[PC])
                     {
@@ -692,7 +663,7 @@ instructionFreq[(int)op]++;
                         case Opcode.Pop:
                             SP--;
 #if DEBUG
-                            if (FP > 0 && SP < FP + 4)
+                            if (FP > 0 && SP < FP + 5)
                             {
                                 Debugger.Break();
                             }
@@ -1189,35 +1160,36 @@ instructionFreq[(int)op]++;
                             mem[++SP] = return_addr & 0xFFF;
                             mem[++SP] = (last_fp >> 12) & 0xFFF;   // Prev FP
                             mem[++SP] = last_fp & 0xFFF;
-                            mem[++SP] = locals;                  // Locals
+                            mem[++SP] = 0;                  // Locals
+                            mem[++SP] = locals;
                             this.locals = locals;
                             FPloc = FP - locals;
                             break;
                         case Opcode.Call_v:
                             break;
                         case Opcode.Ret:
-                            SP = FP - 1 - mem[FP + 4];
+                            SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]);
                             PC = mem[FP] << 12 | (ushort) mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
-                            this.locals = mem[FP + 4];
+                            this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
                             FPloc = FP - this.locals;
                             break;
                         case Opcode.Ret_1:
                             int ret_val = mem[SP];
-                            SP = FP - 1 - mem[FP + 4] + 1;
+                            SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]) + 1;
                             PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
-                            this.locals = mem[FP + 4];
+                            this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
                             FPloc = FP - this.locals;
                             mem[SP] = ret_val;
                             break;
                         case Opcode.Ret_2:
                             int ret_val_1 = mem[SP - 1];
                             int ret_val_2 = mem[SP];
-                            SP = FP - 1 - mem[FP + 4] + 2;
+                            SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]) + 2;
                             PC = mem[FP] << 12 | mem[FP + 1];
                             FP = mem[FP + 2] << 12 | mem[FP + 3];
-                            this.locals = mem[FP + 4];
+                            this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
                             FPloc = FP - this.locals;
                             mem[SP - 1] = ret_val_1;
                             mem[SP] = ret_val_2;
@@ -1229,10 +1201,10 @@ instructionFreq[(int)op]++;
                             {
                                 values[i] = mem[SP - i];
                             }
-                            SP = FP - 1 - mem[FP + 4] + return_values;
+                            SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]) + return_values;
                             PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
-                            this.locals = mem[FP + 4];
+                            this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
                             FPloc = FP - this.locals;
                             for (int i = 0; i < return_values; i++)
                             {
@@ -1288,7 +1260,7 @@ instructionFreq[(int)op]++;
                             int color = mem[SP];
                             int char_addr = mem[SP - 2] << 12 | mem[SP - 1];
                             int vram_addr = mem[SP - 4] << 12 | mem[SP - 3];
-                            if (vram_addr < Memory.VRAM_START || vram_addr >= Memory.ROM_START)
+                            if (vram_addr < VRAM_START || vram_addr >= ROM_START)
                             {
                                 Debugger.Break();
                             }
@@ -1333,6 +1305,47 @@ instructionFreq[(int)op]++;
                             SP -= 2;
                             PC++;
                             break;
+                        case Opcode.Write:
+                            int ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
+                            int buf = mem[SP - 3] << 12 | mem[SP - 2];
+                            int w_len = mem[SP - 1] << 12 | mem[SP];
+
+                            IOMode ioMode = (IOMode) mem[PC + 1];
+                            
+                            if ((ioAddr - STORAGE_START_ADDR) < STORAGE.Length)
+                            {
+                                const int wordSize = 8;
+                                
+                                switch (ioMode)
+                                {
+                                    case IOMode.Compact:
+                                        for (int i = 0; i < w_len; i++)
+                                        {
+
+                                        }
+                                        break;
+                                    case IOMode.Fit:
+                                        break;
+                                    case IOMode.SFit:
+                                        break;
+                                    case IOMode.Cast:
+                                        break;
+                                    case IOMode.SCast:
+                                        break;
+                                    default:
+                                        break;
+                                }
+                                //FIXME: Copy data
+                                for (int i = 0; i < w_len * 3; i += 3)
+                                {
+                                    STORAGE[i] = (byte)(mem[buf + i] >> 12);
+                                    STORAGE[i + 1] = 0;
+                                    STORAGE[i + 2] = 0;
+                                }
+                            }
+
+                            SP -= 7;
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }
@@ -1361,7 +1374,15 @@ instructionFreq[(int)op]++;
                     //Thread.SpinWait(1000);
                 }
             }
-            end:  Running = false;
+            end: Running = false;
+
+            /*
+            using (FileStream stream = storageFile.OpenWrite())
+            {
+                // Only write the changed data!
+                stream.Write(STORAGE, 0, STORAGE.Length);
+            }
+            */
         }
 
         public void Stop()
@@ -1370,11 +1391,6 @@ instructionFreq[(int)op]++;
             interrupt_event.Set();
             halt = true;
             interruptsEnabled = false;
-        }
-
-        static int ToInt(int upper, int lower)
-        {
-            return ((upper << 12) | (ushort)lower);
         }
     }
 }

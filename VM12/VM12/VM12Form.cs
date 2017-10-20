@@ -28,7 +28,7 @@ namespace VM12
 
         Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT, VM12.SCREEN_WIDTH * 3, PixelFormat.Format24bppRgb, BitsHandle.AddrOfPinnedObject());
         
-        int[] vram = new int[Memory.VRAM_SIZE];
+        int[] vram = new int[VM12.VRAM_SIZE];
 
         System.Threading.Thread hTimer;
 
@@ -128,7 +128,14 @@ namespace VM12
 #if DEBUG
                     FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
 
-                    vm12 = new VM12(rom, metadataFile);
+                    FileInfo storageFile = new FileInfo(Path.Combine(inf.DirectoryName, "Store.dsk"));
+
+                    if (storageFile.Exists == false)
+                    {
+                        storageFile.Create();
+                    }
+
+                    vm12 = new VM12(rom, metadataFile, storageFile);
 #else
                     vm12 = new VM12(rom);
 #endif
@@ -220,7 +227,7 @@ namespace VM12
                 {
                     fixed (int* mem = vm12.MEM)
                     {
-                        int* vram = mem + Memory.VRAM_START;
+                        int* vram = mem + VM12.VRAM_START;
                         for (int i = 0; i < size; i += bytesPerPixel)
                         {
                             int index = i / (bytesPerPixel);
@@ -252,8 +259,10 @@ namespace VM12
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
         {
             vm12?.Stop();
-
+            
             BitsHandle.Free();
+
+            while (vm12?.Running ?? false);
         }
 
         private void instructionFrequencyToolStripMenuItem_Click(object sender, EventArgs e)
