@@ -34,7 +34,18 @@ namespace Debugging
 
             stack_view.SetDebugger(this);
 
+            FormClosing += ProgramDebugger_FormClosing;
             FormClosed += ProgramDebugger_FormClosed;
+        }
+
+        private void ProgramDebugger_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                ReleaseVM();
+                Hide();
+            }
         }
 
         private void ProgramDebugger_FormClosed(object sender, FormClosedEventArgs e)
@@ -51,17 +62,21 @@ namespace Debugging
             }
 #endif
         }
-
-#if DEBUG
+        
         internal void SetVM(VM12 vm12)
         {
             this.vm12 = vm12;
             stack_view.SetVM(vm12);
-
+            
             // Enable buttons
         }
-#endif
 
+        public void HitBreakpoint()
+        {
+            CatchVM();
+            UpdateDebug();
+        }
+        
         private void UpdateDebug()
         {
 #if DEBUG
@@ -69,7 +84,7 @@ namespace Debugging
             var frame = vm12.CurrentStackFrame;
             sourceView.Open(Path.Combine(vm12.sourceDir.FullName, frame.file), frame.line);
             toolStripLabelOpcode.Text = vm12.Opcode.ToString();
-            stackDepth = CountStackDepth(frame);
+            stackDepth = VM12.CountStackDepth(frame);
 #endif
         }
 
@@ -106,6 +121,8 @@ namespace Debugging
                 vm12.UseDebugger = false;
                 vm12.ContinueEvent.Set();
                 catchedVM = false;
+
+                stack_view.ClearStack();
             }
 #endif
         }
@@ -122,22 +139,7 @@ namespace Debugging
             }
 #endif
         }
-
-#if DEBUG
-        private int CountStackDepth(VM12.StackFrame frame)
-        {
-            int depth = 0;
-            while (frame.prev != null)
-            {
-                depth++;
-                frame = frame.prev;
-            }
-
-            return depth;
-        }
-
-#endif
-
+        
         private void sourceView_TextSelectionChanged(object sender, EventArgs e)
         {
             int line = sourceView.TextBox.GetLineFromCharIndex(sourceView.TextBox.SelectionStart);
@@ -165,11 +167,53 @@ namespace Debugging
             }
         }
 
+        private volatile bool steppingOver = false;
+
         private void tsbStepOver_Click(object sender, EventArgs e)
         {
+            if (steppingOut)
+            {
+                steppingOut = false;
+                return;
+            }
+
             if (vm12 != null)
             {
+                steppingOut = true;
+                
+                // Step the vm. If the stack depth increased we continue to step until we get back to the original stack depth
+                int origDepth = VM12.CountStackDepth(vm12.CurrentStackFrame);
+
                 StepVM();
+
+                int newDepth = VM12.CountStackDepth(vm12.CurrentStackFrame);
+
+                watch.Reset();
+                watch.Start();
+
+                while (steppingOut && newDepth > origDepth)
+                {
+                    StepVM();
+
+                    if (vm12.RetInstruction)
+                    {
+                        var frame = vm12.CurrentStackFrame;
+
+                        newDepth = VM12.CountStackDepth(frame);
+
+                        vm12.RetInstruction = false;
+                    }
+
+                    if (watch.ElapsedMilliseconds > 50)
+                    {
+                        Application.DoEvents();
+                        watch.Restart();
+                    }
+                }
+
+                watch.Stop();
+
+                steppingOut = false;
 
                 UpdateDebug();
             }
@@ -177,13 +221,12 @@ namespace Debugging
         
         private void tsbStepIn_Click(object sender, EventArgs e)
         {
-            // Execute instructions until the stack trace is one bigger
-            // or
-            // Execute until we find a call, hlt or other appropriate instruction
+            if (vm12 != null)
+            {
+                StepVM();
 
-            // What should step in do if there is nothing to step in to?
-            // Normally step over is not a step by step instruction thing...
-
+                UpdateDebug();
+            }
         }
 
         private volatile bool steppingOut = false;
@@ -218,14 +261,13 @@ namespace Debugging
                         {
                             var frame = vm12.CurrentStackFrame;
                     
-                            newDepth = CountStackDepth(frame);
+                            newDepth = VM12.CountStackDepth(frame);
 
                             vm12.RetInstruction = false;
                         }
 
                         if (watch.ElapsedMilliseconds > 50)
                         {
-                            Debug.WriteLine($"Elapsed: {watch.ElapsedMilliseconds}");
                             Application.DoEvents();
                             watch.Restart();
                         }
@@ -243,6 +285,11 @@ namespace Debugging
                 }
             }
 #endif
+        }
+
+        private void tsbStop_Click(object sender, EventArgs e)
+        {
+            VM12Form.form?.Close();
         }
     }
 }

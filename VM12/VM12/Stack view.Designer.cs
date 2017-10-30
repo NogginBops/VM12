@@ -28,49 +28,20 @@
         /// </summary>
         private void InitializeComponent()
         {
-            System.Windows.Forms.ListViewItem listViewItem2 = new System.Windows.Forms.ListViewItem(new string[] {
-            "0x000_004",
-            "0x000"}, -1, System.Drawing.Color.Empty, System.Drawing.SystemColors.Window, null);
-            this.listStack = new System.Windows.Forms.ListView();
-            this.colHAddress = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
-            this.colHValue = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.splitContainer = new System.Windows.Forms.SplitContainer();
-            this.dgvStack = new System.Windows.Forms.DataGridView();
+            this.dgvCallStack = new System.Windows.Forms.DataGridView();
             this.colHProc = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.colHLocation = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.dgvStack = new System.Windows.Forms.DataGridView();
+            this.colHAddress = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.colHValue = new System.Windows.Forms.DataGridViewTextBoxColumn();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer)).BeginInit();
             this.splitContainer.Panel1.SuspendLayout();
             this.splitContainer.Panel2.SuspendLayout();
             this.splitContainer.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvCallStack)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvStack)).BeginInit();
             this.SuspendLayout();
-            // 
-            // listStack
-            // 
-            this.listStack.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
-            this.colHAddress,
-            this.colHValue});
-            this.listStack.Dock = System.Windows.Forms.DockStyle.Fill;
-            listViewItem2.StateImageIndex = 0;
-            this.listStack.Items.AddRange(new System.Windows.Forms.ListViewItem[] {
-            listViewItem2});
-            this.listStack.Location = new System.Drawing.Point(0, 0);
-            this.listStack.Name = "listStack";
-            this.listStack.ShowGroups = false;
-            this.listStack.Size = new System.Drawing.Size(571, 529);
-            this.listStack.TabIndex = 0;
-            this.listStack.UseCompatibleStateImageBehavior = false;
-            this.listStack.View = System.Windows.Forms.View.Details;
-            // 
-            // colHAddress
-            // 
-            this.colHAddress.Text = "Address";
-            this.colHAddress.Width = 113;
-            // 
-            // colHValue
-            // 
-            this.colHValue.Text = "Value";
-            this.colHValue.Width = 82;
             // 
             // splitContainer
             // 
@@ -81,37 +52,38 @@
             // 
             // splitContainer.Panel1
             // 
-            this.splitContainer.Panel1.Controls.Add(this.dgvStack);
+            this.splitContainer.Panel1.Controls.Add(this.dgvCallStack);
             // 
             // splitContainer.Panel2
             // 
-            this.splitContainer.Panel2.Controls.Add(this.listStack);
+            this.splitContainer.Panel2.Controls.Add(this.dgvStack);
             this.splitContainer.Size = new System.Drawing.Size(571, 714);
             this.splitContainer.SplitterDistance = 181;
             this.splitContainer.TabIndex = 1;
             // 
-            // dgvStack
+            // dgvCallStack
             // 
-            this.dgvStack.AllowUserToAddRows = false;
-            this.dgvStack.AllowUserToDeleteRows = false;
-            this.dgvStack.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dgvStack.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            this.dgvStack.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this.dgvCallStack.AllowUserToAddRows = false;
+            this.dgvCallStack.AllowUserToDeleteRows = false;
+            this.dgvCallStack.AllowUserToResizeRows = false;
+            this.dgvCallStack.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dgvCallStack.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvCallStack.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this.colHProc,
             this.colHLocation});
-            this.dgvStack.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.dgvStack.EditMode = System.Windows.Forms.DataGridViewEditMode.EditOnEnter;
-            this.dgvStack.Location = new System.Drawing.Point(0, 0);
-            this.dgvStack.MultiSelect = false;
-            this.dgvStack.Name = "dgvStack";
-            this.dgvStack.RowHeadersVisible = false;
-            this.dgvStack.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.CellSelect;
-            this.dgvStack.ShowCellErrors = false;
-            this.dgvStack.ShowEditingIcon = false;
-            this.dgvStack.ShowRowErrors = false;
-            this.dgvStack.Size = new System.Drawing.Size(571, 181);
-            this.dgvStack.TabIndex = 2;
-            this.dgvStack.CellDoubleClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvStack_CellDoubleClick);
+            this.dgvCallStack.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dgvCallStack.EditMode = System.Windows.Forms.DataGridViewEditMode.EditOnEnter;
+            this.dgvCallStack.Location = new System.Drawing.Point(0, 0);
+            this.dgvCallStack.MultiSelect = false;
+            this.dgvCallStack.Name = "dgvCallStack";
+            this.dgvCallStack.RowHeadersVisible = false;
+            this.dgvCallStack.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.CellSelect;
+            this.dgvCallStack.ShowCellErrors = false;
+            this.dgvCallStack.ShowEditingIcon = false;
+            this.dgvCallStack.ShowRowErrors = false;
+            this.dgvCallStack.Size = new System.Drawing.Size(571, 181);
+            this.dgvCallStack.TabIndex = 2;
+            this.dgvCallStack.CellDoubleClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvStack_CellDoubleClick);
             // 
             // colHProc
             // 
@@ -127,6 +99,43 @@
             this.colHLocation.ReadOnly = true;
             this.colHLocation.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             // 
+            // dgvStack
+            // 
+            this.dgvStack.AllowUserToAddRows = false;
+            this.dgvStack.AllowUserToDeleteRows = false;
+            this.dgvStack.AllowUserToResizeRows = false;
+            this.dgvStack.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dgvStack.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvStack.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this.colHAddress,
+            this.colHValue});
+            this.dgvStack.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dgvStack.EditMode = System.Windows.Forms.DataGridViewEditMode.EditOnEnter;
+            this.dgvStack.Location = new System.Drawing.Point(0, 0);
+            this.dgvStack.MultiSelect = false;
+            this.dgvStack.Name = "dgvStack";
+            this.dgvStack.RowHeadersVisible = false;
+            this.dgvStack.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.CellSelect;
+            this.dgvStack.ShowCellErrors = false;
+            this.dgvStack.ShowEditingIcon = false;
+            this.dgvStack.ShowRowErrors = false;
+            this.dgvStack.Size = new System.Drawing.Size(571, 529);
+            this.dgvStack.TabIndex = 3;
+            this.dgvStack.CellParsing += new System.Windows.Forms.DataGridViewCellParsingEventHandler(this.dgvStack_CellParsing);
+            // 
+            // colHAddress
+            // 
+            this.colHAddress.HeaderText = "Address";
+            this.colHAddress.Name = "colHAddress";
+            this.colHAddress.ReadOnly = true;
+            this.colHAddress.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            // 
+            // colHValue
+            // 
+            this.colHValue.HeaderText = "Value";
+            this.colHValue.Name = "colHValue";
+            this.colHValue.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            // 
             // Stack_view
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -139,19 +148,19 @@
             this.splitContainer.Panel2.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer)).EndInit();
             this.splitContainer.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dgvCallStack)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvStack)).EndInit();
             this.ResumeLayout(false);
 
         }
 
         #endregion
-
-        private System.Windows.Forms.ListView listStack;
-        private System.Windows.Forms.ColumnHeader colHAddress;
-        private System.Windows.Forms.ColumnHeader colHValue;
         private System.Windows.Forms.SplitContainer splitContainer;
-        private System.Windows.Forms.DataGridView dgvStack;
+        private System.Windows.Forms.DataGridView dgvCallStack;
         private System.Windows.Forms.DataGridViewTextBoxColumn colHProc;
         private System.Windows.Forms.DataGridViewTextBoxColumn colHLocation;
+        private System.Windows.Forms.DataGridView dgvStack;
+        private System.Windows.Forms.DataGridViewTextBoxColumn colHAddress;
+        private System.Windows.Forms.DataGridViewTextBoxColumn colHValue;
     }
 }

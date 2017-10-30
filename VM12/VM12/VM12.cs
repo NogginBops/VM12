@@ -118,6 +118,8 @@ namespace VM12
         public volatile bool HaltInstruction = false;
 
         public readonly object DebugSync = new object();
+
+        public event EventHandler HitBreakpoint = null;
 #endif
         
         int PC = ROM_START;
@@ -446,7 +448,7 @@ namespace VM12
             }
 
 
-            frame.locals = MEM[fp + 4];
+            frame.locals = MEM[fp + 4] << 12 | MEM[fp + 5];
             frame.localValues = new int[frame.locals];
             for (int i = 0; i < frame.locals; i++)
             {
@@ -455,7 +457,19 @@ namespace VM12
 
             return frame;
         }
-        
+
+        public static int CountStackDepth(StackFrame frame)
+        {
+            int depth = 1;
+            while (frame.prev != null)
+            {
+                depth++;
+                frame = frame.prev;
+            }
+
+            return depth;
+        }
+
         public DirectoryInfo sourceDir { get; private set; }
 
 #endregion
@@ -622,7 +636,7 @@ namespace VM12
                 mem[this.FP + 1] = 0;
                 mem[this.FP + 2] = 0;   // Last FP is at the same location
                 mem[this.FP + 3] = 0;
-                mem[this.FP + 4] = 0; ;   // No locals
+                mem[this.FP + 4] = 0;   // No locals
                 mem[this.FP + 5] = 0;
                 this.locals = 0;
                 this.SP = this.FP + 5;
@@ -672,8 +686,8 @@ namespace VM12
                     if (breaks[PC])
                     {
                         interruptsEnabled = false;
-                        ;
-                        //Debugger.Break();
+
+                        HitBreakpoint?.Invoke(this, new EventArgs());
                     }
 
 #endif

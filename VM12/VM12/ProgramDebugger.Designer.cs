@@ -37,6 +37,8 @@
             this.toolLabelColumn = new System.Windows.Forms.ToolStripStatusLabel();
             this.toolLabelIndex = new System.Windows.Forms.ToolStripStatusLabel();
             this.splitDebugPanel = new System.Windows.Forms.SplitContainer();
+            this.stack_view = new Debugging.Stack_view();
+            this.sourceView = new Debugger.SourceView();
             this.toolStrip = new System.Windows.Forms.ToolStrip();
             this.tsbContinue = new System.Windows.Forms.ToolStripButton();
             this.tsbPause = new System.Windows.Forms.ToolStripButton();
@@ -54,8 +56,6 @@
             this.toolStripButton4 = new System.Windows.Forms.ToolStripButton();
             this.toolStripButton5 = new System.Windows.Forms.ToolStripButton();
             this.toolStripButton6 = new System.Windows.Forms.ToolStripButton();
-            this.stack_view = new Debugging.Stack_view();
-            this.sourceView = new Debugger.SourceView();
             this.menuStrip.SuspendLayout();
             this.statusStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.splitDebugPanel)).BeginInit();
@@ -134,6 +134,24 @@
             this.splitDebugPanel.SplitterDistance = 360;
             this.splitDebugPanel.TabIndex = 3;
             // 
+            // stack_view
+            // 
+            this.stack_view.AutoScroll = true;
+            this.stack_view.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.stack_view.Location = new System.Drawing.Point(0, 0);
+            this.stack_view.Name = "stack_view";
+            this.stack_view.Size = new System.Drawing.Size(360, 471);
+            this.stack_view.TabIndex = 0;
+            // 
+            // sourceView
+            // 
+            this.sourceView.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.sourceView.Location = new System.Drawing.Point(0, 0);
+            this.sourceView.Name = "sourceView";
+            this.sourceView.Size = new System.Drawing.Size(718, 471);
+            this.sourceView.TabIndex = 0;
+            this.sourceView.TextSelectionChanged += new System.EventHandler(this.sourceView_TextSelectionChanged);
+            // 
             // toolStrip
             // 
             this.toolStrip.GripStyle = System.Windows.Forms.ToolStripGripStyle.Hidden;
@@ -184,6 +202,7 @@
             this.tsbStop.Size = new System.Drawing.Size(23, 22);
             this.tsbStop.Text = "Stop";
             this.tsbStop.ToolTipText = "Stop";
+            this.tsbStop.Click += new System.EventHandler(this.tsbStop_Click);
             // 
             // toolStripSeparator2
             // 
@@ -289,24 +308,6 @@
             this.toolStripButton6.Name = "toolStripButton6";
             this.toolStripButton6.Size = new System.Drawing.Size(23, 22);
             this.toolStripButton6.Text = "toolStripButton6";
-            // 
-            // stack_view
-            // 
-            this.stack_view.AutoScroll = true;
-            this.stack_view.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.stack_view.Location = new System.Drawing.Point(0, 0);
-            this.stack_view.Name = "stack_view";
-            this.stack_view.Size = new System.Drawing.Size(360, 471);
-            this.stack_view.TabIndex = 0;
-            // 
-            // sourceView
-            // 
-            this.sourceView.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.sourceView.Location = new System.Drawing.Point(0, 0);
-            this.sourceView.Name = "sourceView";
-            this.sourceView.Size = new System.Drawing.Size(718, 471);
-            this.sourceView.TabIndex = 0;
-            this.sourceView.TextSelectionChanged += new System.EventHandler(this.sourceView_TextSelectionChanged);
             // 
             // ProgramDebugger
             // 
