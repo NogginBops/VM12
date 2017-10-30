@@ -164,9 +164,12 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bstorel\\s+(\\d+)"), "store.local.l $1" },
             { new Regex("(?<!:)\\bstore\\s+#(\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit $1 store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+#(\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit.l $1 store.sp.l" },
+            { new Regex("(?<!:)\\bstore\\s+#(\\S+)"), "load.lit $1 store.sp" },
+            { new Regex("(?<!:)\\bstorel\\s+#(\\S+)"), "load.lit.l $1 store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+@(\\S+)"), "load.lit.l $1 swap.s.l store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+@(\\S+)"), "load.lit.l $1 swap.l store.sp.l" },
-            { new Regex("::(?!\\S)"), "call.v" },
+            { new Regex("(?<!:)\\bset\\s+\\[SP\\]"), "set.sp" },
+            { new Regex("::\\[SP\\]"), "call.v" },
             { new Regex("::(?!\\s)"), "call :" },
             { new Regex(sname("lswap")), "swap.l" },
             { new Regex(sname("slswap")), "swap.s.l" },
@@ -220,6 +223,9 @@ namespace VM12Asm
             { new Regex(sname("ldiv")), "div.l" },
             { new Regex(sname("blitm")), "blit.mask" },
 
+            { new Regex("\\[FP\\]"), "fp" },
+            { new Regex("\\[PC\\]"), "pc" },
+            { new Regex("\\[SP\\]"), "sp" },
         };
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
@@ -242,8 +248,10 @@ namespace VM12Asm
         {
             { "nop", Opcode.Nop },
             { "pop", Opcode.Pop },
-            { "sp", Opcode.Sp },
+            { "fp", Opcode.Fp },
             { "pc", Opcode.Pc },
+            { "sp", Opcode.Sp },
+            { "set.sp", Opcode.Set_sp },
             { "load.lit", Opcode.Load_lit },
             { "load.lit.l", Opcode.Load_lit_l },
             { "load.sp", Opcode.Load_sp },
@@ -288,14 +296,6 @@ namespace VM12Asm
             { "dsi", Opcode.Dsi },
             { "hlt", Opcode.Hlt },
             { "jmp", Opcode.Jmp },
-            // { "jmp.z", Opcode.Jmp_z },
-            // { "jmp.nz", Opcode.Jmp_nz },
-            // { "jmp.c", Opcode.Jmp_c },
-            // { "jmp.cz", Opcode.Jmp_cz },
-            // { "jmp.gz", Opcode.Jmp_gz },
-            // { "jmp.lz", Opcode.Jmp_lz },
-            // { "jmp.z.l", Opcode.Jmp_z_l },
-            // { "jmp.nz.l", Opcode.Jmp_nz_l },
             { "call", Opcode.Call },
             { "call.v", Opcode.Call_v },
             { "ret", Opcode.Ret },
@@ -311,8 +311,6 @@ namespace VM12Asm
             { "mul.2", Opcode.Mul_2 },
             { "fc", Opcode.Fc },
             { "fc.b", Opcode.Fc_b },
-            // { "jmp.lz.l", Opcode.Jmp_lz_l },
-            // { "jmp.gz.l", Opcode.Jmp_gz_l },
             { "mul.l", Opcode.Mul_l },
             { "mul.2.l", Opcode.Mul_2_l },
             { "div.l", Opcode.Div_l },
@@ -390,6 +388,7 @@ namespace VM12Asm
             
             string file = null;
             string name = null;
+            bool generateStringSource = true;
             bool executable = true;
             bool overwrite = false;
             bool hold = false;
@@ -499,7 +498,7 @@ namespace VM12Asm
 
                 files[use] = asmFile;
 
-                foreach (var u in asmFile.Usings)
+                foreach (var u in asmFile.Usings.Reverse())
                 {
                     if (files.ContainsKey(u.Key) == false)
                     {
@@ -519,6 +518,11 @@ namespace VM12Asm
             parseTime += watch.ElapsedTicks;
 
             files["AutoStrings.12asm"] = autoStringAsem;
+
+            if (generateStringSource)
+            {
+                File.WriteAllText(Path.Combine(dirInf.FullName, "AutoStrings.12asm"), autoStringsFile.ToString());
+            }
 
             if (verbose)
             {
@@ -1162,7 +1166,7 @@ namespace VM12Asm
                     {
                         continue;
                     }
-
+                    
                     Token current = tokens.Current;
 
                     Token peek = tokens.Current;
@@ -1435,14 +1439,13 @@ namespace VM12Asm
                                 if (verbose) Console.WriteLine($"Litteral {current.Value}");
 
                                 short[] values = ParseLitteral(file.Value.Raw, current.Line, current.Value, file.Value.Constants);
-
+                                
                                 ShiftBreakpoints(file.Value, proc.Key, instructions.Count, values.Length);
 
                                 for (int i = values.Length - 1; i >= 0; i--)
                                 {
                                     instructions.Add(values[i]);
                                 }
-
                                 break;
                             case TokenType.Label:
                                 local_labels[current.Value] = instructions.Count;

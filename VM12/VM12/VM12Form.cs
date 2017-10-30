@@ -13,6 +13,7 @@ using System.Windows.Forms;
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using Debugging;
 
 namespace VM12
 {
@@ -41,17 +42,20 @@ namespace VM12
         {
             if (vm12 != null)
             {
-                VM12.ProcMetadata data = vm12.CurrentMetadata;
-                if (data != null)
+                if (false)
                 {
-                    string key = $"{data.file}:{vm12.GetSourceCodeLineFromMetadataAndOffset(data, vm12.ProgramCounter)}";
-                    if (sourceHitCount.TryGetValue(key, out int val))
+                    VM12.ProcMetadata data = vm12.CurrentMetadata;
+                    if (data != null)
                     {
-                        sourceHitCount[key] = val + 1;
-                    }
-                    else
-                    {
-                        sourceHitCount[key] = 1;
+                        string key = $"{data.file}:{vm12.GetSourceCodeLineFromMetadataAndOffset(data, vm12.ProgramCounter)}";
+                        if (sourceHitCount.TryGetValue(key, out int val))
+                        {
+                            sourceHitCount[key] = val + 1;
+                        }
+                        else
+                        {
+                            sourceHitCount[key] = 1;
+                        }
                     }
                 }
             }
@@ -393,10 +397,7 @@ namespace VM12
 
         private void pbxMain_MouseLeave(object sender, EventArgs e)
         {
-            if (vm12 != null)
-            {
-                Cursor.Show();
-            }
+            Cursor.Show();
         }
 
         //private void hTimer_Tick(object sender, EventArgs e)
@@ -470,6 +471,20 @@ namespace VM12
 
                 view.Show();
             }
+#endif
+        }
+
+        private void debuggerToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+#if DEBUG
+            ProgramDebugger debugger = new ProgramDebugger();
+            
+            if (vm12 != null)
+            {
+                debugger.SetVM(vm12);
+            }
+
+            debugger.Show();
 #endif
         }
     }

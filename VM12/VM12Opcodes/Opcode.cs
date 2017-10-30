@@ -50,7 +50,8 @@
     {
         Nop,
         Pop,
-        Sp, Pc,
+        Fp, Pc,
+        Sp, Set_sp,
         Load_lit, Load_lit_l,
         Load_sp, Load_sp_l,
         Load_local, Load_local_l,

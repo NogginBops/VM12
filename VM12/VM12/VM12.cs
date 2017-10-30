@@ -14,6 +14,8 @@ using System.Runtime.InteropServices;
 
 namespace VM12
 {
+    using Debugger = System.Diagnostics.Debugger;
+
     enum InterruptType : int
     {
         stop,
@@ -34,6 +36,7 @@ namespace VM12
             Args = args;
         }
     }
+
     unsafe class VM12
     {
         public const int RAM_SIZE = 4194304;
@@ -49,24 +52,30 @@ namespace VM12
         public const int SCREEN_WIDTH = 640;
         public const int SCREEN_HEIGHT = 480;
 
-        public int[] MEM = new int[MEM_SIZE];
-
         public const int STORAGE_START_ADDR = 0;
         public const int STORAGE_SIZE = 357_913_941;
 
+        public int[] MEM = new int[MEM_SIZE];
+
         private FileInfo storageFile;
-
-        public byte[] STORAGE = new byte[STORAGE_SIZE * 3];
-
+        //public byte[] STORAGE = new byte[STORAGE_SIZE * 3];
+        
         HashSet<InterruptType> activeInterrupts = new HashSet<InterruptType>();
 
         volatile Interrupt intrr = null;
 
         public void Interrupt(Interrupt interrupt)
         {
+            if (interrupt == null)
+            {
+                interrupt_event.Set();
+                return;
+            }
+
             if (interruptsEnabled && intrr == null)
             {
-                intrr = intrr ?? interrupt;
+                //intrr = intrr ?? interrupt;
+                intrr = interrupt;
                 interrupt_event.Set();
 #if DEBUG
                 InterruptFreq[InterruptTypeToInt(interrupt.Type)]++;
@@ -85,17 +94,39 @@ namespace VM12
         bool interruptsEnabled = false;
         bool halt = false;
 
+#if DEBUG
+        bool interruptsEnabledActual = false;
+#endif
+
         AutoResetEvent interrupt_event = new AutoResetEvent(false);
 
+#if DEBUG
+        /// <summary>
+        /// When the VM breaks it waits for this event
+        /// </summary>
+        public AutoResetEvent ContinueEvent { get; private set; } = new AutoResetEvent(false);
+
+        /// <summary>
+        /// Is set when the VM breaks
+        /// </summary>
+        public AutoResetEvent DebugBreakEvent { get; private set; } = new AutoResetEvent(false);
+
+        public volatile bool CallInstruction = false;
+
+        public volatile bool RetInstruction = false;
+
+        public volatile bool HaltInstruction = false;
+
+        public readonly object DebugSync = new object();
+#endif
+        
         int PC = ROM_START;
         int SP = -1;
         int FP = -1;
         int locals = 0;
 
         long programTime = 0;
-
-        private const float TimerInterval = 10000000;
-
+        
         public bool Started { get; set; } = false;
         public bool Running { get; set; } = false;
         public bool Stopped => halt && !interruptsEnabled;
@@ -104,6 +135,9 @@ namespace VM12
         public int FramePointer => FP;
         public bool InterruptsEnabled => interruptsEnabled;
         public long Ticks => programTime;
+#if DEBUG
+        public Opcode Opcode { get; private set; }
+#endif
 
         public int SPWatermark = int.MinValue;
         public int FPWatermark = int.MinValue;
@@ -111,12 +145,12 @@ namespace VM12
 #if !DEBUG
         public VM12(short[] ROM)
         {
-            Array.Copy(ROM, 0, MEM, Memory.ROM_START, ROM.Length);
+            Array.Copy(ROM, 0, MEM, ROM_START, ROM.Length);
         }
 #elif DEBUG
 
-        // public const bool BreaksEnabled = true;
-
+        public volatile bool UseDebugger = false;
+        
         public static int InterruptTypeToInt(InterruptType type)
         {
             switch (type)
@@ -144,7 +178,7 @@ namespace VM12
 
         public int[] instructionTimes = new int[Enum.GetValues(typeof(Opcode)).Length];
 
-        #region Debug
+#region Debug
 
         public class ProcMetadata
         {
@@ -162,7 +196,7 @@ namespace VM12
             }
         }
 
-        class StackFrame
+        public class StackFrame
         {
             public string file;
             public string procName;
@@ -228,7 +262,7 @@ namespace VM12
 
         List<ProcMetadata> metadata = new List<ProcMetadata>();
 
-        ProcMetadata GetMetadataFromOffset(int offset)
+        public ProcMetadata GetMetadataFromOffset(int offset)
         {
             foreach (var data in metadata)
             {
@@ -247,7 +281,7 @@ namespace VM12
 
         Dictionary<string, string[]> source = new Dictionary<string, string[]>();
 
-        string GetSourceCodeLine(int offset)
+        public string GetSourceCodeLine(int offset)
         {
             ProcMetadata data = GetMetadataFromOffset(offset);
 
@@ -362,9 +396,9 @@ namespace VM12
             return callers.Reverse<string>().ToArray();
         }
 
-        StackFrame CurrentStackFrame => ConstructStackFrame(FP, PC);
+        public StackFrame CurrentStackFrame => ConstructStackFrame(FP, PC);
 
-        StackFrame ConstructStackFrame(int fp, int pc)
+        public StackFrame ConstructStackFrame(int fp, int pc)
         {
             if (fp < 0 || fp == 0x00000000)
             {
@@ -393,39 +427,24 @@ namespace VM12
 
             frame.file = data?.file;
             frame.procName = data?.name;
-            frame.line = data != null ? GetSourceCodeLineFromOffset(pc) : -1;
+            frame.line = data != null ? GetSourceCodeLineFromMetadataAndOffset(data, pc) : -1;
 
             frame.FP = fp;
 
             frame.return_addr = MEM[fp] << 12 | (ushort)MEM[fp + 1];
 
             frame.prev_addr = MEM[fp + 2] << 12 | (ushort)MEM[fp + 3];
-            if (frame.prev_addr == 0x00ffffff)
+
+            if (frame.return_addr >= 0xFFF_FC0)
             {
-                frame.prev_addr = -1;
-
-                ProcMetadata main = GetMetadataFromOffset(frame.return_addr);
-
-                StackFrame main_frame = new StackFrame();
-
-                main_frame.file = main?.file;
-                main_frame.procName = main?.name;
-                main_frame.line = main != null ? GetSourceCodeLineFromMetadataAndOffset(main, frame.return_addr) : -1;
-
-                main_frame.FP = -1;
-
-                main_frame.return_addr = 0;
-                main_frame.prev_addr = -1;
-                main_frame.prev = null;
-                main_frame.locals = 0;
-                main_frame.localValues = null;
-
-                frame.prev = main_frame;
+                // Interrupts dont have a caller
+                frame.prev = ConstructStackFrame(frame.prev_addr, frame.return_addr);
             }
             else
             {
-                frame.prev = ConstructStackFrame(frame.prev_addr, frame.return_addr);
+                frame.prev = ConstructStackFrame(frame.prev_addr, frame.return_addr - 3);
             }
+
 
             frame.locals = MEM[fp + 4];
             frame.localValues = new int[frame.locals];
@@ -437,12 +456,16 @@ namespace VM12
             return frame;
         }
         
-        #endregion
+        public DirectoryInfo sourceDir { get; private set; }
+
+#endregion
         
         public VM12(short[] ROM, FileInfo metadata, FileInfo storage)
         {
             Array.Copy(ROM, 0, MEM, ROM_START, ROM.Length);
-            
+
+            sourceDir = metadata.Directory;
+
             ParseMetadata(metadata);
             
             breaks = new bool[MEM.Length];
@@ -644,7 +667,6 @@ namespace VM12
                     Opcode op = (Opcode)(mem[PC]);
 
 #if DEBUG
-                    
                     instructionFreq[(int)op]++;
 #if BREAKS
                     if (breaks[PC])
@@ -653,7 +675,28 @@ namespace VM12
                         ;
                         //Debugger.Break();
                     }
+
 #endif
+                    if (UseDebugger == true)
+                    {
+                        Opcode = op;
+                        DebugBreakEvent.Set();
+                        interruptsEnabledActual = interruptsEnabled;
+                        interruptsEnabled = false;
+                        ContinueEvent.WaitOne();
+
+                        /*
+                        bool acquiredLock = Monitor.TryEnter(DebugSync);
+                        if (acquiredLock)
+                        {
+                            Monitor.Exit(DebugSync);
+                        }
+                        else
+                        {
+                            
+                        }
+                        */
+                    }
 #endif
                     switch (op)
                     {
@@ -670,16 +713,25 @@ namespace VM12
 #endif
                             PC++;
                             break;
+                        case Opcode.Fp:
+                            mem[SP + 1] = FP >> 12 & 0xFF;
+                            mem[SP + 2] = FP & 0xFF;
+                            SP += 2;
+                            break;
+                        case Opcode.Pc:
+                            mem[SP + 1] = PC >> 12 & 0xFFF;
+                            mem[SP + 2] = PC & 0xFFF;
+                            SP += 2;
+                            PC++;
+                            break;
                         case Opcode.Sp:
                             mem[SP + 1] = SP >> 12 & 0xFFF;
                             mem[SP + 2] = SP & 0xFFF;
                             SP += 2;
                             PC++;
                             break;
-                        case Opcode.Pc:
-                            mem[SP + 1] = PC >> 12 & 0xFFF;
-                            mem[SP + 2] = PC & 0xFFF;
-                            SP += 2;
+                        case Opcode.Set_sp:
+                            SP = mem[SP - 1] << 12 | mem[SP];
                             PC++;
                             break;
                         case Opcode.Load_lit:
@@ -939,6 +991,9 @@ namespace VM12
                             break;
                         case Opcode.Hlt:
                             halt = true;
+#if DEBUG
+                            interruptsEnabled = interruptsEnabled || interruptsEnabledActual;
+#endif
                             if (interruptsEnabled)
                             {
                                 interrupt_event.WaitOne();
@@ -946,8 +1001,13 @@ namespace VM12
                             }
                             else
                             {
-                                goto end;
+                                    goto end;
                             }
+
+#if DEBUG
+                            HaltInstruction = true;
+#endif
+
                             PC++;
                             break;
                         case Opcode.Jmp:
@@ -1148,31 +1208,59 @@ namespace VM12
                             }
                             break;
                         case Opcode.Call:
-                            int call_addr = (mem[PC + 1] << 12) | (ushort)(mem[PC + 2]);
-                            int return_addr = PC + 3;
-                            int last_fp = FP;
-                            int parameters = mem[call_addr];
-                            int locals = mem[call_addr + 1];
-                            PC = call_addr + 2;
-                            SP += locals - parameters;      // Reserve space for locals and take locals from the stack
-                            mem[++SP] = (return_addr >> 12) & 0xFFF; // Return addr
-                            FP = SP;    // Set the Frame Pointer
-                            mem[++SP] = return_addr & 0xFFF;
-                            mem[++SP] = (last_fp >> 12) & 0xFFF;   // Prev FP
-                            mem[++SP] = last_fp & 0xFFF;
-                            mem[++SP] = 0;                  // Locals
-                            mem[++SP] = locals;
-                            this.locals = locals;
-                            FPloc = FP - locals;
-                            break;
+                            {
+                                int call_addr = (mem[PC + 1] << 12) | (ushort)(mem[PC + 2]);
+                                int return_addr = PC + 3;
+                                int last_fp = FP;
+                                int parameters = mem[call_addr];
+                                int locals = mem[call_addr + 1];
+                                PC = call_addr + 2;
+                                SP += locals - parameters;              // Reserve space for locals and take locals from the stack
+                                mem[++SP] = return_addr >> 12 & 0xFFF;  // Return addr
+                                FP = SP;                                // Set the Frame Pointer
+                                mem[++SP] = return_addr & 0xFFF;
+                                mem[++SP] = last_fp >> 12 & 0xFFF;      // Prev FP
+                                mem[++SP] = last_fp & 0xFFF;
+                                mem[++SP] = locals >> 12 & 0xFFF;       // Locals
+                                mem[++SP] = locals & 0xFFF;
+                                this.locals = locals;
+                                FPloc = FP - locals;
+#if DEBUG
+                                CallInstruction = true;
+#endif
+                                break;
+                            }
                         case Opcode.Call_v:
-                            break;
+                            {
+                                int call_addr = (mem[SP - 1] << 12) | (ushort)(mem[SP]);
+                                int return_addr = PC + 1;
+                                int last_fp = FP;
+                                int parameters = mem[call_addr];
+                                int locals = mem[call_addr + 1];
+                                PC = call_addr + 2;
+                                SP += locals - parameters;
+                                mem[++SP] = return_addr >> 12 & 0xFFF;
+                                FP = SP;
+                                mem[++SP] = return_addr & 0xFFF;
+                                mem[++SP] = last_fp >> 12 & 0xFFF;
+                                mem[++SP] = 0;
+                                mem[++SP] = locals;
+                                this.locals = locals;
+                                FPloc = FP - locals;
+#if DEBUG
+                                CallInstruction = true;
+#endif
+                                break;
+                            }
                         case Opcode.Ret:
                             SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]);
                             PC = mem[FP] << 12 | (ushort) mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
                             this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
                             FPloc = FP - this.locals;
+#if DEBUG
+                            RetInstruction = true;
+#endif
                             break;
                         case Opcode.Ret_1:
                             int ret_val = mem[SP];
@@ -1182,6 +1270,9 @@ namespace VM12
                             this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
                             FPloc = FP - this.locals;
                             mem[SP] = ret_val;
+#if DEBUG
+                            RetInstruction = true;
+#endif
                             break;
                         case Opcode.Ret_2:
                             int ret_val_1 = mem[SP - 1];
@@ -1193,6 +1284,9 @@ namespace VM12
                             FPloc = FP - this.locals;
                             mem[SP - 1] = ret_val_1;
                             mem[SP] = ret_val_2;
+#if DEBUG
+                            RetInstruction = true;
+#endif
                             break;
                         case Opcode.Ret_v:
                             int return_values = mem[PC + 1];
@@ -1210,6 +1304,9 @@ namespace VM12
                             {
                                 mem[SP - i] = values[i];
                             }
+#if DEBUG
+                            RetInstruction = true;
+#endif
                             break;
                         case Opcode.Memc:
                             //const int INT_SIZE = 4;
@@ -1312,9 +1409,9 @@ namespace VM12
 
                             IOMode ioMode = (IOMode) mem[PC + 1];
                             
-                            if ((ioAddr - STORAGE_START_ADDR) < STORAGE.Length)
+                            if ((ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
                             {
-                                const int wordSize = 8;
+                                //const int wordSize = 8;
                                 
                                 switch (ioMode)
                                 {
@@ -1338,9 +1435,9 @@ namespace VM12
                                 //FIXME: Copy data
                                 for (int i = 0; i < w_len * 3; i += 3)
                                 {
-                                    STORAGE[i] = (byte)(mem[buf + i] >> 12);
-                                    STORAGE[i + 1] = 0;
-                                    STORAGE[i + 2] = 0;
+                                    //STORAGE[i] = (byte)(mem[buf + i] >> 12);
+                                    //STORAGE[i + 1] = 0;
+                                    //STORAGE[i + 2] = 0;
                                 }
                             }
 
