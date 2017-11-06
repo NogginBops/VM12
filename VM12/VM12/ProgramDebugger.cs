@@ -181,6 +181,8 @@ namespace Debugging
             {
                 steppingOut = true;
                 
+                // FIXME!! For this we really should just break on the instruction after the call...
+
                 // Step the vm. If the stack depth increased we continue to step until we get back to the original stack depth
                 int origDepth = VM12.CountStackDepth(vm12.CurrentStackFrame);
 

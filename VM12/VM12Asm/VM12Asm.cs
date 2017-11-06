@@ -236,7 +236,7 @@ namespace VM12Asm
 
         static Regex proc = new Regex("(:[A-Za-z_][A-Za-z0-9_]*)(\\s+@(.*))?");
 
-        static Regex num = new Regex("(?<!\\S)\\b(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)\\b(?!\\S)");
+        static Regex num = new Regex("(?<!\\S)(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|-?[0-9_]+)(?!\\S)");
 
         static Regex chr = new Regex("'(.)'");
 
@@ -1249,7 +1249,7 @@ namespace VM12Asm
                                             if (value.Length <= 2)
                                             {
                                                 instructions.Add((short)current.Opcode);
-                                                instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
+                                                instructions.Add(value.Length < 2 ? (short) (value[0] == 0xFFF ? 0xFFF :  0) : value[1]);
                                                 instructions.Add(value[0]);
                                             }
                                             else
@@ -1685,7 +1685,7 @@ namespace VM12Asm
 
         static short[] ParseString(RawFile file, int line, string litteral, bool raw)
         {
-            // This might return veird things for weird strings. But this compiler isn't made to be robust
+            // This might return weird things for weird strings. But this compiler isn't made to be robust
             short[] data = null;
             try
             {
