@@ -1,5 +1,14 @@
 ﻿namespace VM12_Opcode
 {
+    public enum IOMode
+    {
+        Compact,
+        Fit,
+        SFit,
+        Cast,
+        SCast,
+    }
+
     public enum BlitMode : int
     {
         Black,
@@ -41,7 +50,8 @@
     {
         Nop,
         Pop,
-        Sp, Pc,
+        Fp, Pc,
+        Sp, Set_sp,
         Load_lit, Load_lit_l,
         Load_sp, Load_sp_l,
         Load_local, Load_local_l,
@@ -61,10 +71,6 @@
         Mul, Div,
         Eni, Dsi, Hlt,
         Jmp,
-        _Jmp_z, _Jmp_nz,
-        _Jmp_c, _Jmp_cz,
-        _Jmp_gz, _Jmp_lz, 
-        _Jmp_z_l, _Jmp_nz_l,
         Call, Call_v,
         Ret, Ret_1, Ret_2, Ret_v,
         Memc,
@@ -73,10 +79,10 @@
         Dec_local, Dec_local_l,
         Mul_2,
         Fc, Fc_b,
-        _Jmp_lz_l, _Jmp_gz_l,
         Mul_l, Mul_2_l,
         Div_l,
-        Blit, Blit_mask
+        Blit, Blit_mask,
+        Read, Write,
     }
 
     public enum Opcode_old : short

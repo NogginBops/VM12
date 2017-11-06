@@ -13,24 +13,29 @@ using System.Windows.Forms;
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using Debugging;
 
 namespace VM12
 {
     public partial class VM12Form : Form
     {
-        volatile VM12 vm12;
+        public static VM12Form form { get; private set; }
+
+        private volatile VM12 vm12;
 
         public static long StartTime = -1;
 
-        static byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
+        private readonly static byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
-        private static GCHandle BitsHandle = GCHandle.Alloc(data, GCHandleType.Pinned);
+        private readonly static GCHandle BitsHandle = GCHandle.Alloc(data, GCHandleType.Pinned);
 
-        Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT, VM12.SCREEN_WIDTH * 3, PixelFormat.Format24bppRgb, BitsHandle.AddrOfPinnedObject());
+        private readonly static Bitmap bitmap = new Bitmap(VM12.SCREEN_WIDTH, VM12.SCREEN_HEIGHT, VM12.SCREEN_WIDTH * 3, PixelFormat.Format24bppRgb, BitsHandle.AddrOfPinnedObject());
         
-        int[] vram = new int[Memory.VRAM_SIZE];
+        private readonly static int[] vram = new int[VM12.VRAM_SIZE];
 
-        System.Threading.Thread hTimer;
+        private Thread hTimer;
+
+        private readonly static ProgramDebugger debugger = new ProgramDebugger();
 
 #if DEBUG
         System.Threading.Timer perfTimer;
@@ -41,17 +46,20 @@ namespace VM12
         {
             if (vm12 != null)
             {
-                VM12.ProcMetadata data = vm12.CurrentMetadata;
-                if (data != null)
+                if (false)
                 {
-                    string key = $"{data.file}:{vm12.GetSourceCodeLineFromMetadataAndOffset(data, vm12.ProgramCounter)}";
-                    if (sourceHitCount.TryGetValue(key, out int val))
+                    VM12.ProcMetadata data = vm12.CurrentMetadata;
+                    if (data != null)
                     {
-                        sourceHitCount[key] = val + 1;
-                    }
-                    else
-                    {
-                        sourceHitCount[key] = 1;
+                        string key = $"{data.file}:{vm12.GetSourceCodeLineFromMetadataAndOffset(data, vm12.ProgramCounter)}";
+                        if (sourceHitCount.TryGetValue(key, out int val))
+                        {
+                            sourceHitCount[key] = val + 1;
+                        }
+                        else
+                        {
+                            sourceHitCount[key] = 1;
+                        }
                     }
                 }
             }
@@ -60,12 +68,19 @@ namespace VM12
 
         public VM12Form()
         {
+            if (form != null)
+            {
+                throw new InvalidOperationException("Cannot create more than one VM12Form");
+            }
+
+            form = this;
+
             InitializeComponent();
             
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
             
             Shown += (s, e1) => LoadProgram();
-
+            
             pbxMain.Image = bitmap;
 
             // SetSize(480);
@@ -128,11 +143,21 @@ namespace VM12
 #if DEBUG
                     FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
 
-                    vm12 = new VM12(rom, metadataFile);
+                    FileInfo storageFile = new FileInfo(Path.Combine(inf.DirectoryName, "Store.dsk"));
+
+                    if (storageFile.Exists == false)
+                    {
+                        storageFile.Create();
+                    }
+
+                    vm12 = new VM12(rom, metadataFile, storageFile);
 #else
                     vm12 = new VM12(rom);
 #endif
-                    
+
+                    vm12.HitBreakpoint += Vm12_HitBreakpoint;
+                    debugger.SetVM(vm12);
+
                     // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!
                     Thread thread = new Thread(() => { vm12.Start(); vm12 = null; })
                     {
@@ -158,6 +183,23 @@ namespace VM12
 #endif
                 });
             }
+        }
+
+        private void Vm12_HitBreakpoint(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                vm12.UseDebugger = true;
+                vm12.ContinueEvent.Reset();
+                BeginInvoke(new Action(OpenDebuggerBreakpoint));
+            }
+        }
+
+        private void OpenDebuggerBreakpoint()
+        {
+            debugger.CreateControl();
+            debugger.Show();
+            debugger.HitBreakpoint();
         }
 
         long lastIntsructionCount = -1;
@@ -220,7 +262,7 @@ namespace VM12
                 {
                     fixed (int* mem = vm12.MEM)
                     {
-                        int* vram = mem + Memory.VRAM_START;
+                        int* vram = mem + VM12.VRAM_START;
                         for (int i = 0; i < size; i += bytesPerPixel)
                         {
                             int index = i / (bytesPerPixel);
@@ -252,8 +294,11 @@ namespace VM12
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
         {
             vm12?.Stop();
+            vm12?.ContinueEvent.Set();
 
             BitsHandle.Free();
+            
+            while (vm12?.Running ?? false);
         }
 
         private void instructionFrequencyToolStripMenuItem_Click(object sender, EventArgs e)
@@ -384,10 +429,7 @@ namespace VM12
 
         private void pbxMain_MouseLeave(object sender, EventArgs e)
         {
-            if (vm12 != null)
-            {
-                Cursor.Show();
-            }
+            Cursor.Show();
         }
 
         //private void hTimer_Tick(object sender, EventArgs e)
@@ -463,5 +505,25 @@ namespace VM12
             }
 #endif
         }
+
+        private void debuggerToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+#if DEBUG
+            if (vm12 != null)
+            {
+                debugger.SetVM(vm12);
+            }
+
+            debugger.Show();
+            debugger.BringToFront();
+#endif
+        }
+
+#if DEBUG
+        public static ProgramDebugger GetProgramDebugger()
+        {
+            return debugger;
+        }
+#endif
     }
 }
