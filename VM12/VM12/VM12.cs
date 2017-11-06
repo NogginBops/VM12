@@ -302,12 +302,16 @@ namespace VM12
         {
             ProcMetadata data = GetMetadataFromOffset(offset);
 
+            if (data == null) return null;
+
             return source[data.file][GetSourceCodeLineFromMetadataAndOffset(data, offset) - 1];
         }
 
         int GetSourceCodeLineFromOffset(int offset)
         {
             ProcMetadata meta = GetMetadataFromOffset(offset);
+
+            if (meta == null) return -1;
 
             return GetSourceCodeLineFromMetadataAndOffset(meta, offset);
         }
@@ -339,6 +343,8 @@ namespace VM12
             get
             {
                 string line = GetSourceCodeLine(PC);
+
+                if (line == null) return null;
 
                 if (line[0] == '¤')
                 {
@@ -674,7 +680,7 @@ namespace VM12
 
 #if DEBUG
                     
-instructionFreq[(int)op]++;
+                    instructionFreq[(int)op]++;
 #if BREAKS
                     if (breaks[PC])
                     {
