@@ -199,6 +199,7 @@ namespace VM12Asm
             { new Regex(sname("jle")), "jmp JM.Le" },
             { new Regex(sname("jeq")), "jmp JM.Eq" },
             { new Regex(sname("jneq")), "jmp JM.Neq" },
+            { new Regex(sname("jro")), "jmp JM.Ro" },
             { new Regex(sname("jzl")), "jmp JM.Z.l" },
             { new Regex(sname("jnzl")), "jmp JM.Nz.l" },
             { new Regex(sname("jgzl")), "jmp JM.Gz.l" },
@@ -207,6 +208,7 @@ namespace VM12Asm
             { new Regex(sname("jlel")), "jmp JM.Le.l" },
             { new Regex(sname("jeql")), "jmp JM.Eq.l" },
             { new Regex(sname("jneql")), "jmp JM.Neq.l" },
+            { new Regex(sname("jrol")), "jmp JM.Ro.l" },
             { new Regex(sname("ret1")), "ret.1" },
             { new Regex(sname("ret2")), "ret.2" },
             { new Regex(sname("retv")), "ret.v" },
@@ -956,7 +958,7 @@ namespace VM12Asm
                     {
                         string[] SplitNotStrings(string input, char[] chars)
                         {
-                            return Regex.Matches(input, @"[\""].+?[\""]|[^ ]+")
+                            return Regex.Matches(input, @"([\""].*?[\""]|'.')|[^ ]+")
                                 .Cast<Match>()
                                 .Select(m => m.Value)
                                 .ToArray();
@@ -1270,9 +1272,10 @@ namespace VM12Asm
 
                                         instructions.Add((short)current.Opcode);
 
+                                        JumpMode mode = JumpMode.Jmp;
                                         if (peek.Type == TokenType.Argument)
                                         {
-                                            JumpMode mode = (JumpMode) arguments[peek.Value];
+                                            mode = (JumpMode) arguments[peek.Value];
                                             if (Enum.IsDefined(typeof(JumpMode), mode))
                                             {
                                                 instructions.Add((short)mode);
@@ -1289,7 +1292,11 @@ namespace VM12Asm
                                             Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a {nameof(JumpMode)}!");
                                         }
 
-                                        if (peek.Type == TokenType.Label)
+                                        if (mode == JumpMode.Ro || mode == JumpMode.Ro_l)
+                                        {
+
+                                        }
+                                        else if (peek.Type == TokenType.Label)
                                         {
                                             local_label_uses[instructions.Count] = peek.Value;
                                             Console.ForegroundColor = ConsoleColor.DarkGreen;
@@ -1297,6 +1304,7 @@ namespace VM12Asm
                                             Console.ForegroundColor = conColor;
                                             instructions.Add(0);
                                             instructions.Add(0);
+                                            tokens.MoveNext();
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
@@ -1307,12 +1315,12 @@ namespace VM12Asm
                                             }
                                             instructions.Add(value[1]);
                                             instructions.Add(value[0]);
+                                            tokens.MoveNext();
                                         }
                                         else
                                         {
                                             Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a label or litteral!");
                                         }
-                                        tokens.MoveNext();
                                         break;
                                     case Opcode.Call:
                                         if (current.Equals(peek) == false && (peek.Type == TokenType.Litteral || peek.Type == TokenType.Label))
@@ -1412,17 +1420,17 @@ namespace VM12Asm
 
                                         if (peek.Type == TokenType.Argument)
                                         {
-                                            JumpMode mode = (JumpMode)arguments[peek.Value];
+                                            BlitMode blt_mode = (BlitMode)arguments[peek.Value];
                                             // TODO: Figure out 3ary boolean functions
-                                            if (Enum.IsDefined(typeof(JumpMode), mode))
+                                            if (Enum.IsDefined(typeof(BlitMode), blt_mode))
                                             {
-                                                instructions.Add((short)mode);
+                                                instructions.Add((short)blt_mode);
                                                 tokens.MoveNext();
                                                 peek = tokens.Current;
                                             }
                                             else
                                             {
-                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by an argument of type {nameof(BlitMode)}! Got: \"{mode}\"");
+                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by an argument of type {nameof(BlitMode)}! Got: \"{blt_mode}\"");
                                             }
                                         }
                                         else

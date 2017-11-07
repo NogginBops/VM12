@@ -1148,7 +1148,8 @@ namespace VM12
                                     break;
                                 case JumpMode.Ro:
                                     int sign_ext(int i) => (int)((i & 0x800) != 0 ? (uint)(i & 0xFFFF_F800) : (uint)i);
-                                    PC += sign_ext(mem[SP]);
+
+                                    PC += sign_ext(mem[SP]) + 1;
                                     SP--;
                                     break;
                                 case JumpMode.Z_l:
