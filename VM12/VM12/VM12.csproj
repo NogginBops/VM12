@@ -8,7 +8,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>VM12</RootNamespace>
     <AssemblyName>VM12</AssemblyName>
-    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.7</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFrameworkProfile />
@@ -51,22 +51,22 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ProgramDebugger.cs">
+    <Compile Include="Debug\ProgramDebugger.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="ProgramDebugger.Designer.cs">
+    <Compile Include="Debug\ProgramDebugger.Designer.cs">
       <DependentUpon>ProgramDebugger.cs</DependentUpon>
     </Compile>
-    <Compile Include="Frequency dialog.cs">
+    <Compile Include="Debug\Frequency dialog.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Frequency dialog.Designer.cs">
+    <Compile Include="Debug\Frequency dialog.Designer.cs">
       <DependentUpon>Frequency dialog.cs</DependentUpon>
     </Compile>
-    <Compile Include="HeapView.cs">
+    <Compile Include="Debug\HeapView.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="HeapView.Designer.cs">
+    <Compile Include="Debug\HeapView.Designer.cs">
       <DependentUpon>HeapView.cs</DependentUpon>
     </Compile>
     <Compile Include="Properties\Resources.Designer.cs">
@@ -74,19 +74,19 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
-    <Compile Include="Stack view.cs">
+    <Compile Include="Debug\Stack view.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="Stack view.Designer.cs">
+    <Compile Include="Debug\Stack view.Designer.cs">
       <DependentUpon>Stack view.cs</DependentUpon>
     </Compile>
-    <Compile Include="SourceView.cs">
+    <Compile Include="Debug\SourceView.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="SourceView.Designer.cs">
+    <Compile Include="Debug\SourceView.Designer.cs">
       <DependentUpon>SourceView.cs</DependentUpon>
     </Compile>
-    <Compile Include="Utils.cs" />
+    <Compile Include="Util\Utils.cs" />
     <Compile Include="VM12Form.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -96,23 +96,23 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="VM12.cs" />
-    <EmbeddedResource Include="ProgramDebugger.resx">
+    <EmbeddedResource Include="Debug\ProgramDebugger.resx">
       <DependentUpon>ProgramDebugger.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Frequency dialog.resx">
+    <EmbeddedResource Include="Debug\Frequency dialog.resx">
       <DependentUpon>Frequency dialog.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="HeapView.resx">
+    <EmbeddedResource Include="Debug\HeapView.resx">
       <DependentUpon>HeapView.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
-    <EmbeddedResource Include="SourceView.resx">
+    <EmbeddedResource Include="Debug\SourceView.resx">
       <DependentUpon>SourceView.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Stack view.resx">
+    <EmbeddedResource Include="Debug\Stack view.resx">
       <DependentUpon>Stack view.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="VM12Form.resx">

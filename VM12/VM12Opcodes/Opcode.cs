@@ -13,16 +13,16 @@
     {
         Black,
         And,
-        AndNotB,    // A And !B
-        Dest,
-        NotAAndB,   // !A And B
+        AAndNotB,    // A And !B
         Src,
+        NotAAndB,   // !A And B
+        Dest,
         Xor,
         Or,
         Nor,
         Xnor,
         NotB,
-        OrNotB,     // A Or !B
+        AOrNotB,     // A Or !B
         NotA,
         NotAOrB,    // !A Or B
         Nand,

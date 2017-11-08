@@ -190,6 +190,7 @@ namespace VM12
             if (InvokeRequired)
             {
                 vm12.UseDebugger = true;
+                //Interlocked.Exchange(ref vm12.UseDebugger, 1);
                 vm12.ContinueEvent.Reset();
                 BeginInvoke(new Action(OpenDebuggerBreakpoint));
             }
@@ -206,15 +207,24 @@ namespace VM12
         double maxInstructionsPerSecond = 600000000;
         double utilization = 0;
 
-        int timer = 0;
+        long longTimer = 0;
 
+        long timer = 0;
+        
+        Stopwatch watch = new Stopwatch();
+        
         private void RefreshTimer_Tick(object sender, EventArgs e)
         {
             if (vm12 != null && vm12.Running)
             {
-                timer += refreshTimer.Interval;
+                long elapsed = watch.ElapsedMilliseconds;
 
-                if (timer > 100)
+                timer += elapsed;
+                longTimer += elapsed;
+                
+                watch.Restart();
+
+                if (longTimer > 1000)
                 {
                     long delta;
                     if (lastIntsructionCount < 0)
@@ -228,18 +238,17 @@ namespace VM12
                         lastIntsructionCount += delta;
                     }
 
-                    utilization = delta / (maxInstructionsPerSecond * (refreshTimer.Interval / 1000d));
+                    utilization = delta;
 
-                    if (utilization > 1)
-                    {
-                        maxInstructionsPerSecond *= utilization;
-                        utilization = 1;
-                    }
-                    
+                    longTimer = 0;
+                }
+
+                if (timer > 100)
+                {
                     timer = 0;
 
                     Text = vm12.Stopped ? "Stopped" : "Running";
-                    Text += $" Inst executed: {vm12.Ticks / 1000000}m, Util: {utilization:P}, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, SP: {vm12.SPWatermark}, FP: {vm12.FPWatermark}, ";
+                    Text += $" Inst executed: {vm12.Ticks / 1000000}m, Inst/sec: {utilization}/s, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, SP: {vm12.SPWatermark}, FP: {vm12.FPWatermark}, ";
                 }
             }
             else
@@ -293,9 +302,13 @@ namespace VM12
 
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
         {
+            debugger.Close();
+            debugger.CloseDebugger();
+
             vm12?.Stop();
             vm12?.ContinueEvent.Set();
 
+            bitmap.Dispose();
             BitsHandle.Free();
             
             while (vm12?.Running ?? false);
@@ -418,18 +431,45 @@ namespace VM12
             ReleaseButtons(e.Button);
             vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
         }
-        
+
+        private bool showingCursor = true;
+
         private void pbxMain_MouseEnter(object sender, EventArgs e)
         {
-            if (vm12 != null)
+            if (vm12 == null && showingCursor == false)
             {
-                Cursor.Hide();
+                Cursor.Show();
+                showingCursor = true;
+            }
+
+            if (vm12 != null && vm12.Running)
+            {
+                if (showingCursor == true)
+                {
+                    Cursor.Hide();
+                    Debug.WriteLine("Hide");
+                    showingCursor = false;
+                }
             }
         }
 
         private void pbxMain_MouseLeave(object sender, EventArgs e)
         {
-            Cursor.Show();
+            if (vm12 == null && showingCursor == false)
+            {
+                Cursor.Show();
+                showingCursor = true;
+            }
+
+            if (vm12 != null && vm12.Running)
+            {
+                if (showingCursor == false)
+                {
+                    Cursor.Show();
+                    Debug.WriteLine("Show");
+                    showingCursor = true;
+                }
+            }
         }
 
         //private void hTimer_Tick(object sender, EventArgs e)
@@ -513,7 +553,7 @@ namespace VM12
             {
                 debugger.SetVM(vm12);
             }
-
+            
             debugger.Show();
             debugger.BringToFront();
 #endif

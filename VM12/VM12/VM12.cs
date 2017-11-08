@@ -59,11 +59,11 @@ namespace VM12
 
         private FileInfo storageFile;
         //public byte[] STORAGE = new byte[STORAGE_SIZE * 3];
+
+        private bool interruptSet = false;
         
-        HashSet<InterruptType> activeInterrupts = new HashSet<InterruptType>();
-
-        volatile Interrupt intrr = null;
-
+        private Interrupt[] intrr = new Interrupt[Enum.GetValues(typeof(InterruptType)).Length];
+        
         public void Interrupt(Interrupt interrupt)
         {
             if (interrupt == null)
@@ -72,6 +72,25 @@ namespace VM12
                 return;
             }
 
+            int index = InterruptTypeToInt(interrupt.Type);
+
+            if (intrr[index] != null)
+            {
+#if DEBUG
+                MissedInterruptFreq[InterruptTypeToInt(interrupt.Type)]++;
+#endif
+                MissedInterrupts++;
+            }
+
+            intrr[index] = interrupt;
+            interrupt_event.Set();
+            interruptSet = true;
+
+#if DEBUG
+            InterruptFreq[InterruptTypeToInt(interrupt.Type)]++;
+#endif
+
+            /*
             if (interruptsEnabled && intrr == null)
             {
                 //intrr = intrr ?? interrupt;
@@ -88,6 +107,7 @@ namespace VM12
 #endif
                 MissedInterrupts++;
             }
+            */
         }
 
         bool carry = false;
@@ -137,6 +157,7 @@ namespace VM12
         public int FramePointer => FP;
         public bool InterruptsEnabled => interruptsEnabled;
         public long Ticks => programTime;
+
 #if DEBUG
         public Opcode Opcode { get; private set; }
 #endif
@@ -648,34 +669,42 @@ namespace VM12
 
                 while (true)
                 {
-                    if (intrr != null)
+                    if (interruptSet == true)
                     {
-                        if (intrr.Type == InterruptType.stop)
+                        // Stop interrupt
+                        if (intrr[0] != null)
                         {
                             break;
                         }
-                        InterruptCount++;
 
-                        // Push interrupt arguments
-                        for (int i = 0; i < intrr.Args.Length; i++)
+                        for (int i = 1; i < intrr.Length; i++)
                         {
-                            mem[++SP] = intrr.Args[i];
+                            if (intrr[i] != null)
+                            {
+                                InterruptCount++;
+
+                                // Push interrupt arguments
+                                for (int arg = 0; arg < intrr[i].Args.Length; arg++)
+                                {
+                                    mem[++SP] = intrr[i].Args[arg];
+                                }
+
+                                int last_fp = FP;
+                                mem[++SP] = (PC >> 12) & 0xFFF;         // Return addr
+                                                                        //FP = SP;
+                                mem[++SP] = PC & 0xFFF;
+                                mem[++SP] = (FP >> 12) & 0xFFF;         // Prev FP
+                                mem[++SP] = FP & 0xFFF;
+                                mem[++SP] = (intrr[i].Args.Length >> 12) & 0xFFF;
+                                mem[++SP] = intrr[i].Args.Length & 0xFFF;  // Locals
+                                FP = SP - 5;                            // Set the Frame Pointer
+                                locals = mem[FP + 4] << 12 | mem[FP + 5];
+                                FPloc = FP - locals;
+                                PC = (int)intrr[i].Type;
+
+                                intrr[i] = null;
+                            }
                         }
-
-                        int last_fp = FP;
-                        mem[++SP] = (PC >> 12) & 0xFFF;         // Return addr
-                        //FP = SP;
-                        mem[++SP] = PC & 0xFFF;
-                        mem[++SP] = (FP >> 12) & 0xFFF;         // Prev FP
-                        mem[++SP] = FP & 0xFFF;
-                        mem[++SP] = (intrr.Args.Length >> 12) & 0xFFF;
-                        mem[++SP] = intrr.Args.Length & 0xFFF;  // Locals
-                        FP = SP - 5;                            // Set the Frame Pointer
-                        locals = mem[FP + 4] << 12 | mem[FP + 5];
-                        FPloc = FP - locals;
-                        PC = (int)intrr.Type;
-
-                        intrr = null;
                     }
                     
                     Opcode op = (Opcode)(mem[PC]);
@@ -691,25 +720,13 @@ namespace VM12
                     }
 
 #endif
-                    if (UseDebugger == true)
+                    if (UseDebugger != false)
                     {
                         Opcode = op;
                         DebugBreakEvent.Set();
                         interruptsEnabledActual = interruptsEnabled;
                         interruptsEnabled = false;
                         ContinueEvent.WaitOne();
-
-                        /*
-                        bool acquiredLock = Monitor.TryEnter(DebugSync);
-                        if (acquiredLock)
-                        {
-                            Monitor.Exit(DebugSync);
-                        }
-                        else
-                        {
-                            
-                        }
-                        */
                     }
 #endif
                     switch (op)
@@ -1327,7 +1344,14 @@ namespace VM12
                             int srcOffset = (mem[SP - 5] << 12) | (mem[SP - 4]);
                             int destOffset = (mem[SP - 3] << 12) | (mem[SP - 2]);
                             int length = (mem[SP - 1] << 12) | (mem[SP]); // * INT_SIZE;
-                            Array.Copy(MEM, srcOffset, MEM, destOffset, length);
+                            if (srcOffset > MEM.Length)
+                            {
+                                Array.Clear(MEM, destOffset, length);
+                            }
+                            else
+                            {
+                                Array.Copy(MEM, srcOffset, MEM, destOffset, length);
+                            }
                             //Buffer.BlockCopy(MEM, srcOffset, MEM, destOffset, length);
                             SP -= 6;
                             PC++;
@@ -1416,6 +1440,92 @@ namespace VM12
                             SP -= 2;
                             PC++;
                             break;
+                        case Opcode.Blit:
+                            int blit_src_addr = mem[SP - 9] << 12 | mem[SP - 8];
+                            int blit_sx = mem[SP - 7];
+                            int blit_sy = mem[SP - 6];
+                            int blit_width = mem[SP - 5];
+                            int blit_height = mem[SP - 4];
+                            int blit_dst_addr = mem[SP - 3] << 12 | mem[SP - 2];
+                            int blit_dx = mem[SP - 1];
+                            int blit_dy = mem[SP - 0];
+                            BlitMode blit_mode = (BlitMode)mem[PC + 1];
+
+                            if (blit_mode == BlitMode.Black)
+                            {
+                                for (int y = 0; y < blit_height; y++)
+                                {
+                                    int dst_addr = blit_dst_addr + blit_dx + (blit_width * blit_dy);
+                                    Array.Clear(MEM, dst_addr, blit_width);
+                                }
+
+                                goto endBlit;
+                            }
+
+                            for (int y = 0; y < blit_height; ++y)
+                            {
+                                for (int x = 0; x < blit_width; ++x)
+                                {
+
+                                    int dst_addr = blit_dst_addr + x + (blit_width * y);
+                                    mem[dst_addr] = 0;
+                                    /*
+                                    // A = src, B = dst
+                                    switch (blit_mode)
+                                    {
+                                        case BlitMode.Black:
+                                            mem[dst_addr] = 0;
+                                            break;
+                                        case BlitMode.And:
+                                            mem[dst_addr] &= mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.AAndNotB:
+                                            mem[dst_addr] = ~mem[dst_addr] & mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.Src:
+                                            mem[dst_addr] = mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.NotAAndB:
+                                            mem[dst_addr] &= ~mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.Dest:
+                                            break;
+                                        case BlitMode.Xor:
+                                            mem[dst_addr] ^= mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.Or:
+                                            mem[dst_addr] |= mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.Nor:
+                                            mem[dst_addr] = ~(mem[dst_addr] | mem[blit_src_addr + x + (blit_width * y)]);
+                                            break;
+                                        case BlitMode.Xnor:
+                                            mem[dst_addr] = ~(mem[dst_addr] ^ mem[blit_src_addr + x + (blit_width * y)]);
+                                            break;
+                                        case BlitMode.NotB:
+                                            mem[dst_addr] = ~mem[dst_addr];
+                                            break;
+                                        case BlitMode.AOrNotB:
+                                            mem[dst_addr] = ~mem[dst_addr] | mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.NotA:
+                                            mem[dst_addr] = ~mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.NotAOrB:
+                                            mem[dst_addr] = mem[dst_addr] | ~mem[blit_src_addr + x + (blit_width * y)];
+                                            break;
+                                        case BlitMode.Nand:
+                                            mem[dst_addr] = ~(mem[dst_addr] & mem[blit_src_addr + x + (blit_width * y)]);
+                                            break;
+                                        case BlitMode.White:
+                                            mem[dst_addr] = 0xFFF;
+                                            break;
+                                    }
+                                    */
+                                }
+                            }
+
+                            endBlit:  break;
                         case Opcode.Write:
                             int ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
                             int buf = mem[SP - 3] << 12 | mem[SP - 2];
@@ -1498,7 +1608,7 @@ namespace VM12
 
         public void Stop()
         {
-            intrr = new Interrupt(InterruptType.stop, null);
+            intrr[0] = new Interrupt(InterruptType.stop, null);
             interrupt_event.Set();
             halt = true;
             interruptsEnabled = false;

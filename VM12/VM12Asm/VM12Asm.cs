@@ -342,6 +342,8 @@ namespace VM12Asm
             { "JM.Eq.l", (int) JumpMode.Eq_l },
             { "JM.Neq.l", (int) JumpMode.Neq_l },
             { "JM.Ro.l", (int) JumpMode.Ro_l },
+
+            { "BM.Black", (int) BlitMode.Black },
         };
 
         static ConsoleColor conColor = Console.ForegroundColor;
@@ -1770,6 +1772,9 @@ namespace VM12Asm
 
 #if DEBUG
             Debugger.Break();
+            Console.ForegroundColor = conColor;
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
 #endif
 
             Environment.Exit(1);

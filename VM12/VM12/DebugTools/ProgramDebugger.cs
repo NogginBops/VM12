@@ -35,9 +35,14 @@ namespace Debugging
             stack_view.SetDebugger(this);
 
             FormClosing += ProgramDebugger_FormClosing;
-            FormClosed += ProgramDebugger_FormClosed;
+            Load += ProgramDebugger_Load;
         }
 
+        private void ProgramDebugger_Load(object sender, EventArgs e)
+        {
+            stack_view.LoadData();
+        }
+        
         private void ProgramDebugger_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (e.CloseReason == CloseReason.UserClosing)
@@ -48,17 +53,15 @@ namespace Debugging
             }
         }
 
-        private void ProgramDebugger_FormClosed(object sender, FormClosedEventArgs e)
+        public void CloseDebugger()
         {
 #if DEBUG
-            if (vm12 != null)
+            Debug.WriteLine("CLOSING!!!!");
+
+            if (vm12 != null && !vm12.Stopped)
             {
-                if (Monitor.IsEntered(vm12.DebugSync))
-                {
-                    Monitor.Exit(vm12.DebugSync);
-                    vm12.UseDebugger = false;
-                    vm12.ContinueEvent.Set();
-                }
+                ReleaseVM();
+                stack_view.Close();
             }
 #endif
         }
@@ -91,10 +94,11 @@ namespace Debugging
         private void CatchVM()
         {
 #if DEBUG
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
                 if (catchedVM == false)
                 {
+                    //Interlocked.Exchange(ref vm12.UseDebugger, 1);
                     vm12.UseDebugger = true;
                     if (!Monitor.IsEntered(vm12.DebugSync))
                     {
@@ -112,13 +116,14 @@ namespace Debugging
         private void ReleaseVM()
         {
 #if DEBUG
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
                 if (Monitor.IsEntered(vm12.DebugSync))
                 {
                     Monitor.Exit(vm12.DebugSync);
                 }
                 vm12.UseDebugger = false;
+                //Interlocked.Exchange(ref vm12.UseDebugger, 0);
                 vm12.ContinueEvent.Set();
                 catchedVM = false;
 
@@ -130,7 +135,7 @@ namespace Debugging
         private void StepVM()
         {
 #if DEBUG
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
                 CatchVM();
 
@@ -151,7 +156,7 @@ namespace Debugging
 
         private void tsbPause_Click(object sender, EventArgs e)
         {
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
                 CatchVM();
 
@@ -161,7 +166,7 @@ namespace Debugging
 
         private void tsbContinue_Click(object sender, EventArgs e)
         {
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
                 ReleaseVM();
             }
@@ -171,15 +176,15 @@ namespace Debugging
 
         private void tsbStepOver_Click(object sender, EventArgs e)
         {
-            if (steppingOut)
+            if (steppingOver)
             {
-                steppingOut = false;
+                steppingOver = false;
                 return;
             }
 
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
-                steppingOut = true;
+                steppingOver = true;
                 
                 // Step the vm. If the stack depth increased we continue to step until we get back to the original stack depth
                 int origDepth = VM12.CountStackDepth(vm12.CurrentStackFrame);
@@ -191,7 +196,7 @@ namespace Debugging
                 watch.Reset();
                 watch.Start();
 
-                while (steppingOut && newDepth > origDepth)
+                while (steppingOver && newDepth > origDepth)
                 {
                     StepVM();
 
@@ -213,7 +218,7 @@ namespace Debugging
 
                 watch.Stop();
 
-                steppingOut = false;
+                steppingOver = false;
 
                 UpdateDebug();
             }
@@ -221,7 +226,7 @@ namespace Debugging
         
         private void tsbStepIn_Click(object sender, EventArgs e)
         {
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
                 StepVM();
 
@@ -240,7 +245,7 @@ namespace Debugging
                 return;
             }
 
-            if (vm12 != null)
+            if (vm12 != null && !vm12.Stopped)
             {
                 int newDepth = stackDepth;
 

@@ -121,13 +121,12 @@
             this.dgvStack.ShowRowErrors = false;
             this.dgvStack.Size = new System.Drawing.Size(571, 529);
             this.dgvStack.TabIndex = 3;
-            this.dgvStack.CellParsing += new System.Windows.Forms.DataGridViewCellParsingEventHandler(this.dgvStack_CellParsing);
+            this.dgvStack.CellValidating += new System.Windows.Forms.DataGridViewCellValidatingEventHandler(this.dgvStack_CellValidating);
             // 
             // colHAddress
             // 
             this.colHAddress.HeaderText = "Address";
             this.colHAddress.Name = "colHAddress";
-            this.colHAddress.ReadOnly = true;
             this.colHAddress.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             // 
             // colHValue
