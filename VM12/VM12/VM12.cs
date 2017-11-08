@@ -307,7 +307,9 @@ namespace VM12
         public string GetSourceCodeLine(int offset)
         {
             ProcMetadata data = GetMetadataFromOffset(offset);
-
+            
+            if (data == null) return "Source not available!";
+            
             if (source.TryGetValue(data.file, out string[] lines))
             {
                 return lines[GetSourceCodeLineFromMetadataAndOffset(data, offset) - 1];
@@ -321,6 +323,8 @@ namespace VM12
         int GetSourceCodeLineFromOffset(int offset)
         {
             ProcMetadata meta = GetMetadataFromOffset(offset);
+
+            if (meta == null) return -1;
 
             return GetSourceCodeLineFromMetadataAndOffset(meta, offset);
         }
@@ -352,6 +356,8 @@ namespace VM12
             get
             {
                 string line = GetSourceCodeLine(PC);
+
+                if (line == null) return null;
 
                 if (line[0] == '¤')
                 {
@@ -1159,7 +1165,8 @@ namespace VM12
                                     break;
                                 case JumpMode.Ro:
                                     int sign_ext(int i) => (int)((i & 0x800) != 0 ? (uint)(i & 0xFFFF_F800) : (uint)i);
-                                    PC += sign_ext(mem[SP]);
+
+                                    PC += sign_ext(mem[SP]) + 1;
                                     SP--;
                                     break;
                                 case JumpMode.Z_l:
