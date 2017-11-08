@@ -427,6 +427,7 @@ namespace VM12
 
         public StackFrame CurrentStackFrame => ConstructStackFrame(FP, PC);
 
+        // FIXME: Make this method itterative and not recursive!
         public StackFrame ConstructStackFrame(int fp, int pc)
         {
             if (fp < 0 || fp == 0x00000000)
@@ -675,7 +676,7 @@ namespace VM12
 
                 while (true)
                 {
-                    if (interruptSet == true)
+                    if (interruptSet == true && interruptsEnabled)
                     {
                         // Stop interrupt
                         if (intrr[0] != null)

@@ -39,9 +39,9 @@
             this.interruptFrequencyToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
             this.instructionTimesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.heapViewToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.debuggerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
-            this.debuggerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -69,14 +69,14 @@
             // openToolStripMenuItem
             // 
             this.openToolStripMenuItem.Name = "openToolStripMenuItem";
-            this.openToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.openToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
             this.openToolStripMenuItem.Text = "Open";
             this.openToolStripMenuItem.Click += new System.EventHandler(this.openToolStripMenuItem_Click);
             // 
             // stopToolStripMenuItem
             // 
             this.stopToolStripMenuItem.Name = "stopToolStripMenuItem";
-            this.stopToolStripMenuItem.Size = new System.Drawing.Size(152, 22);
+            this.stopToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
             this.stopToolStripMenuItem.Text = "Stop";
             this.stopToolStripMenuItem.Click += new System.EventHandler(this.stopToolStripMenuItem_Click);
             // 
@@ -128,10 +128,17 @@
             this.heapViewToolStripMenuItem.Text = "Heap View";
             this.heapViewToolStripMenuItem.Click += new System.EventHandler(this.heapViewToolStripMenuItem_Click);
             // 
+            // debuggerToolStripMenuItem
+            // 
+            this.debuggerToolStripMenuItem.Name = "debuggerToolStripMenuItem";
+            this.debuggerToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.debuggerToolStripMenuItem.Text = "Debugger";
+            this.debuggerToolStripMenuItem.Click += new System.EventHandler(this.debuggerToolStripMenuItem_Click);
+            // 
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
-            this.refreshTimer.Interval = 1;
+            this.refreshTimer.Interval = 8;
             this.refreshTimer.Tick += new System.EventHandler(this.RefreshTimer_Tick);
             // 
             // pbxMain
@@ -150,13 +157,6 @@
             this.pbxMain.MouseLeave += new System.EventHandler(this.pbxMain_MouseLeave);
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
-            // 
-            // debuggerToolStripMenuItem
-            // 
-            this.debuggerToolStripMenuItem.Name = "debuggerToolStripMenuItem";
-            this.debuggerToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
-            this.debuggerToolStripMenuItem.Text = "Debugger";
-            this.debuggerToolStripMenuItem.Click += new System.EventHandler(this.debuggerToolStripMenuItem_Click);
             // 
             // VM12Form
             // 
