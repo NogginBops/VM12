@@ -223,6 +223,7 @@ namespace VM12Asm
             { new Regex(sname("lmul")), "mul.l" },
             { new Regex(sname("lmul2")), "mul.2.l" },
             { new Regex(sname("ldiv")), "div.l" },
+            { new Regex(sname("lmod")), "mod.l" },
             { new Regex(sname("blitm")), "blit.mask" },
 
             { new Regex("\\[FP\\]"), "fp" },
@@ -316,6 +317,8 @@ namespace VM12Asm
             { "mul.l", Opcode.Mul_l },
             { "mul.2.l", Opcode.Mul_2_l },
             { "div.l", Opcode.Div_l },
+            { "mod", Opcode.Mod },
+            { "mod.l", Opcode.Mod_l },
             { "blit", Opcode.Blit },
             { "blit.mask", Opcode.Blit_mask },
         };

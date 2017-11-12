@@ -80,7 +80,7 @@
         Mul_2,
         Fc, Fc_b,
         Mul_l, Mul_2_l,
-        Div_l,
+        Div_l, Mod, Mod_l,
         Blit, Blit_mask,
         Read, Write,
     }
