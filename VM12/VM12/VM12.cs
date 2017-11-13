@@ -48,7 +48,7 @@ namespace VM12
         public const int ROM_START = RAM_SIZE + VRAM_SIZE;
 
         public const int MEM_SIZE = RAM_SIZE + VRAM_SIZE + ROM_SIZE;
-        
+
         public const int SCREEN_WIDTH = 640;
         public const int SCREEN_HEIGHT = 480;
 
@@ -61,9 +61,9 @@ namespace VM12
         //public byte[] STORAGE = new byte[STORAGE_SIZE * 3];
 
         private bool interruptSet = false;
-        
+
         private Interrupt[] intrr = new Interrupt[Enum.GetValues(typeof(InterruptType)).Length];
-        
+
         public void Interrupt(Interrupt interrupt)
         {
             if (interrupt == null)
@@ -141,14 +141,14 @@ namespace VM12
 
         public event EventHandler HitBreakpoint = null;
 #endif
-        
+
         int PC = ROM_START;
         int SP = -1;
         int FP = -1;
         int locals = 0;
 
         long programTime = 0;
-        
+
         public bool Started { get; set; } = false;
         public bool Running { get; set; } = false;
         public bool Stopped => halt && !interruptsEnabled;
@@ -173,7 +173,7 @@ namespace VM12
 #elif DEBUG
 
         public volatile bool UseDebugger = false;
-        
+
         public static int InterruptTypeToInt(InterruptType type)
         {
             switch (type)
@@ -201,7 +201,7 @@ namespace VM12
 
         public int[] instructionTimes = new int[Enum.GetValues(typeof(Opcode)).Length];
 
-#region Debug
+        #region Debug
 
         public class ProcMetadata
         {
@@ -270,7 +270,7 @@ namespace VM12
 
         Dictionary<string, int> ConstValues
         {
-            get 
+            get
             {
                 Dictionary<string, int> values = new Dictionary<string, int>();
 
@@ -299,7 +299,7 @@ namespace VM12
         }
 
         public ProcMetadata CurrentMetadata => GetMetadataFromOffset(PC);
-        
+
         bool[] breaks;
 
         Dictionary<string, string[]> source = new Dictionary<string, string[]>();
@@ -307,9 +307,9 @@ namespace VM12
         public string GetSourceCodeLine(int offset)
         {
             ProcMetadata data = GetMetadataFromOffset(offset);
-            
+
             if (data == null) return "Source not available!";
-            
+
             if (source.TryGetValue(data.file, out string[] lines))
             {
                 return lines[GetSourceCodeLineFromMetadataAndOffset(data, offset) - 1];
@@ -350,7 +350,7 @@ namespace VM12
         }
 
         public int CurrentSourceCodeLine => GetSourceCodeLineFromOffset(PC);
-        
+
         string CurrentSource
         {
             get
@@ -427,15 +427,58 @@ namespace VM12
 
         public StackFrame CurrentStackFrame => ConstructStackFrame(FP, PC);
 
-        // FIXME: Make this method itterative and not recursive!
+        private StackFrame ConstructHollowFrame(int fp, int pc)
+        {
+            StackFrame frame = new StackFrame();
+
+            ProcMetadata data = GetMetadataFromOffset(pc);
+
+            frame.file = data?.file;
+            frame.procName = data?.name;
+            frame.line = data != null ? GetSourceCodeLineFromMetadataAndOffset(data, pc) : -1;
+
+            frame.FP = fp;
+
+            frame.return_addr = MEM[fp] << 12 | (ushort)MEM[fp + 1];
+
+            frame.prev_addr = MEM[fp + 2] << 12 | (ushort)MEM[fp + 3];
+
+            frame.locals = MEM[fp + 4] << 12 | MEM[fp + 5];
+            frame.localValues = new int[frame.locals];
+            for (int i = 0; i < frame.locals; i++)
+            {
+                frame.localValues[i] = MEM[fp - frame.locals + i];
+            }
+
+            return frame;
+        }
+
         public StackFrame ConstructStackFrame(int fp, int pc)
+        {
+
+            StackFrame root = ConstructHollowFrame(fp, pc);
+
+            StackFrame current = root;
+
+            while (current.FP != 0)
+            {
+                StackFrame next = ConstructHollowFrame(current.prev_addr, current.return_addr);
+
+                current.prev = next;
+                current = next;
+            }
+            
+            return root;
+        }
+        
+        public StackFrame ConstructStackFrameRecursive(int fp, int pc)
         {
             if (fp < 0 || fp == 0x00000000)
             {
                 ProcMetadata main = GetMetadataFromOffset(pc);
 
                 StackFrame main_frame = new StackFrame();
-
+                
                 main_frame.file = main?.file;
                 main_frame.procName = main?.name;
                 main_frame.line = main != null ? GetSourceCodeLineFromMetadataAndOffset(main, pc) : -1;
@@ -500,8 +543,8 @@ namespace VM12
 
         public DirectoryInfo sourceDir { get; private set; }
 
-#endregion
-        
+        #endregion
+
         public VM12(short[] ROM, FileInfo metadata, FileInfo storage)
         {
             Array.Copy(ROM, 0, MEM, ROM_START, ROM.Length);
@@ -509,7 +552,7 @@ namespace VM12
             sourceDir = metadata.Directory;
 
             ParseMetadata(metadata);
-            
+
             breaks = new bool[MEM.Length];
             foreach (var data in this.metadata)
             {
@@ -655,7 +698,7 @@ namespace VM12
         {
             Running = true;
             Started = true;
-            
+
             fixed (int* mem = MEM)
             {
                 // Add start frame
@@ -668,7 +711,7 @@ namespace VM12
                 mem[this.FP + 5] = 0;
                 this.locals = 0;
                 this.SP = this.FP + 5;
-                
+
                 //int PC = this.PC;
                 //int SP = this.SP;
                 //int FP = this.FP;
@@ -713,7 +756,7 @@ namespace VM12
                             }
                         }
                     }
-                    
+
                     Opcode op = (Opcode)(mem[PC]);
 
 #if DEBUG
@@ -721,6 +764,7 @@ namespace VM12
 #if BREAKS
                     if (breaks[PC])
                     {
+                        interruptsEnabledActual = interruptsEnabled || interruptsEnabledActual;
                         interruptsEnabled = false;
 
                         HitBreakpoint?.Invoke(this, new EventArgs());
@@ -731,9 +775,13 @@ namespace VM12
                     {
                         Opcode = op;
                         DebugBreakEvent.Set();
-                        interruptsEnabledActual = interruptsEnabled;
+                        interruptsEnabledActual = interruptsEnabled || interruptsEnabledActual;
                         interruptsEnabled = false;
                         ContinueEvent.WaitOne();
+                        if (UseDebugger == false)
+                        {
+                            interruptsEnabled = interruptsEnabledActual;
+                        }
                     }
 #endif
                     switch (op)
@@ -905,7 +953,7 @@ namespace VM12
                         case Opcode.Sub:
                             // TODO: The sign might not work here!
                             int sub_temp = mem[SP - 1] - mem[SP];
-                            carry = ((uint) sub_temp) > 0xFFF;
+                            carry = ((uint)sub_temp) > 0xFFF;
                             SP--;
                             mem[SP] = sub_temp & 0xFFF;
                             PC++;
@@ -1039,7 +1087,7 @@ namespace VM12
                             }
                             else
                             {
-                                    goto end;
+                                goto end;
                             }
 
 #if DEBUG
@@ -1049,7 +1097,7 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Jmp:
-                            JumpMode mode = (JumpMode) mem[++PC];
+                            JumpMode mode = (JumpMode)mem[++PC];
                             switch (mode)
                             {
                                 case JumpMode.Jmp:
@@ -1217,6 +1265,15 @@ namespace VM12
                                 case JumpMode.Ge_l:
                                     break;
                                 case JumpMode.Le_l:
+                                    if ((mem[SP - 1] & 0x800) > 0 || (mem[SP -1] | mem[SP]) == 0)
+                                    {
+                                        PC = mem[PC + 1] << 12 | mem[PC + 2];
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
                                     break;
                                 case JumpMode.Eq_l:
                                     if ((mem[SP - 3] << 12 | mem[SP - 2]) == (mem[SP - 1] << 12 | mem[SP]))
@@ -1293,7 +1350,7 @@ namespace VM12
                             }
                         case Opcode.Ret:
                             SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]);
-                            PC = mem[FP] << 12 | (ushort) mem[FP + 1];
+                            PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
                             this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
                             FPloc = FP - this.locals;
@@ -1445,6 +1502,18 @@ namespace VM12
                             int div_l_value = (mem[SP - 3] << 12 | mem[SP - 2]) / (mem[SP - 1] << 12 | mem[SP]);
                             mem[SP - 2] = div_l_value & 0xFFF;
                             mem[SP - 3] = (div_l_value >> 12) & 0xFFF;
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Mod:
+                            mem[SP - 1] = mem[SP - 1] % mem[SP];
+                            SP--;
+                            PC++;
+                            break;
+                        case Opcode.Mod_l:
+                            int mod_l_value = (mem[SP - 3] << 12 | mem[SP - 2]) % (mem[SP - 1] << 12 | mem[SP]);
+                            mem[SP - 2] = mod_l_value & 0xFFF;
+                            mem[SP - 3] = mod_l_value >> 12;
                             SP -= 2;
                             PC++;
                             break;
@@ -1619,7 +1688,7 @@ namespace VM12
             intrr[0] = new Interrupt(InterruptType.stop, null);
             interrupt_event.Set();
             halt = true;
-            interruptsEnabled = false;
+            interruptsEnabled = true;
         }
     }
 }

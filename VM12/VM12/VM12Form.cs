@@ -83,7 +83,7 @@ namespace VM12
             
             pbxMain.Image = bitmap;
 
-            // SetSize(480);
+            SetSize(480 * 2);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -204,7 +204,6 @@ namespace VM12
         }
 
         long lastIntsructionCount = -1;
-        double maxInstructionsPerSecond = 600000000;
         double utilization = 0;
 
         long longTimer = 0;
