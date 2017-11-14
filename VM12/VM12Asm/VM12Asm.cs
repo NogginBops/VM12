@@ -729,6 +729,8 @@ namespace VM12Asm
             Console.WriteLine();
             Console.WriteLine($"Done! {warningString}");
 
+            // FIXME!! Do not write the compiled file to the same directory!
+
             FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12exe"));
 
             if (resFile.Exists && !overwrite)

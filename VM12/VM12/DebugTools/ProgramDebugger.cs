@@ -176,6 +176,7 @@ namespace Debugging
 
         private void tsbStepOver_Click(object sender, EventArgs e)
         {
+#if DEBUG
             if (steppingOver)
             {
                 steppingOver = false;
@@ -224,6 +225,7 @@ namespace Debugging
 
                 UpdateDebug();
             }
+#endif
         }
         
         private void tsbStepIn_Click(object sender, EventArgs e)

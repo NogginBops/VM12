@@ -15,15 +15,19 @@ namespace Debugging
     using System.IO;
     using System.Text.RegularExpressions;
     using VM12;
+
+#if DEBUG
     using static VM12.VM12;
     using StackFrame = VM12.VM12.StackFrame;
+#endif
 
     public partial class Stack_view : UserControl
     {
         private ProgramDebugger debugger;
 
         private VM12 vm12;
-        
+
+        private DataGridViewCellStyle stackFrameBeginStyle = new DataGridViewCellStyle();
         private DataGridViewCellStyle stackFrameStyle = new DataGridViewCellStyle();
         private DataGridViewCellStyle stackLocalStyle = new DataGridViewCellStyle();
         private DataGridViewCellStyle localStyle = new DataGridViewCellStyle();
@@ -39,6 +43,7 @@ namespace Debugging
             InitializeComponent();
             dgvCallStack.ReadOnly = true;
 
+            stackFrameBeginStyle.BackColor = Color.FromArgb(247, 195, 140);
             stackFrameStyle.BackColor = Color.FromArgb(247, 215, 160);
             stackLocalStyle.BackColor = Color.FromArgb(247, 215, 160);
             localStyle.BackColor = Color.FromArgb(199, 219, 226);
@@ -48,6 +53,7 @@ namespace Debugging
         
         public void LoadData()
         {
+#if DEBUG
             if (vm12 != null)
             {
                 debugDefinitions = new FileInfo(Path.Combine(vm12.sourceDir.FullName, "Data", "debug.df"));
@@ -67,6 +73,7 @@ namespace Debugging
                 // Open and parse file
                 ParseDebugData(File.ReadAllLines(debugDefinitions.FullName));
             }
+#endif
         }
 
         Regex command = new Regex("^\\[(\\S+?):(.+)\\]$");
@@ -136,12 +143,14 @@ namespace Debugging
 
         public void UpdateStack()
         {
+#if DEBUG
             if (vm12 != null)
             {
                 StackFrame frame = vm12.CurrentStackFrame;
                 GenerateStackTrace(frame);
                 GenerateStack(frame);
             }
+#endif
         }
 
         public void Close()
@@ -193,9 +202,9 @@ namespace Debugging
                 
                 while (frame != null)
                 {
-                    if (frame.FP >= 0)
+                    if (frame.FP > 0)
                     {
-                        dgvStack.Rows[frame.FP].DefaultCellStyle = stackFrameStyle;
+                        dgvStack.Rows[frame.FP].DefaultCellStyle = stackFrameBeginStyle;
                         dgvStack.Rows[frame.FP + 1].DefaultCellStyle = stackFrameStyle;
                         dgvStack.Rows[frame.FP + 2].DefaultCellStyle = stackFrameStyle;
                         dgvStack.Rows[frame.FP + 3].DefaultCellStyle = stackFrameStyle;
@@ -241,6 +250,7 @@ namespace Debugging
         
         private void dgvStack_CellValidating(object sender, DataGridViewCellValidatingEventArgs e)
         {
+#if DEBUG
             if (e.ColumnIndex == 0)
             {
                 // Check that this entry is a local value!
@@ -292,6 +302,7 @@ namespace Debugging
                     e.Cancel = true;
                 }
             }
+#endif
         }
     }
 }

@@ -90,7 +90,7 @@ namespace VM12
             InterruptFreq[InterruptTypeToInt(interrupt.Type)]++;
 #endif
 
-            /*
+            /**
             if (interruptsEnabled && intrr == null)
             {
                 //intrr = intrr ?? interrupt;
@@ -108,6 +108,25 @@ namespace VM12
                 MissedInterrupts++;
             }
             */
+        }
+
+        public static int InterruptTypeToInt(InterruptType type)
+        {
+            switch (type)
+            {
+                case InterruptType.stop:
+                    return 0;
+                case InterruptType.h_Timer:
+                    return 1;
+                case InterruptType.v_Blank:
+                    return 2;
+                case InterruptType.keyboard:
+                    return 3;
+                case InterruptType.mouse:
+                    return 4;
+                default:
+                    return -1;
+            }
         }
 
         bool carry = false;
@@ -173,26 +192,7 @@ namespace VM12
 #elif DEBUG
 
         public volatile bool UseDebugger = false;
-
-        public static int InterruptTypeToInt(InterruptType type)
-        {
-            switch (type)
-            {
-                case InterruptType.stop:
-                    return 0;
-                case InterruptType.h_Timer:
-                    return 1;
-                case InterruptType.v_Blank:
-                    return 2;
-                case InterruptType.keyboard:
-                    return 3;
-                case InterruptType.mouse:
-                    return 4;
-                default:
-                    return -1;
-            }
-        }
-
+        
         public int[] InterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
 
         public int[] MissedInterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];

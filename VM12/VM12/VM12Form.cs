@@ -83,7 +83,7 @@ namespace VM12
             
             pbxMain.Image = bitmap;
 
-            SetSize(480 * 2);
+            //SetSize(480 * 2, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -100,6 +100,7 @@ namespace VM12
             this.Width = width + 16;
             this.Height = height + 63;
             pbxMain.SizeMode = PictureBoxSizeMode.StretchImage;
+            
         }
         
         private void LoadProgram()
@@ -139,7 +140,7 @@ namespace VM12
                         perfTimer.Dispose();
 #endif
                     }
-                    
+
 #if DEBUG
                     FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
 
@@ -151,12 +152,12 @@ namespace VM12
                     }
 
                     vm12 = new VM12(rom, metadataFile, storageFile);
-#else
-                    vm12 = new VM12(rom);
-#endif
 
                     vm12.HitBreakpoint += Vm12_HitBreakpoint;
                     debugger.SetVM(vm12);
+#else
+                    vm12 = new VM12(rom);
+#endif
 
                     // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!
                     Thread thread = new Thread(() => { vm12.Start(); vm12 = null; })
@@ -187,6 +188,7 @@ namespace VM12
 
         private void Vm12_HitBreakpoint(object sender, EventArgs e)
         {
+#if DEBUG
             if (InvokeRequired)
             {
                 vm12.UseDebugger = true;
@@ -194,6 +196,7 @@ namespace VM12
                 vm12.ContinueEvent.Reset();
                 BeginInvoke(new Action(OpenDebuggerBreakpoint));
             }
+#endif
         }
 
         private void OpenDebuggerBreakpoint()
@@ -302,11 +305,15 @@ namespace VM12
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
         {
             debugger.Close();
-            debugger.CloseDebugger();
 
             vm12?.Stop();
-            vm12?.ContinueEvent.Set();
 
+#if DEBUG
+            vm12?.ContinueEvent.Set();
+#endif
+
+            debugger.CloseDebugger();
+            
             bitmap.Dispose();
             BitsHandle.Free();
             
