@@ -425,6 +425,7 @@ namespace VM12
             return callers.Reverse<string>().ToArray();
         }
 
+        // FIXME: There is a thread sync problem where the other thread does not get the up to date values of these feilds
         public StackFrame CurrentStackFrame => ConstructStackFrame(FP, PC);
 
         private StackFrame ConstructHollowFrame(int fp, int pc)
@@ -455,7 +456,6 @@ namespace VM12
 
         public StackFrame ConstructStackFrame(int fp, int pc)
         {
-
             StackFrame root = ConstructHollowFrame(fp, pc);
 
             StackFrame current = root;
@@ -1438,7 +1438,7 @@ namespace VM12
                             local_addr = FPloc + mem[PC + 1];
                             int dec_local_value = mem[local_addr] - 1;
                             carry = dec_local_value < 0;
-                            mem[local_addr] = dec_local_value;
+                            mem[local_addr] = dec_local_value & 0xFFF;
                             PC += 2;
                             break;
                         case Opcode.Dec_local_l:
