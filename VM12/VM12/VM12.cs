@@ -1460,16 +1460,45 @@ namespace VM12
                             int color = mem[SP];
                             int char_addr = mem[SP - 2] << 12 | mem[SP - 1];
                             int vram_addr = mem[SP - 4] << 12 | mem[SP - 3];
+
                             if (vram_addr < VRAM_START || vram_addr >= ROM_START)
                             {
                                 Debugger.Break();
                             }
-                            int start_vram = vram_addr;
+
                             for (int x = 0; x < 8; x++)
                             {
                                 int char_data = mem[char_addr];
                                 if (char_data != 0)
                                 {
+                                    if ((char_data & 0x800) != 0) mem[vram_addr + 0 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x400) != 0) mem[vram_addr + 1 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x200) != 0) mem[vram_addr + 2 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x100) != 0) mem[vram_addr + 3 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x080) != 0) mem[vram_addr + 4 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x040) != 0) mem[vram_addr + 5 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x020) != 0) mem[vram_addr + 6 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x010) != 0) mem[vram_addr + 7 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x008) != 0) mem[vram_addr + 8 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x004) != 0) mem[vram_addr + 9 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x002) != 0) mem[vram_addr + 10 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x001) != 0) mem[vram_addr + 11 * SCREEN_WIDTH] = color;
+
+                                    /*
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x800) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x400) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x200) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x100) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x080) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x040) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x020) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x010) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x008) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x004) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x002) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x001) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    */
+                                    /*
                                     for (int y = 0; y < 12; y++)
                                     {
                                         if ((char_data & 0x800) != 0)
@@ -1479,9 +1508,9 @@ namespace VM12
                                         vram_addr += SCREEN_WIDTH;
                                         char_data <<= 1;
                                     }
+                                    */
                                 }
-                                start_vram += 1;
-                                vram_addr = start_vram;
+                                vram_addr++;
                                 char_addr += 1;
                             }
                             SP -= 5;

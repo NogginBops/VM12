@@ -19,6 +19,13 @@ namespace VM12Asm
             Argument
         }
 
+        class Macro
+        {
+            public string name;
+            public string[] lines;
+            public string[] args;
+        }
+
         struct Token
         {
             public readonly int Line;
@@ -494,7 +501,7 @@ namespace VM12Asm
                 rawFile.rawlines = File.ReadAllLines(fi.FullName);
 
                 watch.Restart();
-                rawFile.processedlines = PreProcess(rawFile.rawlines);
+                rawFile.processedlines = PreProcess(rawFile.rawlines, fi.FullName);
                 watch.Stop();
                 preprocessTime += watch.ElapsedTicks;
 
@@ -805,13 +812,134 @@ namespace VM12Asm
             }
         }
 
-        static string[] PreProcess(string[] lines)
+        static List<Macro> globalMacros = new List<Macro>();
+
+        static string[] PreProcess(string[] lines, string fileName)
         {
-            string[] newLines = new string[lines.Length];
-            
-            lines.CopyTo(newLines, 0);
-            
+            RawFile file = new RawFile() { path = fileName, rawlines = lines };
+
+            Regex macroDefLoose = new Regex("#def (.*?)\\(.*\\)");
+            Regex macroDefStrict = new Regex("#def\\s[A-Za-z_][A-Za-z0-9_]*\\(((?:\\s*[A-Za-z_][A-Za-z0-9_]*,?)*)\\)");
+
+            Regex macroDefEnd = new Regex("#end (.*?)");
+
+            Regex macroUse = new Regex("^\\s*([A-Za-z0-9_]*?)\\(((?:\\s*.*?,?)*)\\)");
+
+            List<Macro> macros = new List<Macro>();
+
+            List<string> newLines = new List<string>(lines);
+
+            int removedLines = 0;
+
+            bool global = false;
+
+            // Go through all lines and parse and replace macros
             for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i] == "!global")
+                {
+                    global = true;
+                    continue;
+                }
+                else if (lines[i] == "!private")
+                {
+                    global = false;
+                    continue;
+                }
+
+                string line = Regex.Replace(lines[i], ";.*", "");
+                
+                var match = macroDefLoose.Match(line);
+                if (match.Success)
+                {
+                    var strictMatch = macroDefStrict.Match(line);
+                    if (strictMatch.Success)
+                    {
+                        int start = i;
+                        int offset = 0;
+                        while (!macroDefEnd.IsMatch(lines[i + offset]))
+                        {
+                            offset++;
+                        }
+
+                        offset++;
+
+                        newLines.RemoveRange(i - removedLines, offset);
+
+                        removedLines += offset;
+
+                        Macro macro = new Macro();
+
+                        macro.name = match.Groups[1].Value;
+
+                        macro.lines = new string[offset - 2];
+                        for (int lineNum = 0; lineNum < offset - 2; lineNum++)
+                        {
+                            macro.lines[lineNum] = lines[i + 1 + lineNum];
+                        }
+
+                        macro.args = strictMatch.Groups[1].Value.Split(',').Select(s => s.Trim()).ToArray();
+
+                        if (global)
+                        {
+                            globalMacros.Add(macro);
+                        }
+                        else
+                        {
+                            macros.Add(macro);
+                        }
+
+                        Console.WriteLine($"Defined {(global?"global ":"")}macro '{macro.name}'");
+                        //Console.WriteLine($"Start {i}, End {i + offset}, Name {match.Groups[1]}");
+                        //Console.WriteLine(string.Join("\n", macro.lines));
+                    }
+                    else
+                    {
+                        Error(file, i, $"Syntax error for Macrodef {match.Groups[1]}");
+                    }
+                }
+                else
+                {
+                    // Check if line maches macro
+                    var useMatch = macroUse.Match(line);
+                    if (useMatch.Success)
+                    {
+                        //Console.WriteLine($"Found macro use! Name '{useMatch.Groups[1]}' args '{useMatch.Groups[2]}'");
+
+                        string useName = useMatch.Groups[1].Value;
+                        string[] args = useMatch.Groups[2].Value.Split(',');
+
+                        // Find a macro with the same name and numer of arguments
+                        Macro macro = macros.Concat(globalMacros).FirstOrDefault(m => (m.name == useName) && (m.args.Length == args.Length));
+
+                        if (macro == null)
+                        {
+                            Error(file, i, $"Unknown macro '{useName}'");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Found macrodef '{macro.name}'");
+                            newLines.RemoveAt(i - removedLines);
+                            List<string> macroLines = new List<string>(macro.lines);
+                            for (int lineNum = 0; lineNum < macroLines.Count; lineNum++)
+                            {
+                                for (int arg = 0; arg < macro.args.Length; arg++)
+                                {
+                                    if (macroLines[lineNum].Contains(macro.args[arg]))
+                                    {
+                                        Console.WriteLine($"Line '{macroLines[lineNum]}' Arg '{macro.args[arg]}' Value '{args[arg]}'");
+                                        macroLines[lineNum] = macroLines[lineNum].Replace(macro.args[arg], args[arg]);
+                                    }
+                                }
+                            }
+                            newLines.InsertRange(i - removedLines, macroLines);
+                            removedLines -= macroLines.Count - 1;
+                        }
+                    }
+                }
+            }
+            
+            for (int i = 0; i < newLines.Count; i++)
             {
                 foreach (var conversion in preprocessorConversions)
                 {
@@ -839,8 +967,8 @@ namespace VM12Asm
                     i = forward - 1;
                 }
             }
-
-            return newLines;
+            
+            return newLines.ToArray();
         }
         
         static AsemFile Parse(RawFile file)
@@ -1567,7 +1695,7 @@ namespace VM12Asm
                     }
                 }
 
-                // We do this here because we are shifting the breaskpoints. If we dont shift breakpoints then we could do this much earlier
+                // We do this here because we are shifting the breakpoints. If we dont shift breakpoints then we could do this much earlier
                 if (metadata[proc.Key].assembledSource.Breakpoints.TryGetValue(proc.Key.name, out List<int> breaks))
                 {
                     metadata[proc.Key].breaks = breaks;
@@ -1769,7 +1897,11 @@ namespace VM12Asm
 
             string message;
 
-            if (File.Exists(file.path))
+            if (file == null)
+            {
+                message = $"Error in unknown file at line {line}: '{error}'";
+            }
+            else if (File.Exists(file.path))
             {
                 FileInfo info = new FileInfo(file.path);
 
