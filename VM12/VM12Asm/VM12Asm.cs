@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.IO;
 using System.Diagnostics;
 using VM12_Opcode;
+using SKON;
 
 namespace VM12Asm
 {
@@ -769,16 +770,29 @@ namespace VM12Asm
             }
 
             FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12meta"));
+            FileInfo metaSKONFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".skon"));
 
             metaFile.Delete();
 
+            SKONObject skonObject = SKONObject.GetEmptyMap();
+            
             using (FileStream stream = metaFile.Create())
             using (StreamWriter writer = new StreamWriter(stream))
             {
+                SKONObject constants = SKONObject.GetEmptyArray();
+
                 foreach (var constant in autoConstants)
                 {
                     writer.WriteLine($"[constant:{{{constant.Key},{constant.Value.Length},{constant.Value.Value}}}]");
+
+                    constants.Add(new Dictionary<string, SKONObject> {
+                        { "name", constant.Key },
+                        { "length", constant.Value.Length },
+                        { "value", constant.Value.Value }
+                    });
                 }
+
+                skonObject.Add("constants", constants);
 
                 writer.WriteLine();
 
@@ -797,6 +811,8 @@ namespace VM12Asm
                     writer.WriteLine($"[size:{proc.size}]");
                     writer.WriteLine();
                 }
+
+                SKON.SKON.WriteToFile(metaSKONFile.FullName, skonObject);
             }
 
             if (open)
