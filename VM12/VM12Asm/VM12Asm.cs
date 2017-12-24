@@ -787,14 +787,16 @@ namespace VM12Asm
 
                     constants.Add(new Dictionary<string, SKONObject> {
                         { "name", constant.Key },
+                        { "value", constant.Value.Value },
                         { "length", constant.Value.Length },
-                        { "value", constant.Value.Value }
                     });
                 }
 
                 skonObject.Add("constants", constants);
 
                 writer.WriteLine();
+
+                SKONObject procs = SKONObject.GetEmptyArray();
 
                 foreach (var proc in libFile.Metadata)
                 {
@@ -810,6 +812,18 @@ namespace VM12Asm
                     writer.WriteLine($"[link-lines:{{{string.Join(",", proc.linkedLines.Select(kvp => $"{kvp.Key}:{kvp.Value}"))}}}]");
                     writer.WriteLine($"[size:{proc.size}]");
                     writer.WriteLine();
+
+                    procs.Add(new Dictionary<string, SKONObject> {
+                        { "name", proc.name },
+                        { "file", new FileInfo(proc.source.path).Name },
+                        { "location", proc.location },
+                        { "proc-line", proc.line },
+                        { "break", proc.breaks },
+                        { "link-lines", proc.linkedLines.Select(kvp => (SKONObject) $"{kvp.Key}:{kvp.Value}").ToList() },
+                        { "size", proc.size }
+                    });
+
+                    skonObject.Add("procs", procs);
                 }
 
                 SKON.SKON.WriteToFile(metaSKONFile.FullName, skonObject);

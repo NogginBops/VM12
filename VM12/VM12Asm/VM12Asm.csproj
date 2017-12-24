@@ -53,8 +53,8 @@
     <StartupObject>VM12Asm.VM12Asm</StartupObject>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="SKON.NET, Version=0.1.1.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\SKON.NET.0.1.1\lib\net20\SKON.NET.dll</HintPath>
+    <Reference Include="SKON.NET, Version=0.1.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\SKON.NET.0.1.4\lib\net20\SKON.NET.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
