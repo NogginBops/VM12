@@ -12,6 +12,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using SKON;
+using System.Numerics;
 
 namespace VM12
 {
@@ -54,12 +55,12 @@ namespace VM12
         public const int SCREEN_HEIGHT = 480;
 
         public const int STORAGE_START_ADDR = 0;
-        public const int STORAGE_SIZE = 357_913_941;
+        public const int STORAGE_SIZE = 357_913_941 / 2;
 
         public int[] MEM = new int[MEM_SIZE];
-
+        
         private FileInfo storageFile;
-        //public byte[] STORAGE = new byte[STORAGE_SIZE * 3];
+        public byte[] STORAGE = new byte[STORAGE_SIZE * 2];
 
         private bool interruptSet = false;
 
@@ -446,6 +447,7 @@ namespace VM12
             frame.prev_addr = MEM[fp + 2] << 12 | (ushort)MEM[fp + 3];
 
             frame.locals = MEM[fp + 4] << 12 | MEM[fp + 5];
+            if (frame.locals > fp) frame.locals &= 0xFFF;
             frame.localValues = new int[frame.locals];
             for (int i = 0; i < frame.locals; i++)
             {
@@ -552,8 +554,8 @@ namespace VM12
 
             sourceDir = metadata.Directory;
 
-            ReadSKONMetadata(metadata);
-            //ParseMetadata(metadata);
+            //ReadSKONMetadata(metadata);
+            ParseMetadata(metadata);
 
             breaks = new bool[MEM.Length];
             foreach (var data in this.metadata)
@@ -566,8 +568,8 @@ namespace VM12
                 }
             }
 
-            /*
             storageFile = storage;
+            /*
             using (FileStream stream = storage.OpenRead())
             {
                 stream.Read(STORAGE, 0, (int) storage.Length);
@@ -757,6 +759,8 @@ namespace VM12
                 //int SP = this.SP;
                 //int FP = this.FP;
                 int FPloc = this.FP;
+
+                int* char_data = stackalloc int[8];
 
                 while (true)
                 {
@@ -1361,6 +1365,7 @@ namespace VM12
                                 mem[++SP] = locals >> 12 & 0xFFF;       // Locals
                                 mem[++SP] = locals & 0xFFF;
                                 this.locals = locals;
+                                
                                 FPloc = FP - locals;
 #if DEBUG
                                 CallInstruction = true;
@@ -1379,9 +1384,10 @@ namespace VM12
                                 mem[++SP] = return_addr >> 12 & 0xFFF;
                                 FP = SP;
                                 mem[++SP] = return_addr & 0xFFF;
-                                mem[++SP] = last_fp >> 12 & 0xFFF;
-                                mem[++SP] = 0;
-                                mem[++SP] = locals;
+                                mem[++SP] = last_fp >> 12 & 0xFFF;      // Prev FP
+                                mem[++SP] = last_fp & 0xFFF;
+                                mem[++SP] = locals >> 12 & 0xFFF;       // Locals
+                                mem[++SP] = locals & 0xFFF;
                                 this.locals = locals;
                                 FPloc = FP - locals;
 #if DEBUG
@@ -1507,11 +1513,43 @@ namespace VM12
                                 Debugger.Break();
                             }
 
+                            bool not_zero = false;
+                            for (int i = 0; i < 8; i++)
+                            {
+                                char_data[i] = mem[char_addr + i];
+                                not_zero |= char_data[i] != 0;
+                            }
+
+                            if (not_zero)
+                            {
+                                int mask = 0x800;
+                                for (int i = 0; i < 12; i++)
+                                {
+                                    if ((char_data[0] & mask) != 0) mem[vram_addr + 0] = color;
+                                    if ((char_data[1] & mask) != 0) mem[vram_addr + 1] = color;
+                                    if ((char_data[2] & mask) != 0) mem[vram_addr + 2] = color;
+                                    if ((char_data[3] & mask) != 0) mem[vram_addr + 3] = color;
+                                    if ((char_data[4] & mask) != 0) mem[vram_addr + 4] = color;
+                                    if ((char_data[5] & mask) != 0) mem[vram_addr + 5] = color;
+                                    if ((char_data[6] & mask) != 0) mem[vram_addr + 6] = color;
+                                    if ((char_data[7] & mask) != 0) mem[vram_addr + 7] = color;
+
+                                    vram_addr += SCREEN_WIDTH;
+                                    mask >>= 1;
+                                }
+                            }
+                            
+                            SP -= 5;
+                            PC++;
+                            break;
+
+                            int start_vram = vram_addr;
                             for (int x = 0; x < 8; x++)
                             {
-                                int char_data = mem[char_addr];
-                                if (char_data != 0)
+                                int char_data2 = mem[char_addr];
+                                if (char_data2 != 0)
                                 {
+                                    /*
                                     if ((char_data & 0x800) != 0) mem[vram_addr + 0 * SCREEN_WIDTH] = color;
                                     if ((char_data & 0x400) != 0) mem[vram_addr + 1 * SCREEN_WIDTH] = color;
                                     if ((char_data & 0x200) != 0) mem[vram_addr + 2 * SCREEN_WIDTH] = color;
@@ -1524,7 +1562,7 @@ namespace VM12
                                     if ((char_data & 0x004) != 0) mem[vram_addr + 9 * SCREEN_WIDTH] = color;
                                     if ((char_data & 0x002) != 0) mem[vram_addr + 10 * SCREEN_WIDTH] = color;
                                     if ((char_data & 0x001) != 0) mem[vram_addr + 11 * SCREEN_WIDTH] = color;
-
+                                    */
                                     /*
                                     mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x800) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
                                     mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x400) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
@@ -1539,17 +1577,18 @@ namespace VM12
                                     mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x002) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
                                     mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x001) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
                                     */
-                                    /*
+                                    
+                                    vram_addr = start_vram + x;
                                     for (int y = 0; y < 12; y++)
                                     {
-                                        if ((char_data & 0x800) != 0)
+                                        if ((char_data2 & 0x800) != 0)
                                         {
                                             mem[vram_addr] = color;
                                         }
                                         vram_addr += SCREEN_WIDTH;
-                                        char_data <<= 1;
+                                        char_data2 <<= 1;
                                     }
-                                    */
+                                    
                                 }
                                 vram_addr++;
                                 char_addr += 1;
@@ -1674,13 +1713,24 @@ namespace VM12
 
                             endBlit:  break;
                         case Opcode.Write:
-                            int ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
-                            int buf = mem[SP - 3] << 12 | mem[SP - 2];
+                            int w_ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
+                            int w_buf = mem[SP - 3] << 12 | mem[SP - 2];
                             int w_len = mem[SP - 1] << 12 | mem[SP];
+
+                            for (int i = 0; i < w_len; i++)
+                            {
+                                int value = mem[w_buf + i] & 0xFFF;
+                                STORAGE[w_ioAddr + (i * 2)] = (byte)(value & 0xFF);
+                                STORAGE[w_ioAddr + (i * 2) + 1] = (byte)(value >> 8 & 0xFF);
+                            }
+
+                            SP -= 7;
+                            PC++;
+                            break;
 
                             IOMode ioMode = (IOMode) mem[PC + 1];
                             
-                            if ((ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
+                            if ((w_ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
                             {
                                 //const int wordSize = 8;
                                 
@@ -1714,6 +1764,17 @@ namespace VM12
 
                             SP -= 7;
                             break;
+                        case Opcode.Read:
+                            int r_ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
+                            int r_buf = mem[SP - 3] << 12 | mem[SP - 2];
+                            int r_len = mem[SP - 1] << 12 | mem[SP];
+                            
+                            for (int i = 0; i < r_len; i++)
+                            {
+                                mem[r_buf + i] = STORAGE[r_ioAddr + i] & 0xFFF;
+                            }
+
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }
@@ -1742,15 +1803,72 @@ namespace VM12
                     //Thread.SpinWait(1000);
                 }
             }
-            end: Running = false;
+            end:
 
-            /*
             using (FileStream stream = storageFile.OpenWrite())
             {
                 // Only write the changed data!
-                stream.Write(STORAGE, 0, STORAGE.Length);
+                BinaryWriter writer = new BinaryWriter(stream);
+                
+                int start = 0;
+                bool zeroes = true;
+                int zero_counter = 0;
+                
+                STORAGE[5] = 0xde;
+                STORAGE[6] = 0xad;
+                STORAGE[7] = 0xf0;
+                STORAGE[8] = 0x0d;
+
+                STORAGE[STORAGE.Length - 5] = 4;
+                
+                for (int i = 0; i < STORAGE.Length / 2; i++)
+                {
+                    if ((STORAGE[i * 2] << 8 | STORAGE[i * 2 + 1]) == 0)
+                    {
+                        zero_counter++;
+                    }
+                    else if (zeroes)
+                    {
+                        // Here we write zeroes
+                        writer.Write(-zero_counter);
+                        start += zero_counter;
+                        zero_counter = 0;
+                        zeroes = false;
+                    }
+                    else
+                    {
+                        zero_counter = 0;
+                        zeroes = false;
+                    }
+
+                    if (zeroes == false && zero_counter >= 20)
+                    {
+                        // Write non-zero data and start counting zeroes
+
+                        int length = i - zero_counter - start + 1;
+                        writer.Write(length);
+                        writer.Write(STORAGE, start * 2, length * 2);
+
+                        start += length;
+
+                        zeroes = true;
+                    }
+                }
+
+                if (zeroes)
+                {
+                    writer.Write(-zero_counter);
+                }
+                else
+                {
+                    writer.Write(STORAGE.Length / 2 - start + 1);
+                    writer.Write(STORAGE, start * 2, (STORAGE.Length - start) * 2);
+                }
+
+                //stream.Write(STORAGE, 0, STORAGE.Length);
             }
-            */
+
+            Running = false;
         }
 
         public void Stop()
