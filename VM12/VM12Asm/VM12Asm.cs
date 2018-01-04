@@ -365,7 +365,11 @@ namespace VM12Asm
 
         static bool verbose = false;
 
-        static bool dump_mem = true;
+        static bool verbose_addr = false;
+
+        static bool verbose_lit = false;
+
+        static bool dump_mem = false;
         
         static Dictionary<string, string> globalConstants = new Dictionary<string, string>();
 
@@ -445,11 +449,20 @@ namespace VM12Asm
                     case "-v":
                         verbose = true;
                         break;
+                    case "-vv":
+                        verbose_addr = true;
+                        break;
+                    case "-vl":
+                        verbose_lit = true;
+                        break;
+                    case "-d":
+                        dump_mem = true;
+                        break;
                     default:
                         break;
                 }
             }
-            
+
             while (File.Exists(file) == false)
             {
                 Console.Write("Input file: ");
@@ -467,6 +480,7 @@ namespace VM12Asm
 
             Console.WriteLine("Preprocessing...");
 
+            autoStringsFile.AppendLine("!noprintouts");
             autoStringsFile.AppendLine("!global");
             autoStringsFile.AppendLine();
 
@@ -657,23 +671,7 @@ namespace VM12Asm
             {
                 goto noFile;
             }
-
-            total.Stop();
-
-            double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 100;
-            double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 100;
-            double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 100;
-            double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
-            double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
-
-            string warningString = $"Assembled with {warnings} warning{(warnings > 0 ? "" : "s")}.";
-            Console.WriteLine($"Success! {warningString}");
-            Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms");
-            Console.WriteLine($"Parse: {parse_ms:F4} ms");
-            Console.WriteLine($"Assembly: {assembly_ms:F4} ms");
-            Console.WriteLine($"Sum: {total_ms_sum:F4} ms");
-            Console.WriteLine($"Total: {total_ms:F4} ms");
-
+            
             if (dump_mem)
             {
                 bool toFile = false;
@@ -733,9 +731,26 @@ namespace VM12Asm
                     }
                 }
 
+                Console.WriteLine();
                 Console.ForegroundColor = conColor;
             }
-            
+
+            total.Stop();
+
+            double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 100;
+            double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 100;
+            double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 100;
+            double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
+            double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
+
+            string warningString = $"Assembled with {warnings} warning{(warnings > 0 ? "" : "s")}.";
+            Console.WriteLine($"Success! {warningString}");
+            Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms");
+            Console.WriteLine($"Parse: {parse_ms:F4} ms");
+            Console.WriteLine($"Assembly: {assembly_ms:F4} ms");
+            Console.WriteLine($"Sum: {total_ms_sum:F4} ms");
+            Console.WriteLine($"Total: {total_ms:F4} ms");
+
             Console.WriteLine();
             Console.WriteLine($"Done! {warningString}");
 
@@ -921,7 +936,7 @@ namespace VM12Asm
                             macros.Add(macro);
                         }
 
-                        Console.WriteLine($"Defined {(global?"global ":"")}macro '{macro.name}'");
+                        if (verbose) Console.WriteLine($"Defined {(global?"global ":"")}macro '{macro.name}'");
                         //Console.WriteLine($"Start {i}, End {i + offset}, Name {match.Groups[1]}");
                         //Console.WriteLine(string.Join("\n", macro.lines));
                     }
@@ -950,7 +965,7 @@ namespace VM12Asm
                         }
                         else
                         {
-                            Console.WriteLine($"Found macrodef '{macro.name}'");
+                            if (verbose) Console.WriteLine($"Found macrodef '{macro.name}'");
                             newLines.RemoveAt(i - removedLines);
                             List<string> macroLines = new List<string>(macro.lines);
                             for (int lineNum = 0; lineNum < macroLines.Count; lineNum++)
@@ -959,7 +974,7 @@ namespace VM12Asm
                                 {
                                     if (macroLines[lineNum].Contains(macro.args[arg]))
                                     {
-                                        Console.WriteLine($"Line '{macroLines[lineNum]}' Arg '{macro.args[arg]}' Value '{args[arg]}'");
+                                        if (verbose) Console.WriteLine($"Line '{macroLines[lineNum]}' Arg '{macro.args[arg]}' Value '{args[arg]}'");
                                         macroLines[lineNum] = macroLines[lineNum].Replace(macro.args[arg], args[arg]);
                                     }
                                 }
@@ -1092,7 +1107,7 @@ namespace VM12Asm
                         value = $"0x{(autoVars >> 12) & 0xFFF:X3}_{autoVars & 0xFFF:X3}";
 
                         Console.ForegroundColor = ConsoleColor.Cyan;
-                        Console.WriteLine($"Defined auto var '{c.Groups[1].Value}' of size {size} to addr {value}");
+                        if (verbose) Console.WriteLine($"Defined auto var '{c.Groups[1].Value}' of size {size} to addr {value}");
                         Console.ForegroundColor = conColor;
 
                         autoConstants[c.Groups[1].Value] = new AutoConst(value, size);
@@ -1169,7 +1184,7 @@ namespace VM12Asm
                                     autoStrings[str] = lableName;
 
                                     Console.ForegroundColor = ConsoleColor.Magenta;
-                                    Console.WriteLine($"Created inline string '{lableName}' with value {str}");
+                                    if (verbose) Console.WriteLine($"Created inline string '{lableName}' with value {str}");
                                     Console.ForegroundColor = conColor;
                                 }
 
@@ -1308,6 +1323,8 @@ namespace VM12Asm
                 bool temp_verbose = verbose;
 
                 verbose = verbose && !file.Value.Flags.Contains("!noprintouts");
+
+                verbose &= verbose_lit;
 
                 foreach (var proc in file.Value.Procs)
                 {
@@ -1709,7 +1726,7 @@ namespace VM12Asm
                         proc.Value[use.Key] = offset_inst[1];
                         proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkCyan;
-                        if (verbose) Console.WriteLine($"{use.Value,-12} matched local at instruction: {metadata[proc.Key].location + use.Key:X6} Offset: {lbl_offset + metadata[proc.Key].location:X6}");
+                        if (verbose_addr) Console.WriteLine($"{use.Value,-12} matched local at instruction: {metadata[proc.Key].location + use.Key:X6} Offset: {lbl_offset + metadata[proc.Key].location:X6}");
                         Console.ForegroundColor = conColor;
                     }
                     else if (metadata.ToDictionary(kvp => kvp.Key.name, kvp => kvp.Value.location).TryGetValue(use.Value, out int proc_offset))
@@ -1718,7 +1735,7 @@ namespace VM12Asm
                         proc.Value[use.Key] = offset_inst[1];
                         proc.Value[use.Key + 1] = offset_inst[0];
                         Console.ForegroundColor = ConsoleColor.DarkMagenta;
-                        if (verbose) Console.WriteLine($"{use.Value,-12} matched call at instruction: {metadata[proc.Key].location + use.Key:X6} Offset: {proc_offset:X6}");
+                        if (verbose_addr) Console.WriteLine($"{use.Value,-12} matched call at instruction: {metadata[proc.Key].location + use.Key:X6} Offset: {proc_offset:X6}");
                         Console.ForegroundColor = conColor;
                     }
                     else
