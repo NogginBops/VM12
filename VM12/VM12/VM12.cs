@@ -60,8 +60,96 @@ namespace VM12
         public int[] MEM = new int[MEM_SIZE];
         
         private FileInfo storageFile;
-        public byte[] STORAGE = new byte[STORAGE_SIZE * 2];
+        //public byte[] STORAGE = new byte[STORAGE_SIZE * 2];
 
+        private static byte[][,] AllocateStorageMemory(int addresses, int chunkChunks, int chunkSize)
+        {
+            byte[][,] array = new byte[addresses / chunkChunks][,];
+
+            return array;
+        }
+
+        private const int STORAGE_CHUNK_SIZE = 128;
+        private const int STORAGE_CHUNK_GROUPING = 4069;
+
+        public static readonly byte[][,] S = AllocateStorageMemory(MEM_SIZE, STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE);
+        public static readonly bool[] S_HIT = new bool[MEM_SIZE];
+
+        private static void WriteStorage(byte* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE; i++)
+                {
+                    storage_data[group_index + i] = data[i];
+                }
+            }
+
+            S_HIT[address] = true;
+        }
+
+        private static void WriteStorage(int* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
+                {
+                    storage_data[group_index + i * 2] = (byte) (data[i] >> 12 & 0xFFF);
+                    storage_data[group_index + i * 2 + 1] = (byte) (data[i] & 0xFFF);
+                }
+            }
+
+            S_HIT[address] = true;
+        }
+
+        private static void ReadStorage(byte* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE; i++)
+                {
+                    data[i] = storage_data[group_index + i];
+                }
+            }
+        }
+
+        private static void ReadStorage(int* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
+                {
+                    data[i] = storage_data[group_index + i * 2] << 12 | storage_data[group_index + i * 2 + 1];
+                }
+            }
+        }
+
+        private static byte[,] GetChunk(int address, out int offset)
+        {
+            offset = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            return S[address / STORAGE_CHUNK_GROUPING];
+        }
+        
         private bool interruptSet = false;
 
         private Interrupt[] intrr = new Interrupt[Enum.GetValues(typeof(InterruptType)).Length];
@@ -447,8 +535,12 @@ namespace VM12
             frame.prev_addr = MEM[fp + 2] << 12 | (ushort)MEM[fp + 3];
 
             frame.locals = MEM[fp + 4] << 12 | MEM[fp + 5];
+
             if (frame.locals > fp) frame.locals &= 0xFFF;
-            frame.localValues = new int[frame.locals];
+
+            if (frame.locals > fp) frame.locals = -1;
+            else frame.localValues = new int[frame.locals];
+
             for (int i = 0; i < frame.locals; i++)
             {
                 frame.localValues[i] = MEM[fp - frame.locals + i];
@@ -569,6 +661,7 @@ namespace VM12
             }
 
             storageFile = storage;
+            ReadStorageData(storageFile);
             /*
             using (FileStream stream = storage.OpenRead())
             {
@@ -730,6 +823,29 @@ namespace VM12
             if (currMetadata != null)
             {
                 metadata.Add(currMetadata);
+            }
+        }
+
+        void ReadStorageData(FileInfo storageFile)
+        {
+            byte[] chunk = new byte[STORAGE_CHUNK_SIZE];
+
+            using (FileStream stream = storageFile.OpenRead())
+            using (BinaryReader reader = new BinaryReader(stream))
+            {
+                while (stream.Position != stream.Length)
+                {
+                    // Read one chunk of data
+                    int addr = reader.ReadInt32();
+                    stream.Read(chunk, 0, chunk.Length);
+
+                    fixed(byte* chunk_data = chunk) {
+                        WriteStorage(chunk_data, addr);
+                    }
+
+                    Console.WriteLine($"Read chunk {addr}");
+                    Console.WriteLine(String.Join(",", chunk));
+                }
             }
         }
 #endif
@@ -1512,7 +1628,7 @@ namespace VM12
                             {
                                 Debugger.Break();
                             }
-
+                            
                             bool not_zero = false;
                             for (int i = 0; i < 8; i++)
                             {
@@ -1713,21 +1829,19 @@ namespace VM12
 
                             endBlit:  break;
                         case Opcode.Write:
-                            int w_ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
+                            int w_ioAddr = mem[SP - 5] << 12 | mem[SP - 4];
                             int w_buf = mem[SP - 3] << 12 | mem[SP - 2];
                             int w_len = mem[SP - 1] << 12 | mem[SP];
 
                             for (int i = 0; i < w_len; i++)
                             {
-                                int value = mem[w_buf + i] & 0xFFF;
-                                STORAGE[w_ioAddr + (i * 2)] = (byte)(value & 0xFF);
-                                STORAGE[w_ioAddr + (i * 2) + 1] = (byte)(value >> 8 & 0xFF);
+                                WriteStorage(&mem[w_buf + (i * STORAGE_CHUNK_SIZE)], w_ioAddr);
                             }
 
-                            SP -= 7;
+                            SP -= 6;
                             PC++;
                             break;
-
+                            #region Complex_io
                             IOMode ioMode = (IOMode) mem[PC + 1];
                             
                             if ((w_ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
@@ -1764,16 +1878,19 @@ namespace VM12
 
                             SP -= 7;
                             break;
+                        #endregion
                         case Opcode.Read:
-                            int r_ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
+                            int r_ioAddr = (mem[SP - 5] << 12) | mem[SP - 4];
                             int r_buf = mem[SP - 3] << 12 | mem[SP - 2];
                             int r_len = mem[SP - 1] << 12 | mem[SP];
                             
                             for (int i = 0; i < r_len; i++)
                             {
-                                mem[r_buf + i] = STORAGE[r_ioAddr + i] & 0xFFF;
+                                ReadStorage(&mem[r_buf + (i * STORAGE_CHUNK_SIZE)], r_ioAddr);
                             }
 
+                            SP -= 6;
+                            PC++;
                             break;
                         default:
                             throw new Exception($"{op}");
@@ -1804,12 +1921,29 @@ namespace VM12
                 }
             }
             end:
-
+            
             using (FileStream stream = storageFile.OpenWrite())
             {
                 // Only write the changed data!
                 BinaryWriter writer = new BinaryWriter(stream);
+
+                byte[] data = new byte[128];
+
+                for (int addr = 0; addr < S_HIT.Length; addr++)
+                {
+                    if (S_HIT[addr])
+                    {
+                        writer.Write(addr);
+
+                        byte[,] chunkGroup = GetChunk(addr, out int chunkOffset);
+                        
+                        Buffer.BlockCopy(chunkGroup, chunkOffset, data, 0, data.Length);
+
+                        writer.Write(data);
+                    }
+                }
                 
+                /*
                 int start = 0;
                 bool zeroes = true;
                 int zero_counter = 0;
@@ -1862,10 +1996,15 @@ namespace VM12
                 else
                 {
                     writer.Write(STORAGE.Length / 2 - start + 1);
-                    writer.Write(STORAGE, start * 2, (STORAGE.Length - start) * 2);
+                    writer.Write(STORAGE, start * 2, (STORAGE.Length / 2 - start) * 2);
                 }
 
+                writer.Flush();
+
+                writer.Close();
+
                 //stream.Write(STORAGE, 0, STORAGE.Length);
+                */
             }
 
             Running = false;

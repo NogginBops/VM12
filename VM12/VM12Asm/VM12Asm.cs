@@ -329,6 +329,8 @@ namespace VM12Asm
             { "mod.l", Opcode.Mod_l },
             { "blit", Opcode.Blit },
             { "blit.mask", Opcode.Blit_mask },
+            { "write", Opcode.Write },
+            { "read", Opcode.Read },
         };
 
         static Dictionary<string, int> arguments = new Dictionary<string, int>()
