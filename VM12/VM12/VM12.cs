@@ -338,31 +338,36 @@ namespace VM12
 
         public Dictionary<string, AutoConst> autoConsts { get; private set; } = new Dictionary<string, AutoConst>();
 
-        int GetConstValue(string name)
+        int[] GetConstValue(string name)
         {
             AutoConst constant = autoConsts[name];
             return GetConstValue(constant);
         }
 
-        int GetConstValue(AutoConst constant)
+        int[] GetConstValue(AutoConst constant)
         {
             switch (constant.Length)
             {
                 case 1:
-                    return MEM[constant.Addr];
+                    return new int[] { MEM[constant.Addr] };
                 case 2:
-                    return MEM[constant.Addr] << 12 | MEM[constant.Addr + 1];
+                    return new int[] { MEM[constant.Addr] << 12 | MEM[constant.Addr + 1] };
                 default:
                     // TODO: Maybe better printout
-                    return MEM[constant.Addr] << 12 | MEM[constant.Addr + 1];
+                    int[] values = new int[constant.Length];
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        values[i] = MEM[constant.Addr + i];
+                    }
+                    return values;
             }
         }
 
-        Dictionary<string, int> ConstValues
+        Dictionary<string, int[]> ConstValues
         {
             get
             {
-                Dictionary<string, int> values = new Dictionary<string, int>();
+                Dictionary<string, int[]> values = new Dictionary<string, int[]>();
 
                 foreach (var c in autoConsts)
                 {
@@ -1307,7 +1312,8 @@ namespace VM12
                                     }
                                     break;
                                 case JumpMode.Gz:
-                                    if ((mem[SP] & 0x800) == 0)
+                                    int gz_value = mem[SP];
+                                    if ((gz_value & 0x800) == 0 && gz_value != 0)
                                     {
                                         PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
                                     }
@@ -1374,9 +1380,9 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Ro:
-                                    int sign_ext(int i) => (int)((i & 0x800) != 0 ? (uint)(i & 0xFFFF_F800) : (uint)i);
-
-                                    PC += sign_ext(mem[SP]) + 1;
+                                    int ro_value = mem[SP];
+                                    // Sign extend and add one and then to PC
+                                    PC += ((int)((ro_value & 0x800) != 0 ? (uint)(ro_value & 0xFFFF_F800) : (uint)ro_value)) + 1;
                                     SP--;
                                     break;
                                 case JumpMode.Z_l:
@@ -1402,7 +1408,8 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Gz_l:
-                                    if ((mem[SP - 1] << 12 | mem[SP]) > 0)
+                                    int gz_l_value = (mem[SP - 1] << 12 | mem[SP]);
+                                    if ((gz_l_value & 0x800) == 0 && gz_l_value > 0)
                                     {
                                         PC = mem[PC + 1] << 12 | mem[PC + 2];
                                     }
@@ -1424,6 +1431,15 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Ge_l:
+                                    if ((mem[SP - 1] & 0x800) == 0)
+                                    {
+                                        PC = mem[PC + 1] << 12 | mem[PC + 2];
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
                                     break;
                                 case JumpMode.Le_l:
                                     if ((mem[SP - 1] & 0x800) > 0 || (mem[SP -1] | mem[SP]) == 0)
@@ -1491,6 +1507,7 @@ namespace VM12
                         case Opcode.Call_v:
                             {
                                 int call_addr = (mem[SP - 1] << 12) | (ushort)(mem[SP]);
+                                SP -= 2;
                                 int return_addr = PC + 1;
                                 int last_fp = FP;
                                 int parameters = mem[call_addr];
