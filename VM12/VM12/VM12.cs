@@ -1335,7 +1335,8 @@ namespace VM12
                                     SP--;
                                     break;
                                 case JumpMode.Ge:
-                                    if (mem[SP] >= 0)
+                                    int ge_temp = mem[SP];
+                                    if (ge_temp >= 0 && (ge_temp & 0x800) == 0)
                                     {
                                         PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
                                     }
