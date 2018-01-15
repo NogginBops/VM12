@@ -70,7 +70,7 @@ namespace VM12
         }
 
         private const int STORAGE_CHUNK_SIZE = 128;
-        private const int STORAGE_CHUNK_GROUPING = 4069;
+        private const int STORAGE_CHUNK_GROUPING = 4096;
 
         public static readonly byte[][,] S = AllocateStorageMemory(MEM_SIZE, STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE);
         public static readonly bool[] S_HIT = new bool[MEM_SIZE];
