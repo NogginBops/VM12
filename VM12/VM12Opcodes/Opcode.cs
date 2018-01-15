@@ -34,14 +34,18 @@
         Jmp,
         Z, Nz,
         C, Cz,
-        Gz, Lz,
-        Ge, Le,
+        Gz, Lz,     // signed
+        Ge, Le,     // signed
+        Az, Bz,     // unsigned
+        Ae, Be,     // unsigned
         Eq, Neq,
         Ro,
         
         Z_l = 128, Nz_l,
-        Gz_l, Lz_l,
-        Ge_l, Le_l,
+        Gz_l, Lz_l,     // signed
+        Ge_l, Le_l,     // signed
+        Az_l, Bz_l,     // unsigned
+        Ae_l, Be_l,     // unsigned
         Eq_l, Neq_l,
         Ro_l
     }
