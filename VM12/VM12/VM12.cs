@@ -57,6 +57,8 @@ namespace VM12
         public const int STORAGE_START_ADDR = 0;
         public const int STORAGE_SIZE = 357_913_941 / 2;
 
+        public const int STACK_MAX_ADDRESS = 0x100_000;
+
         public int[] MEM = new int[MEM_SIZE];
         
         private FileInfo storageFile;
@@ -948,6 +950,14 @@ namespace VM12
                         {
                             interruptsEnabled = interruptsEnabledActual;
                         }
+                    }
+
+                    if ((uint) SP > STACK_MAX_ADDRESS)
+                    {
+                        interruptsEnabledActual = interruptsEnabled || interruptsEnabledActual;
+                        interruptsEnabled = false;
+
+                        HitBreakpoint?.Invoke(this, new EventArgs());
                     }
 #endif
                     switch (op)

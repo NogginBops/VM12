@@ -243,7 +243,7 @@ namespace Debugging
 
                 int line = int.Parse(data[1]);
 
-                debugger.SourceView.Open(Path.Combine(vm12.sourceDir.FullName, data[0]), line);
+                debugger.SourceView.Open(vm12.sourceDir, data[0], line);
             }
 #endif
         }

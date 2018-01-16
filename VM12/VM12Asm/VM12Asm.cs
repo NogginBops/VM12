@@ -497,7 +497,7 @@ namespace VM12Asm
             FileInfo fileInf = new FileInfo(file);
             DirectoryInfo dirInf = fileInf.Directory;
             
-            FileInfo[] dirFiles = dirInf.GetFiles($".{Path.DirectorySeparatorChar}*.12asm", SearchOption.AllDirectories);
+            FileInfo[] dirFiles = dirInf.GetFiles($"*.12asm", SearchOption.AllDirectories);
             
             // TODO: Files with the same name but differnet directories
             while (remainingUsings.Count > 0)

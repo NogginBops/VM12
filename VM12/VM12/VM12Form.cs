@@ -19,12 +19,22 @@ namespace VM12
 {
     public partial class VM12Form : Form
     {
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public unsafe struct ThreeByteColor
+        {
+            public byte r;
+            public byte g;
+            public byte b;
+        }
+        
+        public static readonly ThreeByteColor[] colorLUT = new ThreeByteColor[4096];
+
         public static VM12Form form { get; private set; }
 
         private volatile VM12 vm12;
 
         public static long StartTime = -1;
-
+        
         private readonly static byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
         private readonly static GCHandle BitsHandle = GCHandle.Alloc(data, GCHandleType.Pinned);
@@ -36,7 +46,7 @@ namespace VM12
         private Thread hTimer;
 
         private readonly static ProgramDebugger debugger = new ProgramDebugger();
-
+        
 #if DEBUG
         System.Threading.Timer perfTimer;
 
@@ -83,11 +93,30 @@ namespace VM12
             
             pbxMain.Image = bitmap;
 
+            GenerateLUT();
+
             //SetSize(480 * 2, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
 #endif
+        }
+
+        private void GenerateLUT()
+        {
+            for (int i = 0; i < colorLUT.Length; i++)
+            {
+                ThreeByteColor col;
+
+                // r
+                col.r = (byte)((i & 0x00F) << 4);
+                // g
+                col.g = (byte)(i & 0x0F0);
+                // b
+                col.b = (byte)((i >> 4) & 0x0F0);
+
+                colorLUT[i] = col;
+            }
         }
 
         private void SetSize(int height, InterpolationMode scaleMode = InterpolationMode.Default)
@@ -272,20 +301,21 @@ namespace VM12
                 unsafe
                 {
                     fixed (int* mem = vm12.MEM)
+                    fixed (byte* b_data = data)
+                    fixed (ThreeByteColor* lut = colorLUT)
                     {
+                        int index = 0;
+
                         int* vram = mem + VM12.VRAM_START;
                         for (int i = 0; i < size; i += bytesPerPixel)
                         {
-                            int index = i / (bytesPerPixel);
-
-                            int val = vram[index];
-
-                            // r
-                            data[i] = (byte)((val & 0x00F) << 4);
-                            // g
-                            data[i + 1] = (byte)(val & 0x0F0);
-                            // b
-                            data[i + 2] = (byte)((val >> 4) & 0x0F0);
+                            ThreeByteColor col = lut[vram[index]];
+                            
+                            b_data[i] = col.r;
+                            b_data[i + 1] = col.g;
+                            b_data[i + 2] = col.b;
+                            
+                            index++;
                         }
                     }
                 }

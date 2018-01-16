@@ -10,6 +10,7 @@ using System.Windows.Forms;
 using System.IO;
 using Debugging;
 using VM12;
+using System.Diagnostics;
 
 namespace Debugger
 {
@@ -33,8 +34,10 @@ namespace Debugger
             InitializeComponent();
         }
 
-        public void Open(string file, int line)
+        public void Open(DirectoryInfo dir, string fileName, int line)
         {
+            string file = Directory.GetFiles(dir.FullName, fileName, SearchOption.AllDirectories).FirstOrDefault();
+
             if (File.Exists(file))
             {
                 if (openFile != null)
@@ -52,6 +55,10 @@ namespace Debugger
                 }
 
                 SelectLine(line - 1);
+            }
+            else
+            {
+                Debug.WriteLine($"Source file '{file}' does not exist!");
             }
         }
 
