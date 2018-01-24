@@ -1442,7 +1442,8 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Ge_l:
-                                    if ((mem[SP - 1] & 0x800) == 0)
+                                    int ge_l_temp = mem[SP - 1];
+                                    if (ge_l_temp >= 0 && (ge_l_temp & 0x800) == 0)
                                     {
                                         PC = mem[PC + 1] << 12 | mem[PC + 2];
                                     }

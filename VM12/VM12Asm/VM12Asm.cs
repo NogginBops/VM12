@@ -375,8 +375,31 @@ namespace VM12Asm
 
         static Dictionary<string, AutoConst> autoConstants = new Dictionary<string, AutoConst>();
 
-        static int warnings = 0;
+        struct WarningEntry
+        {
+            public readonly RawFile File;
+            public readonly int Line;
+            public readonly string WarningText;
 
+            private FileInfo FileInfo;
+
+            public WarningEntry(RawFile file, int line, string warning)
+            {
+                this.File = file;
+                this.Line = line;
+                this.WarningText = warning;
+
+                FileInfo = new FileInfo(file.path);
+            }
+
+            public override string ToString()
+            {
+                return $"Warning in file \"{FileInfo.Name}\" at line {Line}: '{WarningText}'";
+            }
+        }
+
+        static List<WarningEntry> Warnings = new List<WarningEntry>();
+        
         static int autoStringIndex = 0;
 
         static Dictionary<string, string> autoStrings = new Dictionary<string, string>();
@@ -397,7 +420,7 @@ namespace VM12Asm
 
             autoConstants = new Dictionary<string, AutoConst>();
 
-            warnings = 0;
+            Warnings.Clear();
             autoVars = VRAM_OFFSET - 1;
         }
 
@@ -734,6 +757,10 @@ namespace VM12Asm
                 Console.WriteLine();
                 Console.ForegroundColor = conColor;
             }
+            else
+            {
+                Console.WriteLine($"Result ({libFile.UsedInstructions} used words ({((double)libFile.UsedInstructions / ROM_SIZE):P5}))");
+            }
 
             total.Stop();
 
@@ -743,7 +770,7 @@ namespace VM12Asm
             double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
             double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
 
-            string warningString = $"Assembled with {warnings} warning{(warnings > 0 ? "" : "s")}.";
+            string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");
             Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms");
             Console.WriteLine($"Parse: {parse_ms:F4} ms");
@@ -753,6 +780,10 @@ namespace VM12Asm
 
             Console.WriteLine();
             Console.WriteLine($"Done! {warningString}");
+            foreach (var warning in Warnings)
+            {
+                Console.WriteLine(warning);
+            }
 
             // FIXME!! Do not write the compiled file to the same directory!
 
@@ -1924,18 +1955,18 @@ namespace VM12Asm
                     return -1;
             }
         }
-
+        
         static void Warning(RawFile file, int line, string warning)
         {
             ConsoleColor orig = Console.ForegroundColor;
 
             Console.ForegroundColor = ConsoleColor.Yellow;
 
-            FileInfo info = new FileInfo(file.path);
+            WarningEntry warn = new WarningEntry(file, line, warning);
 
-            Console.WriteLine($"Warning in file \"{info.Name}\" at line {line}: '{warning}'");
+            Console.WriteLine(warn);
 
-            warnings++;
+            Warnings.Add(warn);
 
             Console.ForegroundColor = orig;
         }
