@@ -189,7 +189,7 @@ namespace VM12
 #endif
 
                     // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!
-                    Thread thread = new Thread(() => { vm12.Start(); vm12 = null; })
+                    Thread thread = new Thread(() => { vm12.Start(); debugger.CloseDebugger(); vm12 = null; })
                     {
                         Name = "VM12",
                         IsBackground = true,

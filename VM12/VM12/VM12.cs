@@ -1950,7 +1950,13 @@ namespace VM12
                 }
             }
             end:
-            
+
+            this.SP = 0;
+            this.FP = 0;
+            this.PC = ROM_START;
+
+            DebugBreakEvent.Set();
+
             using (FileStream stream = storageFile.OpenWrite())
             {
                 // Only write the changed data!
@@ -1971,69 +1977,6 @@ namespace VM12
                         writer.Write(data);
                     }
                 }
-                
-                /*
-                int start = 0;
-                bool zeroes = true;
-                int zero_counter = 0;
-                
-                STORAGE[5] = 0xde;
-                STORAGE[6] = 0xad;
-                STORAGE[7] = 0xf0;
-                STORAGE[8] = 0x0d;
-
-                STORAGE[STORAGE.Length - 5] = 4;
-                
-                for (int i = 0; i < STORAGE.Length / 2; i++)
-                {
-                    if ((STORAGE[i * 2] << 8 | STORAGE[i * 2 + 1]) == 0)
-                    {
-                        zero_counter++;
-                    }
-                    else if (zeroes)
-                    {
-                        // Here we write zeroes
-                        writer.Write(-zero_counter);
-                        start += zero_counter;
-                        zero_counter = 0;
-                        zeroes = false;
-                    }
-                    else
-                    {
-                        zero_counter = 0;
-                        zeroes = false;
-                    }
-
-                    if (zeroes == false && zero_counter >= 20)
-                    {
-                        // Write non-zero data and start counting zeroes
-
-                        int length = i - zero_counter - start + 1;
-                        writer.Write(length);
-                        writer.Write(STORAGE, start * 2, length * 2);
-
-                        start += length;
-
-                        zeroes = true;
-                    }
-                }
-
-                if (zeroes)
-                {
-                    writer.Write(-zero_counter);
-                }
-                else
-                {
-                    writer.Write(STORAGE.Length / 2 - start + 1);
-                    writer.Write(STORAGE, start * 2, (STORAGE.Length / 2 - start) * 2);
-                }
-
-                writer.Flush();
-
-                writer.Close();
-
-                //stream.Write(STORAGE, 0, STORAGE.Length);
-                */
             }
 
             Running = false;
