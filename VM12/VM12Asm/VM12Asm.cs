@@ -54,7 +54,7 @@ namespace VM12Asm
                 return $"{{{Type}: {(Type == TokenType.Instruction ? Opcode.ToString() : Value)}}}";
             }
         }
-
+        
         class Proc
         {
             public string name;
@@ -254,7 +254,7 @@ namespace VM12Asm
         static Regex str = new Regex("^\\s*\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"$");
 
         static Regex auto = new Regex("auto\\((.*)\\)");
-
+        
         static Dictionary<string, Opcode> opcodes = new Dictionary<string, Opcode>()
         {
             { "nop", Opcode.Nop },
@@ -1120,8 +1120,9 @@ namespace VM12Asm
                 {
                     string value = c.Groups[2].Value;
 
-                    Match mauto;
-                    if ((mauto = auto.Match(value)).Success)
+                    Match mauto = auto.Match(value);
+                    bool isAutoConst = mauto.Success;
+                    if (isAutoConst)
                     {
                         int size = ToInt(ParseLitteral(file, line_num, mauto.Groups[1].Value, constants));
                         if (size <= 0)
@@ -1142,6 +1143,12 @@ namespace VM12Asm
                         Console.ForegroundColor = conColor;
 
                         autoConstants[c.Groups[1].Value] = new AutoConst(value, size);
+
+                        int endAddr = autoVars + size;
+
+                        constants[c.Groups[1].Value + ".end"] = $"0x{(endAddr >> 12) & 0xFFF:X3}_{endAddr & 0xFFF:X3}";
+                        constants[c.Groups[1].Value + ".size"] = $"0x{(size >> 12) & 0xFFF:X3}_{size & 0xFFF:X3}";
+
                     }
 
                     constants[c.Groups[1].Value] = value;
@@ -1156,7 +1163,16 @@ namespace VM12Asm
                         {
                             Warning(file, line_num, $"Redefining global constant '{c.Groups[1].Value}'");
                         }
+
                         globalConstants[c.Groups[1].Value] = value;
+
+                        // FIXME: This is not a robust way of doing this!!
+                        if (isAutoConst)
+                        {
+                            globalConstants[c.Groups[1].Value + ".end"] = constants[c.Groups[1].Value + ".end"];
+                            globalConstants[c.Groups[1].Value + ".size"] = constants[c.Groups[1].Value + ".size"];
+                            Console.WriteLine($"Adding size ({constants[c.Groups[1].Value + ".size"]}) and end ({constants[c.Groups[1].Value + ".end"]}) to auto var '{c.Groups[1].Value}'");
+                        }
                     }
                 }
                 else if ((c = str.Match(line)).Success)
