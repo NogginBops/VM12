@@ -54,7 +54,7 @@
     {
         Nop,
         Pop,
-        Fp, Pc,
+        Fp, Pc, Pt,
         Sp, Set_sp,
         Load_lit, Load_lit_l,
         Load_sp, Load_sp_l,

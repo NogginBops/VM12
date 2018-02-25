@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using Debugging;
+using Profiler;
 
 namespace VM12
 {
@@ -46,7 +47,9 @@ namespace VM12
         private Thread hTimer;
 
         private readonly static ProgramDebugger debugger = new ProgramDebugger();
-        
+
+        private readonly static ProcProfiler profiler = new ProcProfiler();
+
 #if DEBUG
         System.Threading.Timer perfTimer;
 
@@ -529,7 +532,7 @@ namespace VM12
                 {
                     Thread.Sleep(9);
                 }
-                catch
+                catch(ThreadInterruptedException)
                 {
                     return;
                 }
@@ -599,6 +602,17 @@ namespace VM12
         public static ProgramDebugger GetProgramDebugger()
         {
             return debugger;
+        }
+
+        private void profilerToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (vm12 != null)
+            {
+                profiler.SetVM(vm12);
+            }
+
+            profiler.Show();
+            profiler.BringToFront();
         }
 #endif
     }

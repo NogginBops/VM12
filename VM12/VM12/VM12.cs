@@ -289,9 +289,11 @@ namespace VM12
 
         public int[] MissedInterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
 
-        public int[] instructionFreq = new int[Enum.GetValues(typeof(Opcode)).Length];
+        public long[] instructionFreq = new long[Enum.GetValues(typeof(Opcode)).Length];
 
         public int[] instructionTimes = new int[Enum.GetValues(typeof(Opcode)).Length];
+
+        public long[] romInstructionCounter = new long[MEM_SIZE];
 
         #region Debug
 
@@ -307,7 +309,7 @@ namespace VM12
 
             public override string ToString()
             {
-                return name + ": " + base.ToString();
+                return name;
             }
         }
 
@@ -380,7 +382,7 @@ namespace VM12
             }
         }
 
-        List<ProcMetadata> metadata = new List<ProcMetadata>();
+        public List<ProcMetadata> metadata = new List<ProcMetadata>();
 
         public ProcMetadata GetMetadataFromOffset(int offset)
         {
@@ -928,6 +930,7 @@ namespace VM12
                     Opcode op = (Opcode)(mem[PC]);
 
 #if DEBUG
+                    romInstructionCounter[PC]++;
                     instructionFreq[(int)op]++;
 #if BREAKS
                     if (breaks[PC])
@@ -983,6 +986,12 @@ namespace VM12
                         case Opcode.Pc:
                             mem[SP + 1] = PC >> 12 & 0xFFF;
                             mem[SP + 2] = PC & 0xFFF;
+                            SP += 2;
+                            PC++;
+                            break;
+                        case Opcode.Pt:
+                            mem[SP + 1] = (int) programTime >> 12 & 0xFFF;
+                            mem[SP + 2] = (int) programTime & 0xFFF;
                             SP += 2;
                             PC++;
                             break;
@@ -1062,13 +1071,12 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Swap_l:
-                            int* swap_l_temp = stackalloc int[2];
-                            swap_l_temp[0] = mem[SP - 3];
-                            swap_l_temp[1] = mem[SP - 2];
-                            mem[SP - 3] = mem[SP - 1];
-                            mem[SP - 2] = mem[SP];
-                            mem[SP - 1] = swap_l_temp[0];
-                            mem[SP] = swap_l_temp[1];
+                            int swap_l_temp = mem[SP];
+                            mem[SP] = mem[SP - 2];
+                            mem[SP - 2] = swap_l_temp;
+                            swap_l_temp = mem[SP - 1];
+                            mem[SP - 1] = mem[SP - 3];
+                            mem[SP - 3] = swap_l_temp;
                             PC++;
                             break;
                         case Opcode.Swap_s_l:
@@ -1125,6 +1133,7 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Add_c:
+                            throw new NotImplementedException();
                             break;
                         case Opcode.Sub:
                             // TODO: The sign might not work here!
@@ -1578,11 +1587,7 @@ namespace VM12
                             break;
                         case Opcode.Ret_v:
                             int return_values = mem[PC + 1];
-                            int* values = stackalloc int[return_values];
-                            for (int i = 0; i < return_values; i++)
-                            {
-                                values[i] = mem[SP - i];
-                            }
+                            int returnValuesStart = SP;
                             SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]) + return_values;
                             PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
@@ -1590,7 +1595,7 @@ namespace VM12
                             FPloc = FP - this.locals;
                             for (int i = 0; i < return_values; i++)
                             {
-                                mem[SP - i] = values[i];
+                                mem[SP - i] = mem[returnValuesStart - i];
                             }
 #if DEBUG
                             RetInstruction = true;
@@ -1940,6 +1945,11 @@ namespace VM12
                     if (FP > FPWatermark)
                     {
                         FPWatermark = FP;
+                    }
+
+                    if (SP < 0)
+                    {
+                        Debugger.Break();
                     }
 #endif
                     
