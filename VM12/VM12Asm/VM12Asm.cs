@@ -61,6 +61,7 @@ namespace VM12Asm
             public int line;
             public int? parameters;
             public int? locals;
+            public string location_const;
             public int? location;
             public List<Token> tokens;
         }
@@ -134,7 +135,7 @@ namespace VM12Asm
                 this.Length = length;
             }
         }
-
+        
         const int _12BIT_MASK = 0x0FFF;
 
         const int ROM_OFFSET = 0x44B_000;
@@ -236,6 +237,7 @@ namespace VM12Asm
 
             { new Regex("\\[FP\\]"), "fp" },
             { new Regex("\\[PC\\]"), "pc" },
+            { new Regex("\\[PT\\]"), "pt" },
             { new Regex("\\[SP\\]"), "sp" },
         };
 
@@ -261,6 +263,7 @@ namespace VM12Asm
             { "pop", Opcode.Pop },
             { "fp", Opcode.Fp },
             { "pc", Opcode.Pc },
+            { "pt", Opcode.Pt },
             { "sp", Opcode.Sp },
             { "set.sp", Opcode.Set_sp },
             { "load.lit", Opcode.Load_lit },
@@ -369,8 +372,14 @@ namespace VM12Asm
 
         static bool verbose_lit = false;
 
+        static bool verbose_token = false;
+
         static bool dump_mem = false;
         
+        static int pplines = 0;
+        static int lines = 0;
+        static int tokens = 0;
+
         static Dictionary<string, string> globalConstants = new Dictionary<string, string>();
 
         static Dictionary<string, AutoConst> autoConstants = new Dictionary<string, AutoConst>();
@@ -413,8 +422,13 @@ namespace VM12Asm
         public static void Reset()
         {
             verbose = false;
+            verbose_addr = false;
+            verbose_lit = false;
+            verbose_token = false;
 
             dump_mem = false;
+            
+            lines = 0;
 
             globalConstants = new Dictionary<string, string>();
 
@@ -472,6 +486,9 @@ namespace VM12Asm
                     case "-v":
                         verbose = true;
                         break;
+                    case "-vt":
+                        verbose_token = true;
+                        break;
                     case "-vv":
                         verbose_addr = true;
                         break;
@@ -507,7 +524,7 @@ namespace VM12Asm
             autoStringsFile.AppendLine("!global");
             autoStringsFile.AppendLine();
 
-            Console.WriteLine("Parsing...");
+            Console.WriteLine($"Parsing...");
             
             #region Usings
 
@@ -561,10 +578,14 @@ namespace VM12Asm
                 }
             }
 
+            #region AutoStrings
+
             RawFile rawAutoStrings = new RawFile();
             rawAutoStrings.path = "AutoStrings";
             rawAutoStrings.rawlines = autoStringsFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             rawAutoStrings.processedlines = rawAutoStrings.rawlines;
+
+            lines -= rawAutoStrings.rawlines.Length;
 
             watch.Restart();
             AsemFile autoStringAsem = Parse(rawAutoStrings);
@@ -578,6 +599,8 @@ namespace VM12Asm
                 File.WriteAllText(Path.Combine(dirInf.FullName, "AutoStrings.12asm"), autoStringsFile.ToString());
             }
 
+            #endregion
+
             if (verbose)
             {
                 foreach (var f in files)
@@ -588,7 +611,7 @@ namespace VM12Asm
             
             #endregion
 
-            if (verbose)
+            if (verbose && verbose_token)
             {
                 #region Print_Files
 
@@ -689,7 +712,7 @@ namespace VM12Asm
             LibFile libFile = Assemble(files, executable, out bool success);
             watch.Stop();
             assemblyTime += watch.ElapsedTicks;
-
+            
             if (success == false)
             {
                 goto noFile;
@@ -772,9 +795,9 @@ namespace VM12Asm
 
             string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");
-            Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms");
-            Console.WriteLine($"Parse: {parse_ms:F4} ms");
-            Console.WriteLine($"Assembly: {assembly_ms:F4} ms");
+            Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms {pplines} lines");
+            Console.WriteLine($"Parse: {parse_ms:F4} ms {lines} lines");
+            Console.WriteLine($"Assembly: {assembly_ms:F4} ms {tokens} tokens");
             Console.WriteLine($"Sum: {total_ms_sum:F4} ms");
             Console.WriteLine($"Total: {total_ms:F4} ms");
 
@@ -894,6 +917,8 @@ namespace VM12Asm
 
         static string[] PreProcess(string[] lines, string fileName)
         {
+            pplines += lines.Length;
+
             RawFile file = new RawFile() { path = fileName, rawlines = lines };
 
             Regex macroDefLoose = new Regex("#def (.*?)\\(.*\\)");
@@ -1064,6 +1089,7 @@ namespace VM12Asm
             int line_num = 0;
             foreach (var it_line in file.processedlines)
             {
+                lines++;
                 line_num++;
 
                 if (it_line.Trim(new[] { ' ', '\t', '¤' }).Length <= 0)
@@ -1171,7 +1197,7 @@ namespace VM12Asm
                         {
                             globalConstants[c.Groups[1].Value + ".end"] = constants[c.Groups[1].Value + ".end"];
                             globalConstants[c.Groups[1].Value + ".size"] = constants[c.Groups[1].Value + ".size"];
-                            Console.WriteLine($"Adding size ({constants[c.Groups[1].Value + ".size"]}) and end ({constants[c.Groups[1].Value + ".end"]}) to auto var '{c.Groups[1].Value}'");
+                            if (verbose) Console.WriteLine($"Adding size ({constants[c.Groups[1].Value + ".size"]}) and end ({constants[c.Groups[1].Value + ".end"]}) to auto var '{c.Groups[1].Value}'");
                         }
                     }
                 }
@@ -1242,8 +1268,10 @@ namespace VM12Asm
                                 Error(file, line_num, $"Could not parse token: \"{token}\"");
                                 t = new Token();
                             }
-
-                            if ((currProc.parameters == null || currProc.locals == null) && t.Type != TokenType.Litteral)
+                            
+                            // TODO: Remove
+                            /*
+                            if ((currProc.parameters == null || currProc.locals == null) && t.Type != TokenType.Litteral && currProc.location_const != null)
                             {
                                 Error(file, line_num, $"Trying to define proc {currProc.name} without specifying parameters and local use!");
                             }
@@ -1257,6 +1285,7 @@ namespace VM12Asm
                                     currProc.locals = ToInt(ParseLitteral(file, line_num, t.Value, constants));
                                 }
                             }
+                            */
 
                             currProc.tokens.Add(t);
                         }
@@ -1273,36 +1302,13 @@ namespace VM12Asm
                             currProc.name = l.Groups[1].Value;
 
                             procs[currProc.name] = currProc;
-
-                            if (currProc.name == ":start")
-                            {
-                                currProc.parameters = 0;
-                                currProc.locals = 0;
-                            }
-
+                            
                             if (l.Groups[3].Success)
                             {
-                                currProc.location = ToInt(ParseLitteral(file, line_num, l.Groups[3].Value, constants));
-
-                                // Interrupts does not specify parameters and locals!
-                                switch (currProc.location)
-                                {
-                                    case 0xFFF_FF0:
-                                    case 0xFFF_FE0:
-                                    case 0xFFF_FD0:
-                                    case 0xFFF_FC0:
-                                        currProc.parameters = 0;
-                                        currProc.locals = 0;
-                                        break;
-                                }
-
-                                if (currProc.location < 0x44B_000)
-                                {
-                                    Error(file, line_num, $"Procs can only be placed in ROM. The proc {currProc.name} was addressed to {currProc.location}!");
-                                }
+                                currProc.location_const = l.Groups[3].Value; // ToInt(ParseLitteral(file, line_num, l.Groups[3].Value, constants));
                             }
 
-                            currProc.tokens = new List<Token>();;
+                            currProc.tokens = new List<Token>();
                         }
                         else
                         {
@@ -1315,7 +1321,6 @@ namespace VM12Asm
                     }
                 }
             }
-            
             if(currProc.name != null)
             {
                 procs[currProc.name] = currProc;
@@ -1392,6 +1397,72 @@ namespace VM12Asm
                     procmeta.assembledSource = file.Value;
                     procmeta.line = proc.Value.line;
                     procmeta.linkedLines = new Dictionary<int, int>();
+
+                    // Check that procs that should have params and locals that they have them
+
+                    bool shouldHaveParamAndLocals = true;
+
+                    if (proc.Value.tokens.Count <= 2)
+                    {
+                        //Warning(file.Value.Raw, proc.Value.line, $"Small proc '{proc.Value.name}'");
+                        shouldHaveParamAndLocals = false;
+                    }
+
+                    if (proc.Value.name == ":start")
+                    {
+                        proc.Value.parameters = 0;
+                        proc.Value.locals = 0;
+                        shouldHaveParamAndLocals = false;
+                    }
+
+                    if (proc.Value.location_const != null)
+                    {
+                        int location = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, proc.Value.location_const, file.Value.Constants));
+
+                        // Interrupts does not specify parameters and locals!
+                        switch (location)
+                        {
+                            case 0xFFF_FF0:
+                            case 0xFFF_FE0:
+                            case 0xFFF_FD0:
+                            case 0xFFF_FC0:
+                                proc.Value.parameters = 0;
+                                proc.Value.locals = 0;
+                                shouldHaveParamAndLocals = false;
+                                break;
+                        }
+
+                        if (location < 0x44B_000)
+                        {
+                            Error(file.Value.Raw, proc.Value.line, $"Procs can only be placed in ROM. The proc {proc.Value.name} was addressed to {proc.Value.location_const}!");
+                        }
+
+                        proc.Value.location = location;
+                    }
+
+                    if (shouldHaveParamAndLocals)
+                    {
+                        // Find the two first tokens in the proc
+                        Token parameters = proc.Value.tokens[0];
+                        Token locals = proc.Value.tokens[1];
+                        if (parameters.Type != TokenType.Litteral && locals.Type != TokenType.Litteral)
+                        {
+                            Warning(file.Value.Raw, proc.Value.line, $"Defining proc {proc.Value.name} without specifying parameters and local use!");
+                        }
+                        else
+                        {
+                            proc.Value.parameters = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, parameters.Value, file.Value.Constants));
+                            proc.Value.locals = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, locals.Value, file.Value.Constants));
+                        }
+                        
+
+                        if (proc.Value.parameters == null || proc.Value.locals == null)
+                        {
+                            Error(file.Value.Raw, proc.Value.line, $"Trying to define proc {proc.Value.name} without specifying parameters and local use!");
+                        }
+                    }
+
+                    VM12Asm.tokens += proc.Value.tokens.Count;
 
                     IEnumerator<Token> tokens = proc.Value.tokens.GetEnumerator();
                     
@@ -1725,7 +1796,7 @@ namespace VM12Asm
             
             foreach (var asem in assembledProcs)
             {
-                if (asem.Key.location != null)
+                if (asem.Key.location_const != null)
                 {
                     int location = asem.Key.location ?? ROM_OFFSET;
                     if (verbose) Console.WriteLine($"Proc {asem.Key.name} at specified offset: {location:X}");

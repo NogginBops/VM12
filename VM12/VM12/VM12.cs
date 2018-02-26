@@ -102,14 +102,20 @@ namespace VM12
 
             if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
 
+            Console.WriteLine($"Writing to address {address}:");
+
             fixed (byte* storage_data = S[s_index])
             {
                 for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
                 {
                     storage_data[group_index + i * 2] = (byte) (data[i] >> 12 & 0xFFF);
                     storage_data[group_index + i * 2 + 1] = (byte) (data[i] & 0xFFF);
+
+                    Console.Write($"{data[i]:X}, ");
                 }
             }
+
+            Console.WriteLine();
 
             S_HIT[address] = true;
         }
@@ -979,10 +985,18 @@ namespace VM12
                             mem[SP + 1] = FP >> 12 & 0xFF;
                             mem[SP + 2] = FP & 0xFF;
                             SP += 2;
+                            PC++;
                             break;
                         case Opcode.Pc:
                             mem[SP + 1] = PC >> 12 & 0xFFF;
                             mem[SP + 2] = PC & 0xFFF;
+                            SP += 2;
+                            PC++;
+                            break;
+                        case Opcode.Pt:
+                            // FIXME: Use a bigger register
+                            mem[SP + 1] = (int) (programTime >> 12 & 0xFFF);
+                            mem[SP + 2] = (int) (programTime & 0xFFF);
                             SP += 2;
                             PC++;
                             break;
@@ -1249,6 +1263,9 @@ namespace VM12
                             break;
                         case Opcode.Dsi:
                             interruptsEnabled = false;
+#if DEBUG
+                            interruptsEnabledActual = false;
+#endif
                             PC++;
                             break;
                         case Opcode.Hlt:
@@ -1864,13 +1881,13 @@ namespace VM12
 
                             for (int i = 0; i < w_len; i++)
                             {
-                                WriteStorage(&mem[w_buf + (i * STORAGE_CHUNK_SIZE)], w_ioAddr);
+                                WriteStorage(&mem[w_buf + (i * STORAGE_CHUNK_SIZE)], w_ioAddr + i);
                             }
 
                             SP -= 6;
                             PC++;
                             break;
-                            #region Complex_io
+#region Complex_io
                             IOMode ioMode = (IOMode) mem[PC + 1];
                             
                             if ((w_ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
@@ -1907,7 +1924,7 @@ namespace VM12
 
                             SP -= 7;
                             break;
-                        #endregion
+#endregion
                         case Opcode.Read:
                             int r_ioAddr = (mem[SP - 5] << 12) | mem[SP - 4];
                             int r_buf = mem[SP - 3] << 12 | mem[SP - 2];
@@ -1915,7 +1932,7 @@ namespace VM12
                             
                             for (int i = 0; i < r_len; i++)
                             {
-                                ReadStorage(&mem[r_buf + (i * STORAGE_CHUNK_SIZE)], r_ioAddr);
+                                ReadStorage(&mem[r_buf + (i * STORAGE_CHUNK_SIZE)], r_ioAddr + i);
                             }
 
                             SP -= 6;
@@ -1932,6 +1949,11 @@ namespace VM12
                     // this.FP = FP;
 
 #if DEBUG
+                    if (SP > 1000)
+                    {
+                        ;
+                    }
+
                     if (SP > SPWatermark)
                     {
                         SPWatermark = SP;
@@ -1955,7 +1977,12 @@ namespace VM12
             this.FP = 0;
             this.PC = ROM_START;
 
+#if DEBUG
             DebugBreakEvent.Set();
+#endif
+
+            Console.WriteLine();
+            Console.WriteLine();
 
             using (FileStream stream = storageFile.OpenWrite())
             {
@@ -1975,6 +2002,9 @@ namespace VM12
                         Buffer.BlockCopy(chunkGroup, chunkOffset, data, 0, data.Length);
 
                         writer.Write(data);
+
+                        Console.WriteLine($"Write chunk {addr}");
+                        Console.WriteLine(String.Join(",", data));
                     }
                 }
             }

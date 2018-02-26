@@ -202,6 +202,11 @@ namespace Debugging
                 
                 while (frame != null)
                 {
+                    if (frame.FP + 5 >= dgvStack.RowCount)
+                    {
+                        break;
+                    }
+
                     if (frame.FP >= 0 && frame.FP < dgvStack.RowCount)
                     {
                         dgvStack.Rows[frame.FP].DefaultCellStyle = stackFrameBeginStyle;
