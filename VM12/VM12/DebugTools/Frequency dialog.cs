@@ -23,16 +23,31 @@ namespace VM12
 
         public delegate int EnumToInt(T e);
         
-        Dictionary<T, int> internalFreq;
-        int[] freqs;
+        Dictionary<T, long> internalFreq;
+        long[] freqs;
 
-        int[] currentData;
+        long[] currentData;
 
         DisplayMode mode = DisplayMode.Numbers;
         
         EnumToInt etoi;
-        
-        internal Frequency_dialog(int[] frequencies, string title, string column_name, EnumToInt etoi)
+
+        static long[] intArrToLong(int[] ints)
+        {
+            long[] longs = new long[ints.Length];
+            for (int i = 0; i < longs.Length; i++)
+            {
+                longs[i] = ints[i];
+            }
+            return longs;
+        }
+
+        internal Frequency_dialog(int[] frequencies, string title, string column_name, EnumToInt etoi) : this(intArrToLong(frequencies), title, column_name, etoi)
+        {
+
+        }
+
+        internal Frequency_dialog(long[] frequencies, string title, string column_name, EnumToInt etoi)
         {
             if (typeof(T).IsEnum == false)
             {
@@ -44,10 +59,10 @@ namespace VM12
             displayModeComboBox.ComboBox.Items.AddRange(Enum.GetValues(typeof(DisplayMode)).Cast<DisplayMode>().Select(e => e.ToString()).ToArray());
             
             freqs = frequencies;
-            currentData = new int[freqs.Length];
+            currentData = new long[freqs.Length];
             Array.Copy(freqs, currentData, freqs.Length);
 
-            internalFreq = new Dictionary<T, int>(Enum.GetValues(typeof(T)).Length);
+            internalFreq = new Dictionary<T, long>(Enum.GetValues(typeof(T)).Length);
 
             this.etoi = etoi;
 
@@ -104,11 +119,11 @@ namespace VM12
                 internalFreq[eval] = currentData[etoi(eval)];
             }
 
-            int total = internalFreq.Sum(kvp => kvp.Value);
+            long total = internalFreq.Sum(kvp => kvp.Value);
 
             long delta = ((DateTimeOffset)DateTime.Now).ToUnixTimeSeconds() - VM12Form.StartTime;
 
-            string getValueString(int value)
+            string getValueString(long value)
             {
                 switch (mode)
                 {
@@ -123,7 +138,7 @@ namespace VM12
                 }
             }
 
-            string getTotalString(int value)
+            string getTotalString(long value)
             {
                 switch (mode)
                 {

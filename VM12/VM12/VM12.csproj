@@ -60,6 +60,24 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DebugTools\HotSpotView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DebugTools\HotSpotView.Designer.cs">
+      <DependentUpon>HotSpotView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DebugTools\ProcMetadataView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DebugTools\ProcMetadataView.Designer.cs">
+      <DependentUpon>ProcMetadataView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DebugTools\ProcProfiler.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DebugTools\ProcProfiler.Designer.cs">
+      <DependentUpon>ProcProfiler.cs</DependentUpon>
+    </Compile>
     <Compile Include="DebugTools\ProgramDebugger.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -105,6 +123,15 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="VM12.cs" />
+    <EmbeddedResource Include="DebugTools\HotSpotView.resx">
+      <DependentUpon>HotSpotView.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DebugTools\ProcMetadataView.resx">
+      <DependentUpon>ProcMetadataView.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DebugTools\ProcProfiler.resx">
+      <DependentUpon>ProcProfiler.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="DebugTools\ProgramDebugger.resx">
       <DependentUpon>ProgramDebugger.cs</DependentUpon>
     </EmbeddedResource>

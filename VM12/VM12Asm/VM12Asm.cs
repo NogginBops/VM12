@@ -54,7 +54,7 @@ namespace VM12Asm
                 return $"{{{Type}: {(Type == TokenType.Instruction ? Opcode.ToString() : Value)}}}";
             }
         }
-        
+
         class Proc
         {
             public string name;
@@ -256,7 +256,7 @@ namespace VM12Asm
         static Regex str = new Regex("^\\s*\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"$");
 
         static Regex auto = new Regex("auto\\((.*)\\)");
-        
+
         static Dictionary<string, Opcode> opcodes = new Dictionary<string, Opcode>()
         {
             { "nop", Opcode.Nop },
@@ -1147,8 +1147,8 @@ namespace VM12Asm
                     string value = c.Groups[2].Value;
 
                     Match mauto = auto.Match(value);
-                    bool isAutoConst = mauto.Success;
-                    if (isAutoConst)
+                    bool isAuto = mauto.Success;
+                    if (isAuto)
                     {
                         int size = ToInt(ParseLitteral(file, line_num, mauto.Groups[1].Value, constants));
                         if (size <= 0)
@@ -1168,13 +1168,11 @@ namespace VM12Asm
                         if (verbose) Console.WriteLine($"Defined auto var '{c.Groups[1].Value}' of size {size} to addr {value}");
                         Console.ForegroundColor = conColor;
 
+                        int end = autoVars + size;
+
                         autoConstants[c.Groups[1].Value] = new AutoConst(value, size);
-
-                        int endAddr = autoVars + size;
-
-                        constants[c.Groups[1].Value + ".end"] = $"0x{(endAddr >> 12) & 0xFFF:X3}_{endAddr & 0xFFF:X3}";
                         constants[c.Groups[1].Value + ".size"] = $"0x{(size >> 12) & 0xFFF:X3}_{size & 0xFFF:X3}";
-
+                        constants[c.Groups[1].Value + ".end"] = $"0x{(end >> 12) & 0xFFF:X3}_{end & 0xFFF:X3}";
                     }
 
                     constants[c.Groups[1].Value] = value;
@@ -1192,11 +1190,11 @@ namespace VM12Asm
 
                         globalConstants[c.Groups[1].Value] = value;
 
-                        // FIXME: This is not a robust way of doing this!!
-                        if (isAutoConst)
+                        if (isAuto)
                         {
-                            globalConstants[c.Groups[1].Value + ".end"] = constants[c.Groups[1].Value + ".end"];
                             globalConstants[c.Groups[1].Value + ".size"] = constants[c.Groups[1].Value + ".size"];
+                            globalConstants[c.Groups[1].Value + ".end"] = constants[c.Groups[1].Value + ".end"];
+
                             if (verbose) Console.WriteLine($"Adding size ({constants[c.Groups[1].Value + ".size"]}) and end ({constants[c.Groups[1].Value + ".end"]}) to auto var '{c.Groups[1].Value}'");
                         }
                     }
@@ -2073,7 +2071,6 @@ namespace VM12Asm
                 FileInfo info = new FileInfo(file.path);
 
                 message = $"Error in file \"{info.Name}\" at line {line}: '{error}'";
-
             }
             else
             {

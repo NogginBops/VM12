@@ -42,6 +42,7 @@
             this.debuggerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
+            this.profilerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -88,7 +89,8 @@
             this.interruptFrequencyToolStripMenuItem1,
             this.instructionTimesToolStripMenuItem,
             this.heapViewToolStripMenuItem,
-            this.debuggerToolStripMenuItem});
+            this.debuggerToolStripMenuItem,
+            this.profilerToolStripMenuItem});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -158,6 +160,13 @@
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
             // 
+            // profilerToolStripMenuItem
+            // 
+            this.profilerToolStripMenuItem.Name = "profilerToolStripMenuItem";
+            this.profilerToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.profilerToolStripMenuItem.Text = "Profiler";
+            this.profilerToolStripMenuItem.Click += new System.EventHandler(this.profilerToolStripMenuItem_Click);
+            // 
             // VM12Form
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -197,6 +206,7 @@
         private System.Windows.Forms.ToolStripMenuItem instructionTimesToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem heapViewToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem debuggerToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem profilerToolStripMenuItem;
     }
 }
 
