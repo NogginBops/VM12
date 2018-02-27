@@ -785,6 +785,8 @@ namespace VM12Asm
                 Console.WriteLine($"Result ({libFile.UsedInstructions} used words ({((double)libFile.UsedInstructions / ROM_SIZE):P5}))");
             }
 
+            Console.WriteLine($"Allocated {VRAM_OFFSET - 1 - autoVars} ({(((double)VRAM_OFFSET - 1 - autoVars) / (VRAM_OFFSET - 1 - STACK_SIZE)):P5}) words to auto() vars {autoVars - STACK_SIZE} words remaining");
+
             total.Stop();
 
             double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 100;
