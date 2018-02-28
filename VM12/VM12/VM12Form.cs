@@ -394,11 +394,17 @@ namespace VM12
             Debug.WriteLine($"Keycode: {(int)e.KeyCode:X2}");
             
             vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 1, (int) e.KeyCode & 0xFFF }));
+
+            e.Handled = true;
         }
 
         private void VM12Form_KeyUp(object sender, KeyEventArgs e)
         {
+            Debug.WriteLine($"Released keycode: {(int)e.KeyCode:X2}");
+
             vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 0, (int) e.KeyCode & 0xFFF }));
+
+            e.Handled = true;
         }
 
         private void stopToolStripMenuItem_Click(object sender, EventArgs e)
@@ -613,6 +619,11 @@ namespace VM12
 
             profiler.Show();
             profiler.BringToFront();
+        }
+
+        private void VM12Form_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            e.Handled = true;
         }
 #endif
     }

@@ -40,9 +40,9 @@
             this.instructionTimesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.heapViewToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.debuggerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.profilerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new System.Windows.Forms.PictureBox();
-            this.profilerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -137,6 +137,13 @@
             this.debuggerToolStripMenuItem.Text = "Debugger";
             this.debuggerToolStripMenuItem.Click += new System.EventHandler(this.debuggerToolStripMenuItem_Click);
             // 
+            // profilerToolStripMenuItem
+            // 
+            this.profilerToolStripMenuItem.Name = "profilerToolStripMenuItem";
+            this.profilerToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.profilerToolStripMenuItem.Text = "Profiler";
+            this.profilerToolStripMenuItem.Click += new System.EventHandler(this.profilerToolStripMenuItem_Click);
+            // 
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
@@ -160,13 +167,6 @@
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
             // 
-            // profilerToolStripMenuItem
-            // 
-            this.profilerToolStripMenuItem.Name = "profilerToolStripMenuItem";
-            this.profilerToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
-            this.profilerToolStripMenuItem.Text = "Profiler";
-            this.profilerToolStripMenuItem.Click += new System.EventHandler(this.profilerToolStripMenuItem_Click);
-            // 
             // VM12Form
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -176,12 +176,14 @@
             this.Controls.Add(this.menuStrip);
             this.DoubleBuffered = true;
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
+            this.KeyPreview = true;
             this.MainMenuStrip = this.menuStrip;
             this.MaximizeBox = false;
             this.Name = "VM12Form";
             this.Text = "VM12";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.VM12Form_FormClosing);
             this.KeyDown += new System.Windows.Forms.KeyEventHandler(this.VM12Form_KeyDown);
+            this.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.VM12Form_KeyPress);
             this.KeyUp += new System.Windows.Forms.KeyEventHandler(this.VM12Form_KeyUp);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();
