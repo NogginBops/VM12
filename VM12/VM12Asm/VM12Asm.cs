@@ -19,7 +19,7 @@ namespace VM12Asm
             Label,
             Argument
         }
-
+        
         class Macro
         {
             public string name;
@@ -138,13 +138,13 @@ namespace VM12Asm
         
         const int _12BIT_MASK = 0x0FFF;
 
-        const int ROM_OFFSET = 0x44B_000;
+        const int ROM_OFFSET = 0xA4B_000;
 
-        const int ROM_SIZE = 12275712;
+        const int ROM_SIZE = 5_984_256;
 
-        const short ROM_OFFSET_UPPER_BITS = 0x44B;
+        const short ROM_OFFSET_UPPER_BITS = 0xA4B;
 
-        const int VRAM_OFFSET = 0x400_000;
+        const int VRAM_OFFSET = 0xA00_000;
 
         delegate string TemplateFormater(params object[] values);
 
@@ -835,10 +835,65 @@ namespace VM12Asm
 
                 using (BinaryWriter bw = new BinaryWriter(stream))
                 {
+                    for (int pos = 0; pos < libFile.Instructions.Length; )
+                    {
+                        int skipped = 0;
+                        while (pos < libFile.Instructions.Length && libFile.Instructions[pos] == 0)
+                        {
+                            pos++;
+                            skipped++;
+                        }
+
+                        if (skipped > 0)
+                        {
+                            //Console.WriteLine($"Skipped {skipped} instructions");
+                        }
+
+                        int length = 0;
+                        int zeroes = 0;
+
+                        while (pos + length < libFile.Instructions.Length)
+                        {
+                            length++;
+                            if (libFile.Instructions[pos + length] == 0)
+                            {
+                                zeroes++;
+                                if (zeroes >= 3)
+                                {
+                                    length -= 2;
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                zeroes = 0;
+                            }
+                        }
+
+                        if (length > 0)
+                        {
+                            // Write block
+
+                            Console.WriteLine($"Writing block at pos {pos} and length {length} with fist value {libFile.Instructions[pos]} and last value {libFile.Instructions[pos + length - 1]}");
+
+                            bw.Write(pos);
+                            bw.Write(length);
+
+                            for (int i = 0; i < length; i++)
+                            {
+                                bw.Write(libFile.Instructions[pos + i]);
+                            }
+
+                            pos += length;
+                        }
+                    }
+
+                    /*
                     foreach (short s in libFile.Instructions)
                     {
                         bw.Write(s);
                     }
+                    */
                 }
             }
 
@@ -1871,7 +1926,7 @@ namespace VM12Asm
 
             if (verbose) Console.WriteLine();
             
-            short[] compiledInstructions = new short[12275712];
+            short[] compiledInstructions = new short[ROM_SIZE];
 
             int usedInstructions = 0;
 

@@ -41,9 +41,9 @@ namespace VM12
 
     unsafe class VM12
     {
-        public const int RAM_SIZE = 4194304;
-        public const int VRAM_SIZE = 307200;
-        public const int ROM_SIZE = 12275712;
+        public const int RAM_SIZE = 10_485_760;
+        public const int VRAM_SIZE = 307_200;
+        public const int ROM_SIZE = 5_984_256;
 
         public const int RAM_START = 0;
         public const int VRAM_START = RAM_SIZE;
@@ -288,6 +288,8 @@ namespace VM12
             Array.Copy(ROM, 0, MEM, ROM_START, ROM.Length);
         }
 #elif DEBUG
+
+        private Dictionary<int, bool[,]> fontCache = new Dictionary<int, bool[,]>();
 
         public volatile bool UseDebugger = false;
         
@@ -934,7 +936,7 @@ namespace VM12
                     }
 
                     Opcode op = (Opcode)(mem[PC]);
-
+                    
 #if DEBUG
                     romInstructionCounter[PC]++;
                     instructionFreq[(int)op]++;
@@ -1048,12 +1050,14 @@ namespace VM12
                             break;
                         case Opcode.Store_sp:
                             int store_sp_address = (mem[SP - 2] << 12) | (ushort)(mem[SP - 1]);
+                            if (store_sp_address >= ROM_START) Debugger.Break();
                             mem[store_sp_address] = mem[SP];
                             SP -= 3;
                             PC++;
                             break;
                         case Opcode.Store_sp_l:
                             int store_sp_l_address = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]);
+                            if (store_sp_l_address >= ROM_START) Debugger.Break();
                             mem[store_sp_l_address] = mem[SP - 1];
                             mem[store_sp_l_address + 1] = mem[SP];
                             SP -= 4;
@@ -1136,7 +1140,7 @@ namespace VM12
                             SP -= 2;
                             add2 += add1;
                             carry = add2 >> 12 > 0xFFF;
-                            mem[SP - 1] = add2 >> 12;
+                            mem[SP - 1] = add2 >> 12 & 0xFFF;
                             mem[SP] = add2 & 0xFFF;
                             PC++;
                             break;
@@ -1562,6 +1566,7 @@ namespace VM12
                             }
                         case Opcode.Ret:
                             SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]);
+                            if (SP < 0) Debugger.Break();
                             PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
                             this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
@@ -1673,6 +1678,74 @@ namespace VM12
                             {
                                 Debugger.Break();
                             }
+
+                            /*
+                            bool[,] data;
+
+                            bool cached = char_addr >= ROM_START ? fontCache.TryGetValue(char_addr, out data) : false;
+
+                            // Check if there is data cached
+                            if (cached == false)
+                            {
+                                data = new bool[12, 8];
+                                // If not, generate the data
+                                bool not_zero = false;
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    char_data[i] = mem[char_addr + i];
+                                    not_zero |= char_data[i] != 0;
+                                }
+
+                                if (not_zero)
+                                {
+                                    int mask = 0x800;
+                                    for (int i = 0; i < 12; i++)
+                                    {
+                                        if ((char_data[0] & mask) != 0) data[i, 0] = true;
+                                        if ((char_data[1] & mask) != 0) data[i, 1] = true;
+                                        if ((char_data[2] & mask) != 0) data[i, 2] = true;
+                                        if ((char_data[3] & mask) != 0) data[i, 3] = true;
+                                        if ((char_data[4] & mask) != 0) data[i, 4] = true;
+                                        if ((char_data[5] & mask) != 0) data[i, 5] = true;
+                                        if ((char_data[6] & mask) != 0) data[i, 6] = true;
+                                        if ((char_data[7] & mask) != 0) data[i, 7] = true;
+                                        
+                                        mask >>= 1;
+                                    }
+                                }
+                            }
+
+                            // Draw the data
+                            fixed (bool* font_data = data)
+                            {
+                                for (int y = 0; y < 12; y++)
+                                {
+                                    int offset = y * 8;
+                                    
+                                    // Copy the 8 ints.
+                                    if (font_data[offset + 0]) mem[vram_addr + 0] = color;
+                                    if (font_data[offset + 1]) mem[vram_addr + 1] = color;
+                                    if (font_data[offset + 2]) mem[vram_addr + 2] = color;
+                                    if (font_data[offset + 3]) mem[vram_addr + 3] = color;
+                                    if (font_data[offset + 4]) mem[vram_addr + 4] = color;
+                                    if (font_data[offset + 5]) mem[vram_addr + 5] = color;
+                                    if (font_data[offset + 6]) mem[vram_addr + 6] = color;
+                                    if (font_data[offset + 7]) mem[vram_addr + 7] = color;
+
+                                    vram_addr += SCREEN_WIDTH;
+                                }
+                            }
+
+                            // Check if we should cache the data
+                            if (!cached && char_addr >= ROM_START)
+                            {
+                                fontCache[char_addr] = data;
+                            }
+
+                            SP -= 5;
+                            PC++;
+                            break;
+                            */
                             
                             bool not_zero = false;
                             for (int i = 0; i < 8; i++)

@@ -155,14 +155,33 @@ namespace VM12
                         VM12Asm.VM12Asm.Reset();
                     }
                     
-                    short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
+                    short[] rom = new short[VM12.ROM_SIZE];
 
                     using (BinaryReader br = new BinaryReader(File.OpenRead(inf.FullName)))
                     {
+                        while (br.BaseStream.Position < br.BaseStream.Length)
+                        {
+                            int pos = br.ReadInt32();
+                            int length = br.ReadInt32();
+
+
+                            short[] data = new short[length];
+                            for (int i = 0; i < length; i++)
+                            {
+                                data[i] = br.ReadInt16();
+                            }
+
+                            Console.WriteLine($"Reading a block from pos {pos} with length {length} with fist value {data[0]} and last value {data[data.Length - 1]}");
+
+                            Array.Copy(data, 0, rom, pos, length);
+                        }
+
+                        /*
                         for (int i = 0; i < rom.Length; i++)
                         {
                             rom[i] = br.ReadInt16();
                         }
+                        */
                     }
 
                     if (vm12 != null && vm12.Running)
