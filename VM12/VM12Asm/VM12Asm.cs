@@ -55,6 +55,22 @@ namespace VM12Asm
             }
         }
 
+        class Constant
+        {
+            public string name;
+            public RawFile file;
+            public int line;
+            public string value;
+
+            public Constant(string name, RawFile file, int line, string value)
+            {
+                this.name = name;
+                this.file = file;
+                this.line = line;
+                this.value = value;
+            }
+        }
+
         class Proc
         {
             public string name;
@@ -77,12 +93,12 @@ namespace VM12Asm
         {
             public readonly RawFile Raw;
             public readonly Dictionary<string, string> Usings;
-            public readonly Dictionary<string, string> Constants;
+            public readonly Dictionary<string, Constant> Constants;
             public readonly Dictionary<string, Proc> Procs;
             public readonly Dictionary<string, List<int>> Breakpoints;
             public readonly HashSet<string> Flags;
 
-            public AsemFile(RawFile raw, Dictionary<string, string> usigns, Dictionary<string, string> constants, Dictionary<string, Proc> procs, Dictionary<string, List<int>> breakpoints, HashSet<string> flags)
+            public AsemFile(RawFile raw, Dictionary<string, string> usigns, Dictionary<string, Constant> constants, Dictionary<string, Proc> procs, Dictionary<string, List<int>> breakpoints, HashSet<string> flags)
             {
                 Raw = raw;
                 Usings = usigns;
@@ -126,11 +142,13 @@ namespace VM12Asm
 
         struct AutoConst
         {
+            public readonly string Name;
             public readonly string Value;
             public readonly int Length;
 
-            public AutoConst(string value, int length)
+            public AutoConst(string name, string value, int length)
             {
+                this.Name = name;
                 this.Value = value;
                 this.Length = length;
             }
@@ -243,7 +261,7 @@ namespace VM12Asm
 
         static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
 
-        static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+|extern|auto\\((0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|[0-9_]+)\\))>");
+        static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)>");
 
         static Regex label = new Regex(":[A-Za-z_][A-Za-z0-9_]*");
 
@@ -255,7 +273,17 @@ namespace VM12Asm
 
         static Regex str = new Regex("^\\s*\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"$");
 
-        static Regex auto = new Regex("auto\\((.*)\\)");
+        static Regex auto = new Regex("^auto\\((.*)\\)$");
+
+        static Regex const_expr = new Regex("^(extern(?:\\((#.+)\\))?|#\\((.*)\\)|sizeof(?:\\((#.+)\\))?|endof(?:\\((#.+)\\))?)$");
+
+        static Regex extern_expr = new Regex("^extern(?:\\(#(.+)\\))?$");
+
+        static Regex sizeof_expr = new Regex("^sizeof\\(#(.+)\\)$");
+
+        static Regex endof_expr = new Regex("^endof\\(#(.+)\\)$");
+
+        static Regex arith_expr = new Regex("^#\\((.*)\\)$");
 
         static Dictionary<string, Opcode> opcodes = new Dictionary<string, Opcode>()
         {
@@ -380,7 +408,7 @@ namespace VM12Asm
         static int lines = 0;
         static int tokens = 0;
 
-        static Dictionary<string, string> globalConstants = new Dictionary<string, string>();
+        static Dictionary<string, Constant> globalConstants = new Dictionary<string, Constant>();
 
         static Dictionary<string, AutoConst> autoConstants = new Dictionary<string, AutoConst>();
 
@@ -430,7 +458,7 @@ namespace VM12Asm
             
             lines = 0;
 
-            globalConstants = new Dictionary<string, string>();
+            globalConstants = new Dictionary<string, Constant>();
 
             autoConstants = new Dictionary<string, AutoConst>();
 
@@ -1134,7 +1162,7 @@ namespace VM12Asm
         static AsemFile Parse(RawFile file)
         {
             Dictionary<string, string> usings = new Dictionary<string, string>();
-            Dictionary<string, string> constants = new Dictionary<string, string>();
+            Dictionary<string, Constant> constants = new Dictionary<string, Constant>();
             Dictionary<string, Proc> procs = new Dictionary<string, Proc>();
             Dictionary<string, List<int>> breakpoints = new Dictionary<string, List<int>>();
             HashSet<string> flags = new HashSet<string>();
@@ -1205,34 +1233,16 @@ namespace VM12Asm
 
                     Match mauto = auto.Match(value);
                     bool isAuto = mauto.Success;
+                    
+                    Constant constant = new Constant(c.Groups[1].Value, file, line_num, value);
+                    constants[c.Groups[1].Value] = constant;
+
                     if (isAuto)
                     {
-                        int size = ToInt(ParseLitteral(file, line_num, mauto.Groups[1].Value, constants));
-                        if (size <= 0)
-                        {
-                            Error(file, line_num, $"Auto const ''{c.Groups[1].Value}' cannot be defined with a length of {size}!");
-                        }
-
-                        if (autoVars - size < STACK_SIZE)
-                        {
-                            Error(file, line_num, $"Auto variable '{c.Groups[1].Value}' cannot be allocated! (Required: {size}, Available: {autoVars - STACK_SIZE}, Diff: {size - (autoVars - STACK_SIZE)})");
-                        }
-
-                        autoVars -= size;
-                        value = $"0x{(autoVars >> 12) & 0xFFF:X3}_{autoVars & 0xFFF:X3}";
-
-                        Console.ForegroundColor = ConsoleColor.Cyan;
-                        if (verbose) Console.WriteLine($"Defined auto var '{c.Groups[1].Value}' of size {size} to addr {value}");
-                        Console.ForegroundColor = conColor;
-
-                        int end = autoVars + size;
-
-                        autoConstants[c.Groups[1].Value] = new AutoConst(value, size);
-                        constants[c.Groups[1].Value + ".size"] = $"0x{(size >> 12) & 0xFFF:X3}_{size & 0xFFF:X3}";
-                        constants[c.Groups[1].Value + ".end"] = $"0x{(end >> 12) & 0xFFF:X3}_{end & 0xFFF:X3}";
+                        constants[c.Groups[1].Value + ".size"] = new Constant(c.Groups[1].Value + ".size", file, line_num, $"sizeof(#{c.Groups[1].Value})");
+                        constants[c.Groups[1].Value + ".end"] = new Constant(c.Groups[1].Value + ".end", file, line_num, $"endof(#{c.Groups[1].Value})");
                     }
 
-                    constants[c.Groups[1].Value] = value;
                     if (export_const)
                     {
                         if (value.Equals("extern"))
@@ -1245,14 +1255,14 @@ namespace VM12Asm
                             Warning(file, line_num, $"Redefining global constant '{c.Groups[1].Value}'");
                         }
 
-                        globalConstants[c.Groups[1].Value] = value;
+                        globalConstants[c.Groups[1].Value] = constant;
 
                         if (isAuto)
                         {
-                            globalConstants[c.Groups[1].Value + ".size"] = constants[c.Groups[1].Value + ".size"];
-                            globalConstants[c.Groups[1].Value + ".end"] = constants[c.Groups[1].Value + ".end"];
+                            globalConstants[c.Groups[1].Value + ".size"] = new Constant(c.Groups[1].Value + ".size", file, line_num, $"sizeof(#{c.Groups[1].Value})");
+                            globalConstants[c.Groups[1].Value + ".end"] = new Constant(c.Groups[1].Value + ".end", file, line_num, $"endof(#{c.Groups[1].Value})");
 
-                            if (verbose) Console.WriteLine($"Adding size ({constants[c.Groups[1].Value + ".size"]}) and end ({constants[c.Groups[1].Value + ".end"]}) to auto var '{c.Groups[1].Value}'");
+                            if (verbose) Console.WriteLine($"Adding .size and .end to auto var '{c.Groups[1].Value}'");
                         }
                     }
                 }
@@ -1407,15 +1417,32 @@ namespace VM12Asm
                 success = false;
                 return default(LibFile);
             }
-            
+
+            Dictionary<string, Dictionary<string, Constant>> fileConstants = files.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Constants);
+
             foreach (var file in files)
             {
+                Console.WriteLine($"Evaluating {file.Value.Constants.Count} const expressions in file '{file.Key}'");
+
+                foreach (var eval_expr in file.Value.Constants.ToList()/*.Where(kvp => const_expr.IsMatch(kvp.Value.value))*/)
+                {
+                    string result = EvalConstant(eval_expr.Value, file.Value.Constants, fileConstants);
+
+                    if (eval_expr.Value.value != result)
+                    {
+                        Console.WriteLine($"Evaluated constant '{eval_expr.Value.value}' to constant '{result}' for constant '{eval_expr.Key}'");
+                    }
+
+                    file.Value.Constants[eval_expr.Key].value = result;
+                }
+
+                /*
                 // Resolve all extern consts
                 var externs = file.Value.Constants.Where(kvp => kvp.Value.Equals("extern")).Select(kvp => kvp.Key).ToList();
 
                 foreach (var ext in externs)
                 {
-                    if (globalConstants.TryGetValue(ext, out string value))
+                    if (globalConstants.TryGetValue(ext, out Constant value))
                     {
                         file.Value.Constants[ext] = value;
                     }
@@ -1424,6 +1451,7 @@ namespace VM12Asm
                         Error(file.Value.Raw, 0, $"Could not solve value of extern const '{ext}'");
                     }
                 }
+                */
 
                 offset = 0;
 
@@ -1560,7 +1588,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), file.Value.Constants);
 
                                             if (value.Length == 2)
                                             {
@@ -1603,7 +1631,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), file.Value.Constants);
 
                                             if (value.Length <= 2)
                                             {
@@ -1942,9 +1970,221 @@ namespace VM12Asm
             return new LibFile(compiledInstructions, metadata.Values.ToArray(), usedInstructions);
         }
 
-        static short[] ParseLitteral(RawFile file, int line, string litteral, Dictionary<string, string> constants)
+        static string EvalConstant(RawFile file, int line, string constant, Dictionary<string, Constant> constants, Dictionary<string, Dictionary<string, Constant>> fileConstants)
         {
-            string val_str;
+            return EvalConstant(new Constant("lit:" + constant, file, line, constant), constants, fileConstants);
+        }
+
+        static string EvalConstant(Constant expr, Dictionary<string, Constant> constants, Dictionary<string, Dictionary<string, Constant>> fileConstants)
+        {
+            string result = null;
+
+            Match constant_expression = arith_expr.Match(expr.value);
+            Match external_expression = extern_expr.Match(expr.value);
+            Match sizeof_expression = sizeof_expr.Match(expr.value);
+            Match endof_expression = endof_expr.Match(expr.value);
+            Match auto_expression = auto.Match(expr.value);
+            
+            if (IsLitteral(expr.file, expr.line, expr.value, constants))
+            {
+                return expr.value;
+            }
+            else if (constant_expression.Success)
+            {
+                // We should parse a arithmetic constant
+
+                string[] tokens = constant_expression.Groups[1].Value.Split(' ');
+
+                Stack<string> stack = new Stack<string>(tokens.Length);
+
+                int num = 0;
+                foreach (var token in tokens)
+                {
+                    switch (token)
+                    {
+                        case "+":
+                            int sum = ToInt(ParseNumber(expr.file, expr.line, stack.Pop())) + ToInt(ParseNumber(expr.file, expr.line, stack.Pop()));
+                            stack.Push($"0x{sum:X}");
+                            break;
+                        case "-":
+                            int diff = -ToInt(ParseNumber(expr.file, expr.line, stack.Pop())) + ToInt(ParseNumber(expr.file, expr.line, stack.Pop()));
+                            stack.Push($"0x{diff:X}");
+                            break;
+                        case "*":
+                            int product = ToInt(ParseNumber(expr.file, expr.line, stack.Pop())) * ToInt(ParseNumber(expr.file, expr.line, stack.Pop()));
+                            stack.Push($"0x{product:X}");
+                            break;
+                        case "/":
+                            string divisor = stack.Pop();
+                            string dividend = stack.Pop();
+
+                            int quoutent = ToInt(ParseNumber(expr.file, expr.line, dividend)) / ToInt(ParseNumber(expr.file, expr.line, divisor));
+
+                            stack.Push($"{quoutent}");
+                            break;
+                        case "%":
+                            divisor = stack.Pop();
+                            dividend = stack.Pop();
+
+                            int remainder = ToInt(ParseNumber(expr.file, expr.line, dividend)) % ToInt(ParseNumber(expr.file, expr.line, divisor));
+
+                            stack.Push($"{remainder}");
+                            break;
+                        default:
+                            stack.Push(EvalConstant(new Constant(expr.name + $"_arith{num++}", expr.file, expr.line, token), constants, fileConstants));
+                            break;
+                    }
+                }
+
+                if (stack.Count > 1)
+                {
+                    Error(expr.file, expr.line, $"Could not evaluate expression '{constant_expression.Groups[1].Value}', stack: {{{String.Join(", ", stack)}}}");
+                }
+
+                return stack.Pop();
+            }
+            else if (expr.value.StartsWith("#"))
+            {
+                return EvalConstant(constants[expr.value.Substring(1)], constants, fileConstants);
+            }
+            else if (external_expression.Success)
+            {
+                // We should resolve the external variable
+                if (external_expression.Groups[1].Success)
+                {
+                    // Use the name in the braces as key in the globalConstants
+
+                    if (globalConstants.TryGetValue(external_expression.Groups[1].Value, out Constant value))
+                    {
+                        return EvalConstant(value, fileConstants[Path.GetFileName(value.file.path)], fileConstants);
+                    }
+                    else
+                    {
+                        Error(expr.file, expr.line, $"Could not solve value of extern const '{external_expression.Groups[1].Value}' for const '{expr.name}'");
+                    }
+                }
+                else
+                {
+                    if (globalConstants.TryGetValue(expr.name, out Constant value))
+                    {
+                        return EvalConstant(value, fileConstants[Path.GetFileName(value.file.path)], fileConstants);
+                    }
+                    else
+                    {
+                        Error(expr.file, expr.line, $"Could not solve value of extern const '{expr.name}'");
+                    }
+                }
+            }
+            else if (sizeof_expression.Success)
+            {
+                AutoConst c = autoConstants[sizeof_expression.Groups[1].Value];
+
+                return $"{c.Length}";
+            }
+            else if (endof_expression.Success)
+            {
+                AutoConst c = autoConstants[endof_expression.Groups[1].Value];
+
+                return $"0x{ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, c.Value, constants, fileConstants), constants)):X}";
+            }
+            else if (auto_expression.Success)
+            {
+                AutoConst allocAutoConst(int size)
+                {
+                    if (size <= 0)
+                    {
+                        Error(expr.file, expr.line, $"Auto const ''{expr.name}' cannot be defined with a length of {size}!");
+                    }
+
+                    if (autoVars - size < STACK_SIZE)
+                    {
+                        Error(expr.file, expr.line, $"Auto const '{expr.name}' cannot be allocated! (Required: {size}, Available: {autoVars - STACK_SIZE}, Diff: {size - (autoVars - STACK_SIZE)})");
+                    }
+
+                    autoVars -= size;
+                    string value = $"0x{(autoVars >> 12) & 0xFFF:X3}_{autoVars & 0xFFF:X3}";
+
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    if (verbose) Console.WriteLine($"Defined auto var '{expr.name}' of size {size} to addr {value}");
+                    Console.ForegroundColor = conColor;
+
+                    int end = autoVars + size;
+
+                    AutoConst c = new AutoConst(expr.name, value, size);
+
+                    autoConstants[expr.name] = c;
+                    constants[expr.name + ".size"] = new Constant(expr.name + ".size", expr.file, expr.line, $"0x{(size >> 12) & 0xFFF:X3}_{size & 0xFFF:X3}");
+                    constants[expr.name + ".end"] = new Constant(expr.name + ".end", expr.file, expr.line, $"0x{(end >> 12) & 0xFFF:X3}_{end & 0xFFF:X3}");
+
+                    return c;
+                }
+
+                if (autoConstants.TryGetValue(expr.name, out AutoConst autoConst))
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"Using already allocated auto '{autoConst.Name}' with value {autoConst.Value}");
+                    Console.ForegroundColor = conColor;
+                    return autoConst.Value;
+                }
+                else if (const_expr.IsMatch(auto_expression.Groups[1].Value))
+                {
+                    Constant next = new Constant(expr.name + "_auto", expr.file, expr.line, auto_expression.Groups[1].Value);
+
+                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(next, fileConstants[Path.GetFileName(next.file.path)], fileConstants), constants));
+
+                    AutoConst autoc = allocAutoConst(size);
+
+                    return autoc.Value;
+                }
+                else
+                {
+                    // Just do a substitutuion
+                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, auto_expression.Groups[1].Value, constants, fileConstants), constants));
+
+                    AutoConst autoc = allocAutoConst(size);
+
+                    return autoc.Value;
+                }
+            }
+            else
+            {
+                Error(expr.file, expr.line, $"Could not evaluate const_expr {expr.value} for constant {expr.name}");
+            }
+
+            return result;
+        }
+
+        static bool IsLitteral(RawFile file, int line, string litteral, Dictionary<string, Constant> constants)
+        {
+            Constant constant;
+            short[] value = new short[0];
+            if (num.IsMatch(litteral))
+            {
+                return IsNumber(file, line, litteral);
+            }
+            else if (chr.Match(litteral).Success)
+            {
+                return true;
+            }
+            else if (str.Match(litteral).Success)
+            {
+                return true;
+            }
+            else if (constants.TryGetValue(litteral, out constant))
+            {
+                return IsLitteral(file, line, constant.value, constants);
+            }
+            else if (globalConstants.TryGetValue(litteral, out constant))
+            {
+                return IsLitteral(file, line, constant.value, constants);
+            }
+
+            return false;
+        }
+
+        static short[] ParseLitteral(RawFile file, int line, string litteral, Dictionary<string, Constant> constants)
+        {
+            Constant constant;
             short[] value = new short[0];
             if (num.IsMatch(litteral))
             {
@@ -1959,16 +2199,91 @@ namespace VM12Asm
                 // TODO: Have a "raw" flag!
                 value = ParseString(file, line, litteral, false);
             }
-            else if (constants.TryGetValue(litteral, out val_str))
+            else if (constants.TryGetValue(litteral, out constant))
             {
-                value = ParseNumber(file, line, val_str);
+                value = ParseNumber(file, line, constant.value);
             }
-            else if (globalConstants.TryGetValue(litteral, out val_str))
+            else if (globalConstants.TryGetValue(litteral, out constant))
             {
-                value = ParseNumber(file, line, val_str);
+                value = ParseNumber(file, line, constant.value);
             }
 
             return value;
+        }
+
+        static bool IsNumber(RawFile file, int line, string litteral)
+        {
+            // FIXME!! Do proper check
+            litteral = litteral.Replace("_", "");
+            
+            short[] ret = null;
+
+            try
+            {
+                if (litteral.StartsWith("0x"))
+                {
+                    litteral = litteral.Substring(2);
+                    if (litteral.Length % 3 != 0)
+                    {
+                        litteral = new string('0', 3 - (litteral.Length % 3)) + litteral;
+                    }
+                    ret = Enumerable.Range(0, litteral.Length)
+                        .GroupBy(x => x / 3)
+                        .Select(g => g.Select(i => litteral[i]))
+                        .Select(s => String.Concat(s))
+                        .Select(s => Convert.ToInt16(s, 16))
+                        .Reverse()
+                        .ToArray();
+                }
+                else if (litteral.StartsWith("8x"))
+                {
+                    litteral = litteral.Substring(2);
+                    if (litteral.Length % 4 != 0)
+                    {
+                        litteral = new string('0', 4 - (litteral.Length % 4)) + litteral;
+                    }
+                    ret = Enumerable.Range(0, litteral.Length)
+                        .GroupBy(x => x / 4)
+                        .Select(g => g.Select(i => litteral[i]))
+                        .Select(s => String.Concat(s))
+                        .Select(s => Convert.ToInt16(s, 8))
+                        .Reverse()
+                        .ToArray();
+                }
+                else if (litteral.StartsWith("0b"))
+                {
+                    litteral = litteral.Substring(2);
+                    if (litteral.Length % 12 != 0)
+                    {
+                        litteral = new string('0', 12 - (litteral.Length % 12)) + litteral;
+                    }
+                    ret = Enumerable.Range(0, litteral.Length)
+                        .GroupBy(x => x / 12)
+                        .Select(g => g.Select(i => litteral[i]))
+                        .Select(s => String.Concat(s))
+                        .Select(s => Convert.ToInt16(s, 2))
+                        .Reverse()
+                        .ToArray();
+                }
+                else
+                {
+                    List<short> values = new List<short>();
+                    int value = Convert.ToInt32(litteral, 10);
+                    int itt = 0;
+                    do
+                    {
+                        values.Add((short)((value >> (12 * itt)) & _12BIT_MASK));
+                    } while ((value >> (12 * itt++)) >= 4096);
+
+                    ret = values.ToArray();
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         static short[] ParseNumber(RawFile file, int line, string litteral)
@@ -2047,7 +2362,7 @@ namespace VM12Asm
             
             return ret;
         }
-
+        
         static short[] ParseString(RawFile file, int line, string litteral, bool raw)
         {
             // This might return weird things for weird strings. But this compiler isn't made to be robust
@@ -2133,6 +2448,7 @@ namespace VM12Asm
             {
                 message = $"Error in generated file \"{file.path}\" at line {line}: '{error}'";
             }
+
 
             Console.WriteLine(message);
 
