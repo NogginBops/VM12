@@ -57,6 +57,45 @@ namespace VM12
 
         const int min_horizontal_width = 4;
 
+        int[] prevHeap = new int[0];
+
+        private bool HeapChanged()
+        {
+            List<int> currHeap = new List<int>(prevHeap.Length);
+
+            int cells = heap.metadataSize / 2;
+
+            for (int offset = 0; offset < heap.metadataSize; offset++)
+            {
+                int data = heap.metadata[offset] << 12 | heap.metadata[offset + 1];
+
+                if (data != 0)
+                {
+                    if (data == 1)
+                    {
+                        currHeap.Add(1);
+                    }
+                    else
+                    {
+                        currHeap[currHeap.Count - 1]++;
+                    }
+                }
+            }
+
+            int[] newHeap = currHeap.ToArray();
+
+            if (prevHeap.SequenceEqual(newHeap))
+            {
+                prevHeap = newHeap;
+                return false;
+            }
+            else
+            {
+                prevHeap = newHeap;
+                return true;
+            }
+        }
+
         private void RedrawImage()
         {
             Graphics g = Graphics.FromImage(img);
@@ -147,8 +186,11 @@ namespace VM12
 
         private void heapViewRefreshTimer_Tick(object sender, EventArgs e)
         {
-            RedrawImage();
-            heapViewImg.Invalidate();
+            if (HeapChanged())
+            {
+                RedrawImage();
+                heapViewImg.Invalidate();
+            }
         }
 
         private void refreshToolStripMenuItem_Click(object sender, EventArgs e)

@@ -185,6 +185,12 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bloadl\\s+\\[SP\\]"), "load.sp.l" },
             { new Regex("(?<!:)\\bload\\s+('.')"), "load.lit $1" },
             { new Regex("(?<!:)\\bload\\s+(\".*?\")"), "load.lit.l $1" },
+
+            { new Regex("(?<!:)\\bloadlo\\s+#(\\S+)\\s*,\\s*#(\\S+)"), "load.lit.l $1 load.lit.l $2 ladd" },
+            { new Regex("(?<!:)\\bloadlo\\s+#(\\S+)\\s*,\\s*(\\S+)"), "load.lit.l $1 load.local.l $2 ladd" },
+            { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*#(\\S+)"), "load.local.l $1 load.lit.l $2 ladd" },
+            { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*(\\S+)"), "load.local.l $1 load.local.l $2 ladd" },
+
             { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+\\[SP\\]"), "store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+(\\d+)"), "store.local $1" },

@@ -644,6 +644,16 @@ namespace VM12
         {
             e.Handled = true;
         }
+
+        private void memoryToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (vm12 != null)
+            {
+                MemoryInspector inspector = new MemoryInspector();
+                inspector.SetVM12(vm12);
+                inspector.Show();
+            }
+        }
 #endif
     }
 }
