@@ -49,7 +49,7 @@ namespace Debugging
         {
             if (int.TryParse(memStartAddress.ValueText, out int val))
             {
-                startAddress = val;
+                startAddress = val > VM12.MEM_SIZE ? VM12.MEM_SIZE : val;
 
                 if (startAddress + dataLength > VM12.MEM_SIZE)
                 {
@@ -58,7 +58,7 @@ namespace Debugging
                     memLength.ValueText = $"{dataLength}";
                 }
 
-                memEndAddress.ValueText = $"0x{val + dataLength}";
+                memEndAddress.ValueText = $"0x{val + dataLength:X}";
 
                 UpdateData();
             }

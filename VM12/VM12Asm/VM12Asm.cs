@@ -34,14 +34,36 @@ namespace VM12Asm
             public readonly bool Breakpoint;
             public readonly string Value;
             public readonly Opcode? Opcode;
+            public readonly bool Use;
 
-            public Token(int line, TokenType type, string value, bool breakpoint, Opcode? opcode = null)
+            public static Token InstToken(int line, string value, bool breakpoint, Opcode opcode)
+            {
+                return new Token(line, TokenType.Instruction, value, breakpoint, opcode, false);
+            }
+
+            public static Token LitToken(int line, string value, bool breakpoint)
+            {
+                return new Token(line, TokenType.Litteral, value, breakpoint, null, false);
+            }
+
+            public static Token LabelToken(int line, string value, bool breakpoint, bool use)
+            {
+                return new Token(line, TokenType.Label, value, breakpoint, null, use);
+            }
+
+            public static Token ArgToken(int line, string value, bool breakpoint)
+            {
+                return new Token(line, TokenType.Argument, value, breakpoint, null, false);
+            }
+
+            private Token(int line, TokenType type, string value, bool breakpoint, Opcode? opcode, bool use)
             {
                 Line = line;
                 Type = type;
                 Breakpoint = breakpoint;
                 Value = value;
                 Opcode = opcode;
+                Use = use;
             }
 
             public bool Equals(Token t)
@@ -68,6 +90,11 @@ namespace VM12Asm
                 this.file = file;
                 this.line = line;
                 this.value = value;
+            }
+
+            public override string ToString()
+            {
+                return value;
             }
         }
 
@@ -186,10 +213,17 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bload\\s+('.')"), "load.lit $1" },
             { new Regex("(?<!:)\\bload\\s+(\".*?\")"), "load.lit.l $1" },
 
+            // loadlo
             { new Regex("(?<!:)\\bloadlo\\s+#(\\S+)\\s*,\\s*#(\\S+)"), "load.lit.l $1 load.lit.l $2 ladd" },
             { new Regex("(?<!:)\\bloadlo\\s+#(\\S+)\\s*,\\s*(\\S+)"), "load.lit.l $1 load.local.l $2 ladd" },
             { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*#(\\S+)"), "load.local.l $1 load.lit.l $2 ladd" },
             { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*(\\S+)"), "load.local.l $1 load.local.l $2 ladd" },
+
+            // loadlo [SP]
+            { new Regex("(?<!:)\\bloado\\s+\\[SP\\]\\s*,\\s*#(\\S+)"), "loadl.lit.l $1 ladd load.sp" },
+            { new Regex("(?<!:)\\bloado\\s+\\[SP\\]\\s*,\\s*(\\S+)"), "loadl.local.l $1 ladd load.sp" },
+            { new Regex("(?<!:)\\bloadlo\\s+\\[SP\\]\\s*,\\s*#(\\S+)"), "loadl.lit.l $1 ladd load.sp.l" },
+            { new Regex("(?<!:)\\bloadlo\\s+\\[SP\\]\\s*,\\s*(\\S+)"), "loadl.local.l $1 ladd load.sp.l" },
 
             { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+\\[SP\\]"), "store.sp.l" },
@@ -269,7 +303,7 @@ namespace VM12Asm
 
         static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)>");
 
-        static Regex label = new Regex(":[A-Za-z_][A-Za-z0-9_]*");
+        static Regex label = new Regex("(:[A-Za-z_][A-Za-z0-9_]*)(\\*)?");
 
         static Regex proc = new Regex("(:[A-Za-z_][A-Za-z0-9_]*)(\\s+@(.*))?");
 
@@ -1274,7 +1308,7 @@ namespace VM12Asm
                 }
                 else if ((c = str.Match(line)).Success)
                 {
-                    Token string_tok = new Token(line_num, TokenType.Litteral, c.Value.Trim(), breakpoint);
+                    Token string_tok = Token.LitToken(line_num, c.Value.Trim(), breakpoint);
 
                     currProc.tokens.Add(string_tok);
                 }
@@ -1298,23 +1332,23 @@ namespace VM12Asm
                             Match l;
                             if (opcodes.TryGetValue(token, out Opcode opcode))
                             {
-                                t = new Token(line_num, TokenType.Instruction, token, breakpoint, opcode);
+                                t = Token.InstToken(line_num, token, breakpoint, opcode);
                             }
                             else if (arguments.TryGetValue(token, out int arg))
                             {
-                                t = new Token(line_num, TokenType.Argument, token, breakpoint);
+                                t = Token.ArgToken(line_num, token, breakpoint);
                             }
                             else if ((l = label.Match(token)).Success)
                             {
-                                t = new Token(line_num, TokenType.Label, l.Value, breakpoint);
+                                t = Token.LabelToken(line_num, l.Groups[1].Value, breakpoint, l.Groups[2].Success);
                             }
                             else if (num.IsMatch(token) || constants.ContainsKey(token))
                             {
-                                t = new Token(line_num, TokenType.Litteral, token, breakpoint);
+                                t = Token.LitToken(line_num, token, breakpoint);
                             }
                             else if ((l = chr.Match(token)).Success)
                             {
-                                t = new Token(line_num, TokenType.Litteral, l.Value, breakpoint);
+                                t = Token.LitToken(line_num, l.Value, breakpoint);
                             }
                             else if ((l = str.Match(token)).Success)
                             {
@@ -1332,7 +1366,7 @@ namespace VM12Asm
                                     Console.ForegroundColor = conColor;
                                 }
 
-                                t = new Token(line_num, TokenType.Label, lableName, breakpoint);
+                                t = Token.LabelToken(line_num, lableName, breakpoint, false);
                             }
                             else
                             {
@@ -1340,24 +1374,6 @@ namespace VM12Asm
                                 t = new Token();
                             }
                             
-                            // TODO: Remove
-                            /*
-                            if ((currProc.parameters == null || currProc.locals == null) && t.Type != TokenType.Litteral && currProc.location_const != null)
-                            {
-                                Error(file, line_num, $"Trying to define proc {currProc.name} without specifying parameters and local use!");
-                            }
-                            else
-                            {
-                                if (currProc.parameters == null) {
-                                    currProc.parameters = ToInt(ParseLitteral(file, line_num, t.Value, constants));
-                                }
-                                else if (currProc.locals == null)
-                                {
-                                    currProc.locals = ToInt(ParseLitteral(file, line_num, t.Value, constants));
-                                }
-                            }
-                            */
-
                             currProc.tokens.Add(t);
                         }
                     }
@@ -1425,6 +1441,8 @@ namespace VM12Asm
             }
 
             Dictionary<string, Dictionary<string, Constant>> fileConstants = files.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Constants);
+
+            Dictionary<Proc, List<int>> breakpoints = new Dictionary<Proc, List<int>>();
 
             foreach (var file in files)
             {
@@ -1529,6 +1547,11 @@ namespace VM12Asm
                         proc.Value.location = location;
                     }
 
+                    if (proc.Value.tokens.All(t => t.Type != TokenType.Instruction))
+                    {
+                        shouldHaveParamAndLocals = false;
+                    }
+
                     if (shouldHaveParamAndLocals)
                     {
                         // Find the two first tokens in the proc
@@ -1574,6 +1597,16 @@ namespace VM12Asm
                         {
                             procmeta.linkedLines.Add(instructions.Count + 1, current.Line);
                             currentSourceLine = current.Line;
+                        }
+
+                        if (current.Breakpoint == true)
+                        {
+                            if (breakpoints.ContainsKey(proc.Value) == false)
+                            {
+                                breakpoints[proc.Value] = new List<int>();
+                            }
+
+                            breakpoints[proc.Value].Add(instructions.Count - 1);
                         }
 
                         switch (current.Type)
@@ -1847,11 +1880,25 @@ namespace VM12Asm
                                 }
                                 break;
                             case TokenType.Label:
-                                local_labels[current.Value] = instructions.Count;
+                                if (current.Use == false)
+                                {
+                                    local_labels[current.Value] = instructions.Count;
 
-                                Console.ForegroundColor = ConsoleColor.DarkCyan;
-                                if (verbose) Console.WriteLine($"Found label def {current.Value} at index: {instructions.Count:X}");
-                                Console.ForegroundColor = conColor;
+                                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                                    if (verbose) Console.WriteLine($"Found label def {current.Value} at index: {instructions.Count:X}");
+                                    Console.ForegroundColor = conColor;
+                                }
+                                else
+                                {
+                                    local_label_uses[instructions.Count] = current.Value;
+
+                                    instructions.Add(0);
+                                    instructions.Add(0);
+
+                                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                                    if (verbose) Console.WriteLine($"Found label pointer use {current.Value} at index: {instructions.Count:X}");
+                                    Console.ForegroundColor = conColor;
+                                }
                                 break;
                             case TokenType.Argument:
                                 Error(file.Value.Raw, current.Line, $"Unhandled argument: \"{current.Value}\"!");
@@ -1956,6 +2003,14 @@ namespace VM12Asm
                 {
                     metadata[proc.Key].breaks = breaks;
                 }
+
+                // FIXME: New breakpoints
+                /*
+                if (breakpoints.ContainsKey(proc.Key))
+                {
+                    metadata[proc.Key].breaks = breakpoints[proc.Key];
+                }
+                */
             }
 
             if (verbose) Console.WriteLine();
