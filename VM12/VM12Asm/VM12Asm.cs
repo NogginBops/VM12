@@ -856,18 +856,18 @@ namespace VM12Asm
             Console.WriteLine($"Allocated {VRAM_OFFSET - 1 - autoVars} ({(((double)VRAM_OFFSET - 1 - autoVars) / (VRAM_OFFSET - 1 - STACK_SIZE)):P5}) words to auto() vars {autoVars - STACK_SIZE} words remaining");
 
             total.Stop();
-
+            
             double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 100;
             double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 100;
             double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 100;
             double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
             double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
-
+            
             string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");
             Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms {pplines} lines");
             Console.WriteLine($"Parse: {parse_ms:F4} ms {lines} lines");
-            Console.WriteLine($"Assembly: {assembly_ms:F4} ms {tokens} tokens");
+            Console.WriteLine($"Assembly: {assembly_ms:F4} ms {files.Count} files, {libFile.Metadata.Length} procs, {lines} lines or {tokens} tokens");
             Console.WriteLine($"Sum: {total_ms_sum:F4} ms");
             Console.WriteLine($"Total: {total_ms:F4} ms");
 
@@ -1106,7 +1106,7 @@ namespace VM12Asm
                             macro.lines[lineNum] = lines[i + 1 + lineNum];
                         }
 
-                        macro.args = strictMatch.Groups[1].Value.Split(',').Select(s => s.Trim()).ToArray();
+                        macro.args = strictMatch.Groups[1].Value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToArray();
 
                         if (global)
                         {
@@ -1135,7 +1135,7 @@ namespace VM12Asm
                         //Console.WriteLine($"Found macro use! Name '{useMatch.Groups[1]}' args '{useMatch.Groups[2]}'");
 
                         string useName = useMatch.Groups[1].Value;
-                        string[] args = useMatch.Groups[2].Value.Split(',');
+                        string[] args = useMatch.Groups[2].Value.Split(new []{ ',' }, StringSplitOptions.RemoveEmptyEntries);
 
                         // Find a macro with the same name and numer of arguments
                         Macro macro = macros.Concat(globalMacros).FirstOrDefault(m => (m.name == useName) && (m.args.Length == args.Length));

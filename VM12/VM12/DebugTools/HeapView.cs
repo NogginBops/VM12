@@ -49,6 +49,8 @@ namespace VM12
 
             heapViewImg.Image = img;
             heapViewImg.Width = 100;
+
+            RedrawImage();
         }
 
         // TODO: Calculate heap regions before drawing

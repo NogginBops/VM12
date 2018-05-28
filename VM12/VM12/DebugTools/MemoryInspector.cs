@@ -39,7 +39,7 @@ namespace Debugging
 
             Array.Copy(vm12.MEM, startAddress, data, 0, dataLength);
 
-            memoryView1.setData(data.SelectMany(i => new byte[] { (byte)(i >> 12), (byte)(i & 0xFFF) }).ToArray());
+            memoryView1.setData(data.SelectMany(i => new byte[] { (byte)(i >> 8), (byte)(i & 0xFF) }).ToArray());
         }
 
         bool changingLength = false;

@@ -211,7 +211,7 @@ namespace VM12
 #endif
 
                     // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!
-                    Thread thread = new Thread(() => { vm12.Start(); debugger.CloseDebugger(); vm12 = null; })
+                    Thread thread = new Thread(() => { vm12.Start(); vm12 = null; })
                     {
                         Name = "VM12",
                         IsBackground = true,
@@ -588,7 +588,7 @@ namespace VM12
                 Dictionary<string, VM12.AutoConst> autoCosnts = vm12.autoConsts;
                 
                 int metadata_addr = autoCosnts.TryGetValue("metadata", out VM12.AutoConst m_addr) ? m_addr.Addr : throw new Exception();
-                int heap_addr = autoCosnts.TryGetValue("metadata", out VM12.AutoConst h_addr) ? h_addr.Addr : throw new Exception();
+                int heap_addr = autoCosnts.TryGetValue("heap", out VM12.AutoConst h_addr) ? h_addr.Addr : throw new Exception();
 
                 HeapView.Heap heap_struct;
 

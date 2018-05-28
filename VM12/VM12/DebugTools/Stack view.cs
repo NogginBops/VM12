@@ -13,6 +13,7 @@ namespace Debugging
 {
     using System.Diagnostics;
     using System.IO;
+    using System.Runtime.CompilerServices;
     using System.Text.RegularExpressions;
     using VM12;
 
@@ -65,8 +66,11 @@ namespace Debugging
                 {
                     debugDefinitions.Directory.Create();
                 }
-                StreamWriter writer = debugDefinitions.CreateText();
-                writer.Close();
+
+                using (debugDefinitions.Create())
+                {
+
+                }
             }
             else
             {
@@ -166,7 +170,7 @@ namespace Debugging
                     sb.AppendLine($"[local:{def.Key.local}|{def.Value}]");
                 }
             }
-
+            
             File.WriteAllText(debugDefinitions.FullName, sb.ToString());
         }
 

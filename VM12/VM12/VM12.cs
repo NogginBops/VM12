@@ -75,7 +75,7 @@ namespace VM12
         private const int STORAGE_CHUNK_GROUPING = 4096;
 
         public static readonly byte[][,] S = AllocateStorageMemory(MEM_SIZE, STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE);
-        public static readonly bool[] S_HIT = new bool[MEM_SIZE];
+        public static readonly bool[] S_HIT = new bool[MEM_SIZE / STORAGE_CHUNK_SIZE];
 
         private static void WriteStorage(byte* data, int address)
         {
@@ -92,7 +92,7 @@ namespace VM12
                 }
             }
 
-            S_HIT[address] = true;
+            S_HIT[address / STORAGE_CHUNK_SIZE] = true;
         }
 
         private static void WriteStorage(int* data, int address)
@@ -117,7 +117,7 @@ namespace VM12
 
             Console.WriteLine();
 
-            S_HIT[address] = true;
+            S_HIT[address / STORAGE_CHUNK_SIZE] = true;
         }
 
         private static void ReadStorage(byte* data, int address)
@@ -2066,12 +2066,14 @@ namespace VM12
                 // Only write the changed data!
                 BinaryWriter writer = new BinaryWriter(stream);
 
-                byte[] data = new byte[128];
+                byte[] data = new byte[STORAGE_CHUNK_SIZE];
 
-                for (int addr = 0; addr < S_HIT.Length; addr++)
+                for (int chunk = 0; chunk < S_HIT.Length; chunk++)
                 {
-                    if (S_HIT[addr])
+                    if (S_HIT[chunk])
                     {
+                        int addr = chunk * STORAGE_CHUNK_SIZE;
+
                         writer.Write(addr);
 
                         byte[,] chunkGroup = GetChunk(addr, out int chunkOffset);
