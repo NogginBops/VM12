@@ -1459,24 +1459,7 @@ namespace VM12Asm
 
                     file.Value.Constants[eval_expr.Key].value = result;
                 }
-
-                /*
-                // Resolve all extern consts
-                var externs = file.Value.Constants.Where(kvp => kvp.Value.Equals("extern")).Select(kvp => kvp.Key).ToList();
-
-                foreach (var ext in externs)
-                {
-                    if (globalConstants.TryGetValue(ext, out Constant value))
-                    {
-                        file.Value.Constants[ext] = value;
-                    }
-                    else
-                    {
-                        Error(file.Value.Raw, 0, $"Could not solve value of extern const '{ext}'");
-                    }
-                }
-                */
-
+                
                 offset = 0;
 
                 bool temp_verbose = verbose;

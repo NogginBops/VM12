@@ -717,10 +717,10 @@ namespace VM12
 
                 if (!source.ContainsKey(procMeta.file))
                 {
-                    string path = Path.Combine(metadataFile.DirectoryName, procMeta.file);
-                    if (File.Exists(path))
+                    string file = Directory.EnumerateFiles(metadataFile.DirectoryName, Path.GetExtension(procMeta.file), SearchOption.AllDirectories).FirstOrDefault(p => Path.GetFileName(p) == procMeta.file);
+                    if (File.Exists(file))
                     {
-                        source[procMeta.file] = File.ReadAllLines(path);
+                        source[procMeta.file] = File.ReadAllLines(file);
                     }
                 }
 
@@ -731,6 +731,8 @@ namespace VM12
         void ParseMetadata(FileInfo metadataFile)
         {
             string[] lines = File.ReadAllLines(metadataFile.FullName);
+
+            var dirFiles = Directory.EnumerateFiles(metadataFile.DirectoryName, "*", SearchOption.AllDirectories).ToList();
 
             ProcMetadata currMetadata = null;
             foreach (var line in lines)
@@ -778,10 +780,10 @@ namespace VM12
 
                                 if (!source.ContainsKey(currMetadata.file))
                                 {
-                                    string path = Path.Combine(metadataFile.DirectoryName, currMetadata.file);
-                                    if (File.Exists(path))
+                                    string file = dirFiles.FirstOrDefault(p => Path.GetFileName(p) == currMetadata.file);
+                                    if (file != null)
                                     {
-                                        source[currMetadata.file] = File.ReadAllLines(path);
+                                        source[currMetadata.file] = File.ReadAllLines(file);
                                     }
                                 }
                                 break;

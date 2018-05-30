@@ -445,12 +445,12 @@ namespace VM12
 
         private void PressButtons(MouseButtons buttons)
         {
-            currentButtons |= (int)buttons >> 20;
+            currentButtons |= (int)buttons >> 13;
         }
 
         private void ReleaseButtons(MouseButtons buttons)
         {
-            currentButtons &= ~((int)buttons >> 20);
+            currentButtons &= ~((int)buttons >> 13);
         }
 
         int currentButtons;
