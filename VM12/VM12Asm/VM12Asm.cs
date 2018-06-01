@@ -445,6 +445,7 @@ namespace VM12Asm
         static bool dump_mem = false;
         
         static int pplines = 0;
+        static int macroUses = 0;
         static int lines = 0;
         static int tokens = 0;
 
@@ -495,8 +496,11 @@ namespace VM12Asm
             verbose_token = false;
 
             dump_mem = false;
-            
+
+            pplines = 0;
+            macroUses = 0;
             lines = 0;
+            tokens = 0;
 
             globalConstants = new Dictionary<string, Constant>();
 
@@ -1162,6 +1166,7 @@ namespace VM12Asm
                             }
                             newLines.InsertRange(i - removedLines, macroLines);
                             removedLines -= macroLines.Count - 1;
+                            macroUses++;
                         }
                     }
                 }
