@@ -87,6 +87,9 @@
         Div_l, Mod, Mod_l,
         Blit, Blit_mask,
         Read, Write,
+
+        Clz, Ctz,
+        Selz, Selgz, Selge, Selc
     }
 
     public enum Opcode_old : short

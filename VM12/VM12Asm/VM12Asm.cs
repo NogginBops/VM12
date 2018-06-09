@@ -303,9 +303,9 @@ namespace VM12Asm
 
         static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)>");
 
-        static Regex label = new Regex("(:[A-Za-z_][A-Za-z0-9_]*)(\\*)?");
+        static Regex label = new Regex("(:[A-Za-z0-9_]+)(\\*)?");
 
-        static Regex proc = new Regex("(:[A-Za-z_][A-Za-z0-9_]*)(\\s+@(.*))?");
+        static Regex proc = new Regex("(:[A-Za-z0-9_]+)(\\s+@(.*))?");
 
         static Regex num = new Regex("(?<!\\S)(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|-?[0-9_]+)(?!\\S)");
 
@@ -402,6 +402,13 @@ namespace VM12Asm
             { "blit.mask", Opcode.Blit_mask },
             { "write", Opcode.Write },
             { "read", Opcode.Read },
+
+            { "clz", Opcode.Clz },
+            { "ctz", Opcode.Ctz },
+            { "selz", Opcode.Selz },
+            { "selgz", Opcode.Selgz },
+            { "selge", Opcode.Selge },
+            { "selc", Opcode.Selc },
         };
 
         static Dictionary<string, int> arguments = new Dictionary<string, int>()

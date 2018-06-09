@@ -96,6 +96,8 @@ namespace VM12
             
             pbxMain.Image = bitmap;
 
+            pbxMain.MouseWheel += PbxMain_MouseWheel;
+
             GenerateLUT();
 
             //SetSize(480 * 2, InterpolationMode.NearestNeighbor);
@@ -104,7 +106,7 @@ namespace VM12
             MainMenuStrip.Items.RemoveAt(1);
 #endif
         }
-
+        
         private void GenerateLUT()
         {
             for (int i = 0; i < colorLUT.Length; i++)
@@ -453,6 +455,19 @@ namespace VM12
             currentButtons &= ~((int)buttons >> 13);
         }
 
+        private void SetScroll(int delta)
+        {
+            int ticks = delta / SystemInformation.MouseWheelScrollDelta;
+            // Clear the scroll part
+            currentButtons &= 0xFC0;
+            // Cast the ticks
+            // Ticks less than -64 will be interpreted as positive...
+            if (ticks < -64) ticks = -64;
+            ticks &= 0x03F;
+            
+            currentButtons |= ticks;
+        }
+
         int currentButtons;
         
         private int map(int value, int min, int max, int newMin, int newMax)
@@ -471,6 +486,8 @@ namespace VM12
         {
             int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
+            
+            SetScroll(e.Delta);
 
             vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
 
@@ -483,6 +500,8 @@ namespace VM12
             int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
+            SetScroll(e.Delta);
+
             PressButtons(e.Button);
             vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
         }
@@ -492,10 +511,22 @@ namespace VM12
             int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
+            SetScroll(e.Delta);
+
             ReleaseButtons(e.Button);
             vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
         }
 
+        private void PbxMain_MouseWheel(object sender, MouseEventArgs e)
+        {
+            int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
+            int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
+
+            SetScroll(e.Delta);
+            
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
+        }
+        
         private bool showingCursor = true;
 
         private void pbxMain_MouseEnter(object sender, EventArgs e)
@@ -535,12 +566,7 @@ namespace VM12
                 }
             }
         }
-
-        //private void hTimer_Tick(object sender, EventArgs e)
-        //{
-        //    vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new int[] { hTimer.Interval }));
-        //}
-
+        
         private void hTime_Thread(object state)
         {
             Stopwatch hTimer_watch = new Stopwatch();

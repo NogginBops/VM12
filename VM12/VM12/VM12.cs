@@ -871,7 +871,7 @@ namespace VM12
 
         public int InterruptCount = 0;
         public int MissedInterrupts = 0;
-
+        
         public unsafe void Start()
         {
             Running = true;
@@ -2010,6 +2010,61 @@ namespace VM12
                             }
 
                             SP -= 6;
+                            PC++;
+                            break;
+
+                        case Opcode.Clz:
+                            int clz_data = mem[SP];
+                            int clz_result = 12;
+                            if (clz_data != 0)
+                            {
+                                clz_result = 0;
+                                if ((clz_data & 0xFFFF0000) == 0) { clz_result += 16; clz_data <<= 16; }
+                                if ((clz_data & 0xFF000000) == 0) { clz_result += 8; clz_data <<= 8; }
+                                if ((clz_data & 0xF0000000) == 0) { clz_result += 4; clz_data <<= 4; }
+                                if ((clz_data & 0xC0000000) == 0) { clz_result += 2; clz_data <<= 2; }
+                                if ((clz_data & 0x80000000) == 0) { clz_result += 1; }
+
+                                clz_result -= 20;
+                            }
+                            mem[SP] = clz_result;
+                            PC++;
+                            break;
+                        case Opcode.Ctz:
+                            int ctz_data = mem[SP];
+                            int ctz_result = 12;
+                            if (ctz_data != 0)
+                            {
+                                ctz_result = 0;
+                                if ((ctz_data & 0x0000FFFF) == 0) { ctz_result += 16; ctz_data >>= 16; }
+                                if ((ctz_data & 0x000000FF) == 0) { ctz_result += 8; ctz_data >>= 8; }
+                                if ((ctz_data & 0x0000000F) == 0) { ctz_result += 4; ctz_data >>= 4; }
+                                if ((ctz_data & 0x00000003) == 0) { ctz_result += 2; ctz_data >>= 2; }
+                                if ((ctz_data & 0x00000001) == 0) { ctz_result += 1; }
+
+                                ctz_result -= 20;
+                            }
+                            mem[SP] = ctz_result;
+                            PC++;
+                            break;
+                        case Opcode.Selz:
+                            mem[SP - 2] = mem[SP] == 0 ? mem[SP - 1] : mem[SP - 2];
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Selgz:
+                            mem[SP - 2] = mem[SP] > 0 ? mem[SP - 1] : mem[SP - 2];
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Selge:
+                            mem[SP - 2] = mem[SP] >= 0 ? mem[SP - 1] : mem[SP - 2];
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Selc:
+                            mem[SP - 1] = carry ? mem[SP] : mem[SP - 1];
+                            SP -= 1;
                             PC++;
                             break;
                         default:
