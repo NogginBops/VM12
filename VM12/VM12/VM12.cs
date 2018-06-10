@@ -2053,12 +2053,12 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Selgz:
-                            mem[SP - 2] = mem[SP] > 0 ? mem[SP - 1] : mem[SP - 2];
+                            mem[SP - 2] = ((mem[SP] & 0x800) == 0 && mem[SP] > 0) ? mem[SP - 1] : mem[SP - 2];
                             SP -= 2;
                             PC++;
                             break;
                         case Opcode.Selge:
-                            mem[SP - 2] = mem[SP] >= 0 ? mem[SP - 1] : mem[SP - 2];
+                            mem[SP - 2] = ((mem[SP] & 0x800) == 0 && mem[SP] >= 0) ? mem[SP - 1] : mem[SP - 2];
                             SP -= 2;
                             PC++;
                             break;
