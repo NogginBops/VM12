@@ -100,7 +100,7 @@ namespace VM12
 
             GenerateLUT();
 
-            //SetSize(480 * 2, InterpolationMode.NearestNeighbor);
+            SetSize(480 * 2, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -134,7 +134,7 @@ namespace VM12
             this.Width = width + 16;
             this.Height = height + 63;
             pbxMain.SizeMode = PictureBoxSizeMode.StretchImage;
-            
+            pbxMain.InterpolationMode = scaleMode;
         }
         
         private void LoadProgram()

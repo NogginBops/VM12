@@ -193,9 +193,9 @@ namespace VM12Asm
 
         delegate string TemplateFormater(params object[] values);
 
-        static TemplateFormater sname = (o) => string.Format("(?<!:)\\b{0}\\b", o);
+        private static readonly TemplateFormater sname = (o) => string.Format("(?<!:)\\b{0}\\b", o);
 
-        static Dictionary<Regex, string> preprocessorConversions = new Dictionary<Regex, string>()
+        private static readonly Dictionary<Regex, string> preprocessorConversions = new Dictionary<Regex, string>()
         {
             { new Regex(";.*"), "" },
             { new Regex("#reg.*"), "" },
@@ -439,7 +439,7 @@ namespace VM12Asm
             { "BM.Black", (int) BlitMode.Black },
         };
 
-        static ConsoleColor conColor = Console.ForegroundColor;
+        private static ConsoleColor conColor = Console.ForegroundColor;
 
         static bool verbose = false;
 
@@ -1062,14 +1062,12 @@ namespace VM12Asm
 
             Regex macroDefEnd = new Regex("#end (.*?)");
 
-            Regex macroUse = new Regex("^\\s*([A-Za-z0-9_]*?)\\(((?:\\s*.*?,?)*)\\)");
+            Regex macroUse = new Regex("^[^<]*?([A-Za-z0-9_]+)\\(((?:\\s*.*?,?)*)\\)");
 
             List<Macro> macros = new List<Macro>();
 
             List<string> newLines = new List<string>(lines);
-
-            int removedLines = 0;
-
+            
             bool global = false;
 
             // Go through all lines and parse and replace macros
@@ -1103,10 +1101,11 @@ namespace VM12Asm
 
                         offset++;
 
-                        newLines.RemoveRange(i - removedLines, offset);
-
-                        removedLines += offset;
-
+                        for (int l = 0; l < offset; l++)
+                        {
+                            newLines[i + l] = "";
+                        }
+                        
                         Macro macro = new Macro();
 
                         macro.name = match.Groups[1].Value;
@@ -1157,8 +1156,7 @@ namespace VM12Asm
                         }
                         else
                         {
-                            if (verbose) Console.WriteLine($"Found macrodef '{macro.name}'");
-                            newLines.RemoveAt(i - removedLines);
+                            if (verbose) Console.WriteLine($"Found macro use '{macro.name}'");
                             List<string> macroLines = new List<string>(macro.lines);
                             for (int lineNum = 0; lineNum < macroLines.Count; lineNum++)
                             {
@@ -1171,8 +1169,12 @@ namespace VM12Asm
                                     }
                                 }
                             }
-                            newLines.InsertRange(i - removedLines, macroLines);
-                            removedLines -= macroLines.Count - 1;
+                            
+                            string macroResult = string.Join(" ", macroLines);
+
+                            StringBuilder newLineString = new StringBuilder(line);
+                            newLines[i] = newLineString.Replace(useMatch.Value, macroResult, useMatch.Index, useMatch.Length).ToString();
+
                             macroUses++;
                         }
                     }

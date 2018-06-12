@@ -136,6 +136,9 @@
     <Compile Include="DebugTools\SourceView.Designer.cs">
       <DependentUpon>SourceView.cs</DependentUpon>
     </Compile>
+    <Compile Include="Util\ExtendedPictureBox.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Util\Utils.cs" />
     <Compile Include="VM12Form.cs">
       <SubType>Form</SubType>
