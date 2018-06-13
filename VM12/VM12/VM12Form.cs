@@ -49,36 +49,7 @@ namespace VM12
         private readonly static ProgramDebugger debugger = new ProgramDebugger();
 
         private readonly static ProcProfiler profiler = new ProcProfiler();
-
-#if DEBUG
-        System.Threading.Timer perfTimer;
-
-        Dictionary<string, int> sourceHitCount = new Dictionary<string, int>();
         
-        private void MeasurePerf(object state)
-        {
-            if (vm12 != null)
-            {
-                if (false)
-                {
-                    VM12.ProcMetadata data = vm12.CurrentMetadata;
-                    if (data != null)
-                    {
-                        string key = $"{data.file}:{vm12.GetSourceCodeLineFromMetadataAndOffset(data, vm12.ProgramCounter)}";
-                        if (sourceHitCount.TryGetValue(key, out int val))
-                        {
-                            sourceHitCount[key] = val + 1;
-                        }
-                        else
-                        {
-                            sourceHitCount[key] = 1;
-                        }
-                    }
-                }
-            }
-        }
-#endif
-
         public VM12Form()
         {
             if (form != null)
@@ -90,7 +61,7 @@ namespace VM12
 
             InitializeComponent();
             
-            this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
+            this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             
             Shown += (s, e1) => LoadProgram();
             
@@ -100,7 +71,7 @@ namespace VM12
 
             GenerateLUT();
 
-            SetSize(480 * 2, InterpolationMode.NearestNeighbor);
+            SetSize(VM12.SCREEN_HEIGHT * 2, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -189,9 +160,6 @@ namespace VM12
                     if (vm12 != null && vm12.Running)
                     {
                         vm12.Stop();
-#if DEBUG
-                        perfTimer.Dispose();
-#endif
                     }
 
 #if DEBUG
@@ -232,9 +200,6 @@ namespace VM12
                     
                     hTimer.Start();
                     
-#if DEBUG
-                    perfTimer = new System.Threading.Timer(MeasurePerf, null, 0, 1);
-#endif
                 });
             }
         }
