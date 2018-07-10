@@ -1418,8 +1418,8 @@ namespace VM12
                                     break;
                                 case JumpMode.Ro:
                                     int ro_value = mem[SP];
-                                    // Sign extend and add one and then to PC
-                                    PC += ((int)((ro_value & 0x800) != 0 ? (uint)(ro_value & 0xFFFF_F800) : (uint)ro_value)) + 1;
+                                    // Sign extend and add one (jmp argument) and then to PC
+                                    PC += ((int)((ro_value & 0x800) != 0 ? (uint)(ro_value | 0xFFFF_F800) : (uint)ro_value)) + 1;
                                     SP--;
                                     break;
                                 case JumpMode.Z_l:
@@ -1513,8 +1513,14 @@ namespace VM12
                                     SP -= 4;
                                     break;
                                 case JumpMode.Ro_l:
+                                    int ro_l_value = mem[SP - 1] << 12 | mem[SP];
+                                    // Sign extend and add one (jmp argument) and then to PC
+                                    int ro_l_jump_length = ((int)((ro_l_value & 0x80_0000) != 0 ? (uint)(ro_l_value | 0xFF80_0000) : (uint)ro_l_value)) + 1;
+                                    PC += ro_l_jump_length;
+                                    SP -= 2;
                                     break;
                                 default:
+                                    Debugger.Break();
                                     break;
                             }
                             break;
@@ -1637,15 +1643,17 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Inc_local:
-                            local_addr = FPloc + mem[PC + 1];
-                            mem[local_addr]++;
+                            int inc_local_addr = FPloc + mem[PC + 1];
+                            int inc_local_value = mem[inc_local_addr] + 1;
+                            carry = inc_local_value > 0xFFF;
+                            mem[inc_local_addr] = inc_local_value & 0xFFF;
                             PC += 2;
                             break;
                         case Opcode.Inc_local_l:
-                            local_addr = FPloc + mem[PC + 1];
-                            int linc_local_value = ((mem[local_addr] << 12) | (mem[local_addr + 1])) + 1;
-                            mem[local_addr + 1] = linc_local_value & 0xFFF;
-                            mem[local_addr] = (linc_local_value >> 12) & 0xFFF;
+                            int linc_local_addr = FPloc + mem[PC + 1];
+                            int linc_local_value = ((mem[linc_local_addr] << 12) | (mem[linc_local_addr + 1])) + 1;
+                            mem[linc_local_addr + 1] = linc_local_value & 0xFFF;
+                            mem[linc_local_addr] = (linc_local_value >> 12) & 0xFFF;
                             carry = (linc_local_value >> 12) > 0xFFF;
                             PC += 2;
                             break;
