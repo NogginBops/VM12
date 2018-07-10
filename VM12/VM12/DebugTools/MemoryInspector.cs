@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using VM12;
 
 namespace Debugging
 {
@@ -31,6 +32,8 @@ namespace Debugging
         internal void SetVM12(VM12 vm12)
         {
             this.vm12 = vm12;
+            memStartAddress.ValueText = "0";
+            memLength.ValueText = "100";
         }
 
         public void UpdateData()
@@ -47,7 +50,7 @@ namespace Debugging
 
         private void MemStartAddress_ValueTextChanged(object sender, EventArgs e)
         {
-            if (int.TryParse(memStartAddress.ValueText, out int val))
+            if (Utils.TryParseNumber(memStartAddress.ValueText, out int val)) 
             {
                 startAddress = val > VM12.MEM_SIZE ? VM12.MEM_SIZE : val;
 

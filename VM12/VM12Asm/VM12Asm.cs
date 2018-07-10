@@ -35,28 +35,34 @@ namespace VM12Asm
             public readonly string Value;
             public readonly Opcode? Opcode;
             public readonly bool Use;
+            public readonly bool Raw;
 
             public static Token InstToken(int line, string value, bool breakpoint, Opcode opcode)
             {
-                return new Token(line, TokenType.Instruction, value, breakpoint, opcode, false);
+                return new Token(line, TokenType.Instruction, value, breakpoint, opcode, false, false);
             }
 
             public static Token LitToken(int line, string value, bool breakpoint)
             {
-                return new Token(line, TokenType.Litteral, value, breakpoint, null, false);
+                return new Token(line, TokenType.Litteral, value, breakpoint, null, false, false);
+            }
+
+            public static Token LitToken(int line, string value, bool breakpoint, bool raw)
+            {
+                return new Token(line, TokenType.Litteral, value, breakpoint, null, false, raw);
             }
 
             public static Token LabelToken(int line, string value, bool breakpoint, bool use)
             {
-                return new Token(line, TokenType.Label, value, breakpoint, null, use);
+                return new Token(line, TokenType.Label, value, breakpoint, null, use, false);
             }
 
             public static Token ArgToken(int line, string value, bool breakpoint)
             {
-                return new Token(line, TokenType.Argument, value, breakpoint, null, false);
+                return new Token(line, TokenType.Argument, value, breakpoint, null, false, false);
             }
 
-            private Token(int line, TokenType type, string value, bool breakpoint, Opcode? opcode, bool use)
+            private Token(int line, TokenType type, string value, bool breakpoint, Opcode? opcode, bool use, bool raw)
             {
                 Line = line;
                 Type = type;
@@ -64,6 +70,7 @@ namespace VM12Asm
                 Value = value;
                 Opcode = opcode;
                 Use = use;
+                Raw = raw;
             }
 
             public bool Equals(Token t)
@@ -107,6 +114,7 @@ namespace VM12Asm
             public string location_const;
             public int? location;
             public List<Token> tokens;
+            public AsemFile file;
         }
         
         class RawFile
@@ -133,6 +141,12 @@ namespace VM12Asm
                 Procs = procs;
                 Breakpoints = breakpoints;
                 Flags = flags;
+
+                // FIXME: This is real spaghetti
+                foreach (var proc in procs.Values)
+                {
+                    proc.file = this;
+                }
             }
 
             public override string ToString()
@@ -206,8 +220,11 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bloadl\\s+(:\\S+)"), "load.lit.l $1" },
             { new Regex("(?<!:)\\bload\\s+(\\d+)"), "load.local $1" },
             { new Regex("(?<!:)\\bloadl\\s+(\\d+)"), "load.local.l $1" },
-            { new Regex("(?<!:)\\bload\\s+@(\\S+)"), "load.lit.l $1 load.sp" },
-            { new Regex("(?<!:)\\bloadl\\s+@(\\S+)"), "load.lit.l $1 load.sp.l" },
+            { new Regex("(?<!:)\\bload\\s+@(?!\")(\\S+)"), "load.lit.l $1 load.sp" },
+            { new Regex("(?<!:)\\bloadl\\s+@(?!\")(\\S+)"), "load.lit.l $1 load.sp.l" },
+            // For raw strings
+            { new Regex("(?<!:)\\bload\\s+(@\".*?\")"), "load.lit.l $1" },
+            { new Regex("(?<!:)\\bloadl\\s+(@\".*?\")"), "load.lit.l $1" },
             { new Regex("(?<!:)\\bload\\s+\\[SP\\]"), "load.sp" },
             { new Regex("(?<!:)\\bloadl\\s+\\[SP\\]"), "load.sp.l" },
             { new Regex("(?<!:)\\bload\\s+('.')"), "load.lit $1" },
@@ -311,7 +328,7 @@ namespace VM12Asm
 
         static Regex chr = new Regex("'(.)'");
 
-        static Regex str = new Regex("^\\s*\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"$");
+        static Regex str = new Regex("^\\s*(@)?(\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\")$");
 
         static Regex auto = new Regex("^auto\\((.*)\\)$");
 
@@ -489,7 +506,9 @@ namespace VM12Asm
 
         static Dictionary<string, string> autoStrings = new Dictionary<string, string>();
 
-        static StringBuilder autoStringsFile = new StringBuilder(1000);
+        static StringBuilder autoStringsFile = new StringBuilder(10_000);
+
+        static StringBuilder procMapFile = new StringBuilder(10_000);
 
         static int autoVars = VRAM_OFFSET - 1;
 
@@ -526,6 +545,7 @@ namespace VM12Asm
             string file = null;
             string name = null;
             bool generateStringSource = true;
+            bool generateProcMapSource = true;
             bool executable = true;
             bool overwrite = false;
             bool hold = false;
@@ -599,8 +619,11 @@ namespace VM12Asm
 
             Console.WriteLine("Preprocessing...");
 
+            autoStringsFile.Clear();
+
             autoStringsFile.AppendLine("!noprintouts");
             autoStringsFile.AppendLine("!global");
+            autoStringsFile.AppendLine("!no_map");
             autoStringsFile.AppendLine();
 
             Console.WriteLine($"Parsing...");
@@ -660,7 +683,7 @@ namespace VM12Asm
             #region AutoStrings
 
             RawFile rawAutoStrings = new RawFile();
-            rawAutoStrings.path = "AutoStrings";
+            rawAutoStrings.path = "AutoStrings.12asm";
             rawAutoStrings.rawlines = autoStringsFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             rawAutoStrings.processedlines = rawAutoStrings.rawlines;
 
@@ -676,6 +699,62 @@ namespace VM12Asm
             if (generateStringSource)
             {
                 File.WriteAllText(Path.Combine(dirInf.FullName, "AutoStrings.12asm"), autoStringsFile.ToString());
+            }
+
+            procMapFile.Clear();
+
+            procMapFile.AppendLine("!noprintouts");
+            procMapFile.AppendLine("!no_map");
+            procMapFile.AppendLine("!global");
+            procMapFile.AppendLine("");
+
+            int insertIndex = procMapFile.Length;
+
+            StringBuilder sb = new StringBuilder();
+            procMapFile.AppendLine($":__proc_map__");
+
+            int procsMapped = 0;
+
+            foreach (var f in files)
+            {
+                if (f.Value.Flags.Contains("!no_map") == false)
+                {
+                    foreach (var proc in f.Value.Procs)
+                    {
+                        int offset = sb.Length;
+                        procMapFile.AppendLine($"\t{proc.Key}* 0x{offset:X6} 0x{proc.Key.Length:X6}");
+                        sb.Append(proc.Key);
+                        procsMapped++;
+                    }
+                }
+            }
+
+            procMapFile.AppendLine();
+
+            procMapFile.AppendLine($":__proc_map_strings__");
+            procMapFile.AppendLine($"\t@\"{sb}\"");
+            
+            procMapFile.Insert(insertIndex, $"<proc_map_entries = {procsMapped}>\n" +
+                                            $"<proc_map_strings_length = {sb.Length}>\n" +
+                                            $"<proc_map_length = #({procsMapped} 6 *)>\n\n");
+
+            RawFile rawProcMap = new RawFile();
+            rawProcMap.path = "ProcMapData.12asm";
+            rawProcMap.rawlines = procMapFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            rawProcMap.processedlines = rawProcMap.rawlines;
+
+            lines -= rawProcMap.rawlines.Length;
+
+            watch.Restart();
+            AsemFile procMapAsem = Parse(rawProcMap);
+            watch.Stop();
+            parseTime += watch.ElapsedTicks;
+
+            files["ProcMapData.12asm"] = procMapAsem;
+
+            if (generateProcMapSource)
+            {
+                File.WriteAllText(Path.Combine(dirInf.FullName, "ProcMapData.12asm"), procMapFile.ToString());
             }
 
             #endregion
@@ -1322,7 +1401,7 @@ namespace VM12Asm
                 }
                 else if ((c = str.Match(line)).Success)
                 {
-                    Token string_tok = Token.LitToken(line_num, c.Value.Trim(), breakpoint);
+                    Token string_tok = Token.LitToken(line_num, c.Groups[2].Value.Trim(), breakpoint, c.Groups[1].Success);
 
                     currProc.tokens.Add(string_tok);
                 }
@@ -1521,7 +1600,7 @@ namespace VM12Asm
 
                     if (proc.Value.location_const != null)
                     {
-                        int location = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, proc.Value.location_const, file.Value.Constants));
+                        int location = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, proc.Value.location_const, false, file.Value.Constants));
 
                         // Interrupts does not specify parameters and locals!
                         switch (location)
@@ -1560,8 +1639,8 @@ namespace VM12Asm
                         }
                         else
                         {
-                            proc.Value.parameters = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, parameters.Value, file.Value.Constants));
-                            proc.Value.locals = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, locals.Value, file.Value.Constants));
+                            proc.Value.parameters = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, parameters.Value, false, file.Value.Constants));
+                            proc.Value.locals = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, locals.Value, false, file.Value.Constants));
                         }
                         
 
@@ -1624,7 +1703,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), peek.Raw, file.Value.Constants);
 
                                             if (value.Length == 2)
                                             {
@@ -1667,7 +1746,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), peek.Raw, file.Value.Constants);
 
                                             if (value.Length <= 2)
                                             {
@@ -1729,7 +1808,7 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, peek.Raw, file.Value.Constants);
                                             if (value.Length > 2)
                                             {
                                                 Error(file.Value.Raw, current.Line, $"The litteral {peek.Value} does not fit in 24-bits! {current.Opcode} only takes 24-bit arguments!");
@@ -1764,7 +1843,7 @@ namespace VM12Asm
                                             }
                                             else if (peek.Type == TokenType.Litteral)
                                             {
-                                                short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
+                                                short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, peek.Raw, file.Value.Constants);
 
                                                 if (value.Length > 2)
                                                 {
@@ -1814,7 +1893,7 @@ namespace VM12Asm
                                     case Opcode.Dec_local_l:
                                         if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, file.Value.Constants);
+                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, peek.Value, peek.Raw, file.Value.Constants);
                                             if (value.Length > 1)
                                             {
                                                 Error(file.Value.Raw, current.Line, $"{current.Opcode} only takes a single word argument!");
@@ -1867,7 +1946,7 @@ namespace VM12Asm
                             case TokenType.Litteral:
                                 if (verbose) Console.WriteLine($"Litteral {current.Value}");
 
-                                short[] values = ParseLitteral(file.Value.Raw, current.Line, current.Value, file.Value.Constants);
+                                short[] values = ParseLitteral(file.Value.Raw, current.Line, current.Value, current.Raw, file.Value.Constants);
                                 
                                 ShiftBreakpoints(file.Value, proc.Key, instructions.Count, values.Length);
 
@@ -1948,7 +2027,7 @@ namespace VM12Asm
                     offset += asem.Value.Count;
                 }
             }
-
+            
             var metadataArray = metadata.Values.ToArray();
 
             for (int i = 0; i < metadataArray.Length - 1; i++)
@@ -1966,7 +2045,7 @@ namespace VM12Asm
             }
 
             if (verbose) Console.WriteLine();
-
+            
             foreach (var proc in assembledProcs)
             {
                 foreach (var use in proc_label_uses[proc.Key.name])
@@ -2009,7 +2088,7 @@ namespace VM12Asm
                 }
                 */
             }
-
+            
             if (verbose) Console.WriteLine();
             
             short[] compiledInstructions = new short[ROM_SIZE];
@@ -2024,7 +2103,7 @@ namespace VM12Asm
             }
             
             success = true;
-
+            
             return new LibFile(compiledInstructions, metadata.Values.ToArray(), usedInstructions);
         }
 
@@ -2143,7 +2222,7 @@ namespace VM12Asm
             {
                 AutoConst c = autoConstants[endof_expression.Groups[1].Value];
 
-                return $"0x{ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, c.Value, constants, fileConstants), constants)):X}";
+                return $"0x{ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, c.Value, constants, fileConstants), false, constants)):X}";
             }
             else if (auto_expression.Success)
             {
@@ -2188,7 +2267,7 @@ namespace VM12Asm
                 {
                     Constant next = new Constant(expr.name + "_auto", expr.file, expr.line, auto_expression.Groups[1].Value);
 
-                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(next, fileConstants[Path.GetFileName(next.file.path)], fileConstants), constants));
+                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(next, fileConstants[Path.GetFileName(next.file.path)], fileConstants), false, constants));
 
                     AutoConst autoc = allocAutoConst(size);
 
@@ -2197,7 +2276,7 @@ namespace VM12Asm
                 else
                 {
                     // Just do a substitutuion
-                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, auto_expression.Groups[1].Value, constants, fileConstants), constants));
+                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, auto_expression.Groups[1].Value, constants, fileConstants), false, constants));
 
                     AutoConst autoc = allocAutoConst(size);
 
@@ -2239,8 +2318,8 @@ namespace VM12Asm
 
             return false;
         }
-
-        static short[] ParseLitteral(RawFile file, int line, string litteral, Dictionary<string, Constant> constants)
+        
+        static short[] ParseLitteral(RawFile file, int line, string litteral, bool raw, Dictionary<string, Constant> constants)
         {
             Constant constant;
             short[] value = new short[0];
@@ -2254,8 +2333,7 @@ namespace VM12Asm
             }
             else if (str.Match(litteral).Success)
             {
-                // TODO: Have a "raw" flag!
-                value = ParseString(file, line, litteral, false);
+                value = ParseString(file, line, litteral, raw);
             }
             else if (constants.TryGetValue(litteral, out constant))
             {

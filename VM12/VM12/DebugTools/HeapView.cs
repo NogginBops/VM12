@@ -199,5 +199,10 @@ namespace VM12
         {
             heapViewRefreshTimer.Enabled = refreshToolStripMenuItem.Checked;
         }
+
+        private void heapViewImg_DoubleClick(object sender, EventArgs e)
+        {
+            
+        }
     }
 }
