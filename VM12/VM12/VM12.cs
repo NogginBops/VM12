@@ -496,7 +496,7 @@ namespace VM12
             get
             {
                 int stackStart = FP == -1 ? 0 : (FP + 5);
-                int values = SP + 1 - stackStart;
+                int values = SP - stackStart;
 
                 int[] stack = new int[values];
 

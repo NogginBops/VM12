@@ -90,13 +90,15 @@ namespace VM12Asm
             public RawFile file;
             public int line;
             public string value;
+            public Proc proc;
 
-            public Constant(string name, RawFile file, int line, string value)
+            public Constant(string name, RawFile file, int line, string value, Proc proc = default)
             {
                 this.name = name;
                 this.file = file;
                 this.line = line;
                 this.value = value;
+                this.proc = proc;
             }
 
             public override string ToString()
@@ -115,6 +117,11 @@ namespace VM12Asm
             public int? location;
             public List<Token> tokens;
             public AsemFile file;
+
+            public override string ToString()
+            {
+                return $"{name}({Path.GetFileName(file.Raw.path)}:{line})";
+            }
         }
         
         class RawFile
@@ -185,12 +192,14 @@ namespace VM12Asm
         {
             public readonly string Name;
             public readonly string Value;
+            public readonly int Location;
             public readonly int Length;
 
-            public AutoConst(string name, string value, int length)
+            public AutoConst(string name, string value, int location, int length)
             {
                 this.Name = name;
                 this.Value = value;
+                this.Location = location;
                 this.Length = length;
             }
         }
@@ -205,6 +214,8 @@ namespace VM12Asm
 
         const int VRAM_OFFSET = 0xA00_000;
 
+        const string compiler_generated_warning = "; This is a compiler generated file! Changes to this file will be lost.\n\n";
+
         delegate string TemplateFormater(params object[] values);
 
         private static readonly TemplateFormater sname = (o) => string.Format("(?<!:)\\b{0}\\b", o);
@@ -214,8 +225,8 @@ namespace VM12Asm
             { new Regex(";.*"), "" },
             { new Regex("#reg.*"), "" },
             { new Regex("#endreg.*"), "" },
-            { new Regex("(?<!:)\\bload\\s+#(\\S+)"), "load.lit $1" },
-            { new Regex("(?<!:)\\bloadl\\s+#(\\S+)"), "load.lit.l $1" },
+            { new Regex("(?<!:)\\bload\\s+(#\\S+)"), "load.lit $1" },
+            { new Regex("(?<!:)\\bloadl\\s+(#\\S+)"), "load.lit.l $1" },
             { new Regex("(?<!:)\\bload\\s+(:\\S+)"), "load.lit $1" },
             { new Regex("(?<!:)\\bloadl\\s+(:\\S+)"), "load.lit.l $1" },
             { new Regex("(?<!:)\\bload\\s+(\\d+)"), "load.local $1" },
@@ -231,25 +242,25 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bload\\s+(\".*?\")"), "load.lit.l $1" },
 
             // loadlo
-            { new Regex("(?<!:)\\bloadlo\\s+#(\\S+)\\s*,\\s*#(\\S+)"), "load.lit.l $1 load.lit.l $2 ladd" },
-            { new Regex("(?<!:)\\bloadlo\\s+#(\\S+)\\s*,\\s*(\\S+)"), "load.lit.l $1 load.local.l $2 ladd" },
-            { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*#(\\S+)"), "load.local.l $1 load.lit.l $2 ladd" },
+            { new Regex("(?<!:)\\bloadlo\\s+(#\\S+)\\s*,\\s*(#\\S+)"), "load.lit.l $1 load.lit.l $2 ladd" },
+            { new Regex("(?<!:)\\bloadlo\\s+(#\\S+)\\s*,\\s*(\\S+)"), "load.lit.l $1 load.local.l $2 ladd" },
+            { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*(#\\S+)"), "load.local.l $1 load.lit.l $2 ladd" },
             { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*(\\S+)"), "load.local.l $1 load.local.l $2 ladd" },
 
             // loadlo [SP]
-            { new Regex("(?<!:)\\bloado\\s+\\[SP\\]\\s*,\\s*#(\\S+)"), "loadl.lit.l $1 ladd load.sp" },
+            { new Regex("(?<!:)\\bloado\\s+\\[SP\\]\\s*,\\s*(#\\S+)"), "loadl.lit.l $1 ladd load.sp" },
             { new Regex("(?<!:)\\bloado\\s+\\[SP\\]\\s*,\\s*(\\S+)"), "loadl.local.l $1 ladd load.sp" },
-            { new Regex("(?<!:)\\bloadlo\\s+\\[SP\\]\\s*,\\s*#(\\S+)"), "loadl.lit.l $1 ladd load.sp.l" },
+            { new Regex("(?<!:)\\bloadlo\\s+\\[SP\\]\\s*,\\s*(#\\S+)"), "loadl.lit.l $1 ladd load.sp.l" },
             { new Regex("(?<!:)\\bloadlo\\s+\\[SP\\]\\s*,\\s*(\\S+)"), "loadl.local.l $1 ladd load.sp.l" },
 
             { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+\\[SP\\]"), "store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+(\\d+)"), "store.local $1" },
             { new Regex("(?<!:)\\bstorel\\s+(\\d+)"), "store.local.l $1" },
-            { new Regex("(?<!:)\\bstore\\s+#(\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit $1 store.sp" },
-            { new Regex("(?<!:)\\bstorel\\s+#(\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit.l $1 store.sp.l" },
-            { new Regex("(?<!:)\\bstore\\s+#(\\S+)"), "load.lit $1 store.sp" },
-            { new Regex("(?<!:)\\bstorel\\s+#(\\S+)"), "load.lit.l $1 store.sp.l" },
+            { new Regex("(?<!:)\\bstore\\s+(#\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit $1 store.sp" },
+            { new Regex("(?<!:)\\bstorel\\s+(#\\S+)\\s+@(\\S+)"), "load.lit.l $2 load.lit.l $1 store.sp.l" },
+            { new Regex("(?<!:)\\bstore\\s+(#\\S+)"), "load.lit $1 store.sp" },
+            { new Regex("(?<!:)\\bstorel\\s+(#\\S+)"), "load.lit.l $1 store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+@(\\S+)"), "load.lit.l $1 swap.s.l store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+@(\\S+)"), "load.lit.l $1 swap.l store.sp.l" },
             { new Regex("(?<!:)\\bset\\s+\\[SP\\]"), "set.sp" },
@@ -320,7 +331,7 @@ namespace VM12Asm
 
         static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)>");
 
-        static Regex label = new Regex("(:[A-Za-z0-9_]+)(\\*)?");
+        static Regex label = new Regex("^(:[A-Za-z0-9_]+)(\\*)?");
 
         static Regex proc = new Regex("(:[A-Za-z0-9_]+)(\\s+@(.*))?");
 
@@ -339,6 +350,10 @@ namespace VM12Asm
         static Regex sizeof_expr = new Regex("^sizeof\\(#(.+)\\)$");
 
         static Regex endof_expr = new Regex("^endof\\(#(.+)\\)$");
+        
+        static Regex sizeof_proc_expr = new Regex("^sizeof\\((:.+)\\)$");
+
+        static Regex endof_proc_expr = new Regex("^endof\\((:.+)\\)$");
 
         static Regex arith_expr = new Regex("^#\\((.*)\\)$");
 
@@ -473,9 +488,15 @@ namespace VM12Asm
         static int lines = 0;
         static int tokens = 0;
 
+        static List<Macro> globalMacros = new List<Macro>();
+        
         static Dictionary<string, Constant> globalConstants = new Dictionary<string, Constant>();
 
         static Dictionary<string, AutoConst> autoConstants = new Dictionary<string, AutoConst>();
+
+        static Dictionary<string, List<(string, int)>> sizeOfProcUse = new Dictionary<string, List<(string, int)>>();
+
+        static Dictionary<string, List<(string, int)>> endOfProcUse = new Dictionary<string, List<(string, int)>>();
 
         struct WarningEntry
         {
@@ -620,7 +641,7 @@ namespace VM12Asm
             Console.WriteLine("Preprocessing...");
 
             autoStringsFile.Clear();
-
+            
             autoStringsFile.AppendLine("!noprintouts");
             autoStringsFile.AppendLine("!global");
             autoStringsFile.AppendLine("!no_map");
@@ -698,11 +719,11 @@ namespace VM12Asm
 
             if (generateStringSource)
             {
-                File.WriteAllText(Path.Combine(dirInf.FullName, "AutoStrings.12asm"), autoStringsFile.ToString());
+                File.WriteAllText(Path.Combine(dirInf.FullName, "AutoStrings.12asm"), compiler_generated_warning + autoStringsFile.ToString());
             }
 
             procMapFile.Clear();
-
+            
             procMapFile.AppendLine("!noprintouts");
             procMapFile.AppendLine("!no_map");
             procMapFile.AppendLine("!global");
@@ -722,7 +743,7 @@ namespace VM12Asm
                     foreach (var proc in f.Value.Procs)
                     {
                         int offset = sb.Length;
-                        procMapFile.AppendLine($"\t{proc.Key}* 0x{offset:X6} 0x{proc.Key.Length:X6}");
+                        procMapFile.AppendLine($"\t{proc.Key}* #(sizeof({proc.Key})) 0x{offset:X6} 0x{proc.Key.Length:X6}");
                         sb.Append(proc.Key);
                         procsMapped++;
                     }
@@ -736,7 +757,7 @@ namespace VM12Asm
             
             procMapFile.Insert(insertIndex, $"<proc_map_entries = {procsMapped}>\n" +
                                             $"<proc_map_strings_length = {sb.Length}>\n" +
-                                            $"<proc_map_length = #({procsMapped} 6 *)>\n\n");
+                                            $"<proc_map_length = #({procsMapped} 8 *)>\n\n");
 
             RawFile rawProcMap = new RawFile();
             rawProcMap.path = "ProcMapData.12asm";
@@ -751,10 +772,10 @@ namespace VM12Asm
             parseTime += watch.ElapsedTicks;
 
             files["ProcMapData.12asm"] = procMapAsem;
-
+            
             if (generateProcMapSource)
             {
-                File.WriteAllText(Path.Combine(dirInf.FullName, "ProcMapData.12asm"), procMapFile.ToString());
+                File.WriteAllText(Path.Combine(dirInf.FullName, "ProcMapData.12asm"), compiler_generated_warning + procMapFile.ToString());
             }
 
             #endregion
@@ -1128,8 +1149,6 @@ namespace VM12Asm
             }
         }
 
-        static List<Macro> globalMacros = new List<Macro>();
-
         static string[] PreProcess(string[] lines, string fileName)
         {
             pplines += lines.Length;
@@ -1141,7 +1160,8 @@ namespace VM12Asm
 
             Regex macroDefEnd = new Regex("#end (.*?)");
 
-            Regex macroUse = new Regex("^[^<]*?([A-Za-z0-9_]+)\\(((?:\\s*.*?,?)*)\\)");
+            // FIXME: The '#' in the pre part is a bad hack
+            Regex macroUse = new Regex("^[^<\\n\\r#]*?(\\b(?<!#\\(|#)[A-Za-z0-9_]+)\\(((?:\\s*.*?,?)*)\\)");
 
             List<Macro> macros = new List<Macro>();
 
@@ -1409,20 +1429,21 @@ namespace VM12Asm
                 {
                     if (char.IsWhiteSpace(line, 0))
                     {
-                        string[] SplitNotStrings(string input, char[] chars)
+                        string[] SplitNotStringsOrLitterals(string input, char[] chars)
                         {
-                            return Regex.Matches(input, @"([\""].*?[\""]|'.')|[^ ]+")
+                            return Regex.Matches(input, @"([\""].*?[\""]|'.'|#?\(.*\))|[^ ]+")
                                 .Cast<Match>()
                                 .Select(m => m.Value)
                                 .ToArray();
                         }
 
-                        string[] tokens = SplitNotStrings(line, new[] { ' ', '\t' }); //line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        string[] tokens = SplitNotStringsOrLitterals(line, new[] { ' ', '\t' });
 
                         foreach (var token in tokens)
                         {
                             Token t;
                             Match l;
+                            
                             if (opcodes.TryGetValue(token, out Opcode opcode))
                             {
                                 t = Token.InstToken(line_num, token, breakpoint, opcode);
@@ -1435,9 +1456,17 @@ namespace VM12Asm
                             {
                                 t = Token.LabelToken(line_num, l.Groups[1].Value, breakpoint, l.Groups[2].Success);
                             }
+                            else if (token.StartsWith("#("))
+                            {
+                                t = Token.LitToken(line_num, token, breakpoint);
+                            }
                             else if (num.IsMatch(token) || constants.ContainsKey(token))
                             {
                                 t = Token.LitToken(line_num, token, breakpoint);
+                            }
+                            else if (token.StartsWith("#") && (num.IsMatch(token.Substring(1)) || constants.ContainsKey(token.Substring(1))))
+                            {
+                                t = Token.LitToken(line_num, token.Substring(1), breakpoint);
                             }
                             else if ((l = chr.Match(token)).Success)
                             {
@@ -1525,6 +1554,8 @@ namespace VM12Asm
             
             Dictionary<string, Dictionary<int, string>> proc_label_uses = new Dictionary<string, Dictionary<int, string>>();
 
+            Dictionary<string, Dictionary<int, (Constant constant, int size)>> delayed_const_uses = new Dictionary<string, Dictionary<int, (Constant, int)>>();
+
             if (executable && files.Values.SelectMany(f => f.Procs.Keys).Any(p => p == ":start") == false)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
@@ -1541,9 +1572,14 @@ namespace VM12Asm
             {
                 Console.WriteLine($"Evaluating {file.Value.Constants.Count} const expressions in file '{file.Key}'");
 
-                foreach (var eval_expr in file.Value.Constants.ToList()/*.Where(kvp => const_expr.IsMatch(kvp.Value.value))*/)
+                foreach (var eval_expr in file.Value.Constants.ToList())
                 {
-                    string result = EvalConstant(eval_expr.Value, file.Value.Constants, fileConstants);
+                    string result = EvalConstant(eval_expr.Value, file.Value.Constants, fileConstants, null, out bool delay);
+
+                    if (delay)
+                    {
+                        Error(eval_expr.Value.file, eval_expr.Value.line, "Const cannot be delayed!");
+                    }
 
                     if (eval_expr.Value.value != result)
                     {
@@ -1571,6 +1607,7 @@ namespace VM12Asm
 
                     Dictionary<string, int> local_labels = new Dictionary<string, int>();
                     Dictionary<int, string> local_label_uses = new Dictionary<int, string>();
+                    Dictionary<int, (Constant constant, int size)> local_delayed_const_uses = new Dictionary<int, (Constant, int)>();
 
                     List<short> instructions = new List<short>();
 
@@ -1703,28 +1740,42 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), peek.Raw, file.Value.Constants);
-
-                                            if (value.Length == 2)
+                                            string evalRes = EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants, null, out bool delay);
+                                            
+                                            if (delay)
                                             {
-                                                ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
-                                                instructions.Add((short)Opcode.Load_lit_l);
-                                                instructions.Add(value[1]);
-                                                instructions.Add(value[0]);
+                                                ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 1);
+                                                instructions.Add((short)Opcode.Load_lit);
+                                                local_delayed_const_uses[instructions.Count] = (new Constant($"{proc.Key}_load_lit_{instructions.Count}", file.Value.Raw, peek.Line, peek.Value), 1);
+                                                instructions.Add(0);
+
+                                                if (verbose) Console.WriteLine($"Delayed evaluation of constant '{peek.Value}' for loadl_lit_l");
                                             }
                                             else
                                             {
-                                                // Shift breakpoints before adding instructions
-                                                ShiftBreakpoints(file.Value, proc.Key, instructions.Count, (value.Length * 2) - 1);
+                                                short[] value = ParseLitteral(file.Value.Raw, current.Line, evalRes, peek.Raw, file.Value.Constants);
 
-                                                foreach (var val in value.Reverse())
+                                                if (value.Length == 2)
                                                 {
-                                                    instructions.Add((short)current.Opcode);
-                                                    instructions.Add(val);
+                                                    ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+                                                    instructions.Add((short)Opcode.Load_lit_l);
+                                                    instructions.Add(value[1]);
+                                                    instructions.Add(value[0]);
                                                 }
-                                            }
+                                                else
+                                                {
+                                                    // Shift breakpoints before adding instructions
+                                                    ShiftBreakpoints(file.Value, proc.Key, instructions.Count, (value.Length * 2) - 1);
 
-                                            if (verbose) Console.WriteLine($"Parsed load litteral with litteral {peek.Value}!");
+                                                    foreach (var val in value.Reverse())
+                                                    {
+                                                        instructions.Add((short)current.Opcode);
+                                                        instructions.Add(val);
+                                                    }
+                                                }
+
+                                                if (verbose) Console.WriteLine($"Parsed load litteral with litteral {peek.Value}!");
+                                            }
                                         }
                                         else
                                         {
@@ -1746,17 +1797,31 @@ namespace VM12Asm
                                         }
                                         else if (peek.Type == TokenType.Litteral)
                                         {
-                                            short[] value = ParseLitteral(file.Value.Raw, current.Line, EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants), peek.Raw, file.Value.Constants);
+                                            string evalRes = EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants, null, out bool delay);
 
-                                            if (value.Length <= 2)
+                                            if (delay)
                                             {
                                                 instructions.Add((short)current.Opcode);
-                                                instructions.Add(value.Length < 2 ? (short) (value[0] == 0xFFF ? 0xFFF :  0) : value[1]);
-                                                instructions.Add(value[0]);
+                                                local_delayed_const_uses[instructions.Count] = (new Constant($"{proc.Key}_load_lit_l_{instructions.Count}", file.Value.Raw, peek.Line, peek.Value), 2);
+                                                instructions.Add(0);
+                                                instructions.Add(0);
+
+                                                if (verbose) Console.WriteLine($"Delayed evaluation of constant '{peek.Value}' for loadl_lit_l");
                                             }
                                             else
                                             {
-                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} cannot be followe by a constant bigger than two words!");
+                                                short[] value = ParseLitteral(file.Value.Raw, current.Line, evalRes, peek.Raw, file.Value.Constants);
+
+                                                if (value.Length <= 2)
+                                                {
+                                                    instructions.Add((short)current.Opcode);
+                                                    instructions.Add(value.Length < 2 ? (short)(value[0] == 0xFFF ? 0xFFF : 0) : value[1]);
+                                                    instructions.Add(value[0]);
+                                                }
+                                                else
+                                                {
+                                                    Error(file.Value.Raw, current.Line, $"{current.Opcode} cannot be followe by a constant bigger than two words!");
+                                                }
                                             }
 
                                             tokens.MoveNext();
@@ -1944,17 +2009,32 @@ namespace VM12Asm
                                 }
                                 break;
                             case TokenType.Litteral:
-                                if (verbose) Console.WriteLine($"Litteral {current.Value}");
-
-                                short[] values = ParseLitteral(file.Value.Raw, current.Line, current.Value, current.Raw, file.Value.Constants);
-                                
-                                ShiftBreakpoints(file.Value, proc.Key, instructions.Count, values.Length);
-
-                                for (int i = values.Length - 1; i >= 0; i--)
                                 {
-                                    instructions.Add(values[i]);
+                                    if (verbose) Console.WriteLine($"Litteral {current.Value}");
+
+                                    string evalRes = EvalConstant(file.Value.Raw, current.Line, current.Value, file.Value.Constants, fileConstants, null, out bool delay);
+
+                                    if (delay)
+                                    {
+                                        // FIXME: Delayed consts can only be w2s!!
+                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+                                        local_delayed_const_uses[instructions.Count] = (new Constant($"{proc.Key}_lit_{instructions.Count}", file.Value.Raw, current.Line, current.Value), 2);
+                                        instructions.Add(0);
+                                        instructions.Add(0);
+                                    }
+                                    else
+                                    {
+                                        short[] values = ParseLitteral(file.Value.Raw, current.Line, current.Value, current.Raw, file.Value.Constants);
+
+                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, values.Length);
+
+                                        for (int i = values.Length - 1; i >= 0; i--)
+                                        {
+                                            instructions.Add(values[i]);
+                                        }
+                                    }
+                                    break;
                                 }
-                                break;
                             case TokenType.Label:
                                 if (current.Use == false)
                                 {
@@ -1989,6 +2069,8 @@ namespace VM12Asm
                     proc_label_instructions[proc.Key] = local_labels;
 
                     proc_label_uses[proc.Key] = local_label_uses;
+
+                    delayed_const_uses[proc.Key] = local_delayed_const_uses;
 
                     assembledProcs[proc.Value] = instructions;
 
@@ -2045,7 +2127,37 @@ namespace VM12Asm
             }
 
             if (verbose) Console.WriteLine();
-            
+
+            foreach (var proc in assembledProcs)
+            {
+                foreach (var delayedConst in delayed_const_uses[proc.Key.name])
+                {
+                    string evalRes = EvalConstant(delayedConst.Value.constant, proc.Key.file.Constants, fileConstants, metadata, out bool delay);
+
+                    if (delay)
+                    {
+                        Error(delayedConst.Value.constant.file, delayedConst.Value.constant.line, $"Cannot resolve delayed const '{delayedConst.Value.constant.value}'!");
+                    }
+
+                    short[] data = ParseLitteral(delayedConst.Value.constant.file, delayedConst.Value.constant.line, evalRes, false, proc.Key.file.Constants);
+
+                    if (data.Length > delayedConst.Value.size)
+                    {
+                        Error(delayedConst.Value.constant.file, delayedConst.Value.constant.line, $"Size of delayed const does not match the given loader! Size: {data.Length}, Expected: {delayedConst.Value.size}");
+                    }
+
+                    bool sign_ext = data[data.Length - 1] == 0xFFF;
+                    for (int i = 0; i < delayedConst.Value.size; i++)
+                    {
+                        proc.Value[delayedConst.Key + i] = delayedConst.Value.size - 1 - i >= data.Length ? (short)(sign_ext ? 0xFFF : 0) : data[delayedConst.Value.size - 1 - i];
+                    }
+
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+                    if (verbose_lit) Console.WriteLine($"Evaluated delayed constant '{delayedConst.Value.constant.value}' to value '{ToInt(data):X}'");
+                    Console.ForegroundColor = conColor;
+                }
+            }
+
             foreach (var proc in assembledProcs)
             {
                 foreach (var use in proc_label_uses[proc.Key.name])
@@ -2107,12 +2219,12 @@ namespace VM12Asm
             return new LibFile(compiledInstructions, metadata.Values.ToArray(), usedInstructions);
         }
 
-        static string EvalConstant(RawFile file, int line, string constant, Dictionary<string, Constant> constants, Dictionary<string, Dictionary<string, Constant>> fileConstants)
+        static string EvalConstant(RawFile file, int line, string constant, Dictionary<string, Constant> constants, Dictionary<string, Dictionary<string, Constant>> fileConstants, Dictionary<Proc, ProcMetadata> procs, out bool delay)
         {
-            return EvalConstant(new Constant("lit:" + constant, file, line, constant), constants, fileConstants);
+            return EvalConstant(new Constant("lit:" + constant, file, line, constant), constants, fileConstants, procs, out delay);
         }
 
-        static string EvalConstant(Constant expr, Dictionary<string, Constant> constants, Dictionary<string, Dictionary<string, Constant>> fileConstants)
+        static string EvalConstant(Constant expr, Dictionary<string, Constant> constants, Dictionary<string, Dictionary<string, Constant>> fileConstants, Dictionary<Proc, ProcMetadata> procs, out bool delay)
         {
             string result = null;
 
@@ -2120,10 +2232,13 @@ namespace VM12Asm
             Match external_expression = extern_expr.Match(expr.value);
             Match sizeof_expression = sizeof_expr.Match(expr.value);
             Match endof_expression = endof_expr.Match(expr.value);
+            Match sizeof_proc_expression = sizeof_proc_expr.Match(expr.value);
+            Match endof_proc_expression = endof_proc_expr.Match(expr.value);
             Match auto_expression = auto.Match(expr.value);
             
             if (IsLitteral(expr.file, expr.line, expr.value, constants))
             {
+                delay = false;
                 return expr.value;
             }
             else if (constant_expression.Success)
@@ -2133,7 +2248,7 @@ namespace VM12Asm
                 string[] tokens = constant_expression.Groups[1].Value.Split(' ');
 
                 Stack<string> stack = new Stack<string>(tokens.Length);
-
+                
                 int num = 0;
                 foreach (var token in tokens)
                 {
@@ -2168,7 +2283,13 @@ namespace VM12Asm
                             stack.Push($"{remainder}");
                             break;
                         default:
-                            stack.Push(EvalConstant(new Constant(expr.name + $"_arith{num++}", expr.file, expr.line, token), constants, fileConstants));
+                            stack.Push(EvalConstant(new Constant(expr.name + $"_arith{num++}", expr.file, expr.line, token), constants, fileConstants, procs, out delay));
+
+                            if (delay)
+                            {
+                                // We need to delay evaluation!
+                                return expr.value;
+                            }
                             break;
                     }
                 }
@@ -2178,11 +2299,13 @@ namespace VM12Asm
                     Error(expr.file, expr.line, $"Could not evaluate expression '{constant_expression.Groups[1].Value}', stack: {{{String.Join(", ", stack)}}}");
                 }
 
+                delay = false;
+
                 return stack.Pop();
             }
             else if (expr.value.StartsWith("#"))
             {
-                return EvalConstant(constants[expr.value.Substring(1)], constants, fileConstants);
+                return EvalConstant(constants[expr.value.Substring(1)], constants, fileConstants, procs, out delay);
             }
             else if (external_expression.Success)
             {
@@ -2193,7 +2316,7 @@ namespace VM12Asm
 
                     if (globalConstants.TryGetValue(external_expression.Groups[1].Value, out Constant value))
                     {
-                        return EvalConstant(value, fileConstants[Path.GetFileName(value.file.path)], fileConstants);
+                        return EvalConstant(value, fileConstants[Path.GetFileName(value.file.path)], fileConstants, procs, out delay);
                     }
                     else
                     {
@@ -2204,7 +2327,7 @@ namespace VM12Asm
                 {
                     if (globalConstants.TryGetValue(expr.name, out Constant value))
                     {
-                        return EvalConstant(value, fileConstants[Path.GetFileName(value.file.path)], fileConstants);
+                        return EvalConstant(value, fileConstants[Path.GetFileName(value.file.path)], fileConstants, procs, out delay);
                     }
                     else
                     {
@@ -2216,13 +2339,59 @@ namespace VM12Asm
             {
                 AutoConst c = autoConstants[sizeof_expression.Groups[1].Value];
 
+                delay = false;
                 return $"{c.Length}";
             }
             else if (endof_expression.Success)
             {
                 AutoConst c = autoConstants[endof_expression.Groups[1].Value];
 
-                return $"0x{ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, c.Value, constants, fileConstants), false, constants)):X}";
+                delay = false;
+                return $"0x{c.Location + c.Length:X6}";
+            }
+            else if (sizeof_proc_expression.Success)
+            {
+                if (procs == null)
+                {
+                    // Delay evaluation to when we know this!
+                    delay = true;
+                    return expr.value;
+                }
+                else
+                {
+                    delay = false;
+                    string proc_name = sizeof_proc_expression.Groups[1].Value;
+                    if (procs.ToDictionary(kvp => kvp.Key.name, kvp => kvp.Value.size).TryGetValue(proc_name, out int count))
+                    {
+                        return $"{count}";
+                    }
+                    else
+                    {
+                        Error(expr.file, expr.line, $"Could not solve proc '{proc_name}' in const '{expr.value}'");
+                    }
+                }
+            }
+            else if (endof_proc_expression.Success)
+            {
+                if (procs == null)
+                {
+                    // Delay evaluation to when we know this!
+                    delay = true;
+                    return expr.value;
+                }
+                else
+                {
+                    delay = false;
+                    string proc_name = endof_proc_expression.Groups[1].Value;
+                    if (procs.ToDictionary(kvp => kvp.Key.name, kvp => ROM_OFFSET + kvp.Value.location + kvp.Value.size).TryGetValue(proc_name, out int end))
+                    {
+                        return $"0x{end:X6}";
+                    }
+                    else
+                    {
+                        Error(expr.file, expr.line, $"Could not solve proc '{proc_name}' in const '{expr.value}'");
+                    }
+                }
             }
             else if (auto_expression.Success)
             {
@@ -2247,7 +2416,7 @@ namespace VM12Asm
 
                     int end = autoVars + size;
 
-                    AutoConst c = new AutoConst(expr.name, value, size);
+                    AutoConst c = new AutoConst(expr.name, value, autoVars, size);
 
                     autoConstants[expr.name] = c;
                     constants[expr.name + ".size"] = new Constant(expr.name + ".size", expr.file, expr.line, $"0x{(size >> 12) & 0xFFF:X3}_{size & 0xFFF:X3}");
@@ -2261,13 +2430,14 @@ namespace VM12Asm
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Using already allocated auto '{autoConst.Name}' with value {autoConst.Value}");
                     Console.ForegroundColor = conColor;
+                    delay = false;
                     return autoConst.Value;
                 }
                 else if (const_expr.IsMatch(auto_expression.Groups[1].Value))
                 {
                     Constant next = new Constant(expr.name + "_auto", expr.file, expr.line, auto_expression.Groups[1].Value);
 
-                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(next, fileConstants[Path.GetFileName(next.file.path)], fileConstants), false, constants));
+                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(next, fileConstants[Path.GetFileName(next.file.path)], fileConstants, procs, out delay), false, constants));
 
                     AutoConst autoc = allocAutoConst(size);
 
@@ -2276,7 +2446,7 @@ namespace VM12Asm
                 else
                 {
                     // Just do a substitutuion
-                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, auto_expression.Groups[1].Value, constants, fileConstants), false, constants));
+                    int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(expr.file, expr.line, auto_expression.Groups[1].Value, constants, fileConstants, procs, out delay), false, constants));
 
                     AutoConst autoc = allocAutoConst(size);
 
@@ -2288,9 +2458,10 @@ namespace VM12Asm
                 Error(expr.file, expr.line, $"Could not evaluate const_expr {expr.value} for constant {expr.name}");
             }
 
+            delay = false;
             return result;
         }
-
+        
         static bool IsLitteral(RawFile file, int line, string litteral, Dictionary<string, Constant> constants)
         {
             Constant constant;
