@@ -92,7 +92,7 @@ namespace VM12
                 }
             }
 
-            S_HIT[address / STORAGE_CHUNK_SIZE] = true;
+            S_HIT[address] = true;
         }
 
         private static void WriteStorage(int* data, int address)
@@ -117,7 +117,7 @@ namespace VM12
 
             Console.WriteLine();
 
-            S_HIT[address / STORAGE_CHUNK_SIZE] = true;
+            S_HIT[address] = true;
         }
 
         private static void ReadStorage(byte* data, int address)
@@ -508,7 +508,7 @@ namespace VM12
                 return stack;
             }
         }
-
+        
         string[] CurrentCompactFrame => GetCompactStackFrame(CurrentStackFrame);
 
         string[] GetCompactStackFrame(StackFrame frame)
@@ -651,6 +651,21 @@ namespace VM12
             }
 
             return depth;
+        }
+
+        public int GetStackDepth(int fp)
+        {
+            int currentFP = fp;
+            int count = 0;
+
+            do
+            {
+                count++;
+
+                currentFP = MEM[currentFP + 2] << 12 | MEM[currentFP + 3];
+            } while (currentFP != 0);
+
+            return count;
         }
 
         public DirectoryInfo sourceDir { get; private set; }
@@ -2137,7 +2152,7 @@ namespace VM12
                 {
                     if (S_HIT[chunk])
                     {
-                        int addr = chunk * STORAGE_CHUNK_SIZE;
+                        int addr = chunk;
 
                         writer.Write(addr);
 
