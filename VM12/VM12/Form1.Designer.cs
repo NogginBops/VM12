@@ -40,8 +40,10 @@
             this.instructionTimesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.heapViewToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.debuggerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.profilerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.memoryToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
-            this.pbxMain = new System.Windows.Forms.PictureBox();
+            this.pbxMain = new Util.ExtendedPictureBox();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -88,7 +90,9 @@
             this.interruptFrequencyToolStripMenuItem1,
             this.instructionTimesToolStripMenuItem,
             this.heapViewToolStripMenuItem,
-            this.debuggerToolStripMenuItem});
+            this.debuggerToolStripMenuItem,
+            this.profilerToolStripMenuItem,
+            this.memoryToolStripMenuItem});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -135,6 +139,20 @@
             this.debuggerToolStripMenuItem.Text = "Debugger";
             this.debuggerToolStripMenuItem.Click += new System.EventHandler(this.debuggerToolStripMenuItem_Click);
             // 
+            // profilerToolStripMenuItem
+            // 
+            this.profilerToolStripMenuItem.Name = "profilerToolStripMenuItem";
+            this.profilerToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.profilerToolStripMenuItem.Text = "Profiler";
+            this.profilerToolStripMenuItem.Click += new System.EventHandler(this.profilerToolStripMenuItem_Click);
+            // 
+            // memoryToolStripMenuItem
+            // 
+            this.memoryToolStripMenuItem.Name = "memoryToolStripMenuItem";
+            this.memoryToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.memoryToolStripMenuItem.Text = "Memory";
+            this.memoryToolStripMenuItem.Click += new System.EventHandler(this.memoryToolStripMenuItem_Click);
+            // 
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
@@ -146,6 +164,7 @@
             this.pbxMain.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Stretch;
             this.pbxMain.Cursor = System.Windows.Forms.Cursors.Default;
             this.pbxMain.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pbxMain.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
             this.pbxMain.Location = new System.Drawing.Point(0, 24);
             this.pbxMain.Name = "pbxMain";
             this.pbxMain.Size = new System.Drawing.Size(640, 480);
@@ -167,12 +186,14 @@
             this.Controls.Add(this.menuStrip);
             this.DoubleBuffered = true;
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
+            this.KeyPreview = true;
             this.MainMenuStrip = this.menuStrip;
             this.MaximizeBox = false;
             this.Name = "VM12Form";
             this.Text = "VM12";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.VM12Form_FormClosing);
             this.KeyDown += new System.Windows.Forms.KeyEventHandler(this.VM12Form_KeyDown);
+            this.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.VM12Form_KeyPress);
             this.KeyUp += new System.Windows.Forms.KeyEventHandler(this.VM12Form_KeyUp);
             this.menuStrip.ResumeLayout(false);
             this.menuStrip.PerformLayout();
@@ -189,7 +210,7 @@
         private System.Windows.Forms.ToolStripMenuItem openToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem developerToolStripMenuItem;
         private System.Windows.Forms.Timer refreshTimer;
-        private System.Windows.Forms.PictureBox pbxMain;
+        private Util.ExtendedPictureBox pbxMain;
         private System.Windows.Forms.ToolStripMenuItem instructionFrequencyToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem stopToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem interruptFrequencyToolStripMenuItem;
@@ -197,6 +218,8 @@
         private System.Windows.Forms.ToolStripMenuItem instructionTimesToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem heapViewToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem debuggerToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem profilerToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem memoryToolStripMenuItem;
     }
 }
 

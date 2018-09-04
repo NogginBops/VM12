@@ -14,17 +14,28 @@ using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using Debugging;
+using Profiler;
 
 namespace VM12
 {
     public partial class VM12Form : Form
     {
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public unsafe struct ThreeByteColor
+        {
+            public byte r;
+            public byte g;
+            public byte b;
+        }
+        
+        public static readonly ThreeByteColor[] colorLUT = new ThreeByteColor[4096];
+
         public static VM12Form form { get; private set; }
 
         private volatile VM12 vm12;
 
         public static long StartTime = -1;
-
+        
         private readonly static byte[] data = new byte[VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT];
 
         private readonly static GCHandle BitsHandle = GCHandle.Alloc(data, GCHandleType.Pinned);
@@ -37,35 +48,8 @@ namespace VM12
 
         private readonly static ProgramDebugger debugger = new ProgramDebugger();
 
-#if DEBUG
-        System.Threading.Timer perfTimer;
-
-        Dictionary<string, int> sourceHitCount = new Dictionary<string, int>();
+        private readonly static ProcProfiler profiler = new ProcProfiler();
         
-        private void MeasurePerf(object state)
-        {
-            if (vm12 != null)
-            {
-                if (false)
-                {
-                    VM12.ProcMetadata data = vm12.CurrentMetadata;
-                    if (data != null)
-                    {
-                        string key = $"{data.file}:{vm12.GetSourceCodeLineFromMetadataAndOffset(data, vm12.ProgramCounter)}";
-                        if (sourceHitCount.TryGetValue(key, out int val))
-                        {
-                            sourceHitCount[key] = val + 1;
-                        }
-                        else
-                        {
-                            sourceHitCount[key] = 1;
-                        }
-                    }
-                }
-            }
-        }
-#endif
-
         public VM12Form()
         {
             if (form != null)
@@ -77,17 +61,38 @@ namespace VM12
 
             InitializeComponent();
             
-            this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
+            this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             
             Shown += (s, e1) => LoadProgram();
             
             pbxMain.Image = bitmap;
 
-            //SetSize(480 * 2, InterpolationMode.NearestNeighbor);
+            pbxMain.MouseWheel += PbxMain_MouseWheel;
+
+            GenerateLUT();
+
+            SetSize(VM12.SCREEN_HEIGHT, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
 #endif
+        }
+        
+        private void GenerateLUT()
+        {
+            for (int i = 0; i < colorLUT.Length; i++)
+            {
+                ThreeByteColor col;
+
+                // r
+                col.r = (byte)((i & 0x00F) << 4);
+                // g
+                col.g = (byte)(i & 0x0F0);
+                // b
+                col.b = (byte)((i >> 4) & 0x0F0);
+
+                colorLUT[i] = col;
+            }
         }
 
         private void SetSize(int height, InterpolationMode scaleMode = InterpolationMode.Default)
@@ -100,7 +105,7 @@ namespace VM12
             this.Width = width + 16;
             this.Height = height + 63;
             pbxMain.SizeMode = PictureBoxSizeMode.StretchImage;
-            
+            pbxMain.InterpolationMode = scaleMode;
         }
         
         private void LoadProgram()
@@ -123,22 +128,38 @@ namespace VM12
                         VM12Asm.VM12Asm.Reset();
                     }
                     
-                    short[] rom = new short[(int)Math.Ceiling(inf.Length / 2d)];
+                    short[] rom = new short[VM12.ROM_SIZE];
 
                     using (BinaryReader br = new BinaryReader(File.OpenRead(inf.FullName)))
                     {
+                        while (br.BaseStream.Position < br.BaseStream.Length)
+                        {
+                            int pos = br.ReadInt32();
+                            int length = br.ReadInt32();
+
+
+                            short[] data = new short[length];
+                            for (int i = 0; i < length; i++)
+                            {
+                                data[i] = br.ReadInt16();
+                            }
+
+                            Console.WriteLine($"Reading a block from pos {pos} with length {length} with fist value {data[0]} and last value {data[data.Length - 1]}");
+
+                            Array.Copy(data, 0, rom, pos, length);
+                        }
+
+                        /*
                         for (int i = 0; i < rom.Length; i++)
                         {
                             rom[i] = br.ReadInt16();
                         }
+                        */
                     }
 
                     if (vm12 != null && vm12.Running)
                     {
                         vm12.Stop();
-#if DEBUG
-                        perfTimer.Dispose();
-#endif
                     }
 
 #if DEBUG
@@ -179,9 +200,6 @@ namespace VM12
                     
                     hTimer.Start();
                     
-#if DEBUG
-                    perfTimer = new System.Threading.Timer(MeasurePerf, null, 0, 1);
-#endif
                 });
             }
         }
@@ -272,20 +290,21 @@ namespace VM12
                 unsafe
                 {
                     fixed (int* mem = vm12.MEM)
+                    fixed (byte* b_data = data)
+                    fixed (ThreeByteColor* lut = colorLUT)
                     {
+                        int index = 0;
+
                         int* vram = mem + VM12.VRAM_START;
                         for (int i = 0; i < size; i += bytesPerPixel)
                         {
-                            int index = i / (bytesPerPixel);
-
-                            int val = vram[index];
-
-                            // r
-                            data[i] = (byte)((val & 0x00F) << 4);
-                            // g
-                            data[i + 1] = (byte)(val & 0x0F0);
-                            // b
-                            data[i + 2] = (byte)((val >> 4) & 0x0F0);
+                            ThreeByteColor col = lut[vram[index]];
+                            
+                            b_data[i] = col.r;
+                            b_data[i + 1] = col.g;
+                            b_data[i + 2] = col.b;
+                            
+                            index++;
                         }
                     }
                 }
@@ -361,11 +380,17 @@ namespace VM12
             Debug.WriteLine($"Keycode: {(int)e.KeyCode:X2}");
             
             vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 1, (int) e.KeyCode & 0xFFF }));
+
+            e.Handled = true;
         }
 
         private void VM12Form_KeyUp(object sender, KeyEventArgs e)
         {
+            Debug.WriteLine($"Released keycode: {(int)e.KeyCode:X2}");
+
             vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 0, (int) e.KeyCode & 0xFFF }));
+
+            e.Handled = true;
         }
 
         private void stopToolStripMenuItem_Click(object sender, EventArgs e)
@@ -387,12 +412,25 @@ namespace VM12
 
         private void PressButtons(MouseButtons buttons)
         {
-            currentButtons |= (int)buttons >> 20;
+            currentButtons |= (int)buttons >> 13;
         }
 
         private void ReleaseButtons(MouseButtons buttons)
         {
-            currentButtons &= ~((int)buttons >> 20);
+            currentButtons &= ~((int)buttons >> 13);
+        }
+
+        private void SetScroll(int delta)
+        {
+            int ticks = delta / SystemInformation.MouseWheelScrollDelta;
+            // Clear the scroll part
+            currentButtons &= 0xFC0;
+            // Cast the ticks
+            // Ticks less than -64 will be interpreted as positive...
+            if (ticks < -64) ticks = -64;
+            ticks &= 0x03F;
+            
+            currentButtons |= ticks;
         }
 
         int currentButtons;
@@ -413,6 +451,8 @@ namespace VM12
         {
             int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
+            
+            SetScroll(e.Delta);
 
             vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
 
@@ -425,6 +465,8 @@ namespace VM12
             int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
+            SetScroll(e.Delta);
+
             PressButtons(e.Button);
             vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
         }
@@ -434,10 +476,22 @@ namespace VM12
             int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
             int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
 
+            SetScroll(e.Delta);
+
             ReleaseButtons(e.Button);
             vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
         }
 
+        private void PbxMain_MouseWheel(object sender, MouseEventArgs e)
+        {
+            int x = map(e.X, 0, pbxMain.Width, 0, VM12.SCREEN_WIDTH);
+            int y = map(e.Y, 0, pbxMain.Height, 0, VM12.SCREEN_HEIGHT);
+
+            SetScroll(e.Delta);
+            
+            vm12?.Interrupt(new Interrupt(InterruptType.mouse, new int[] { x, y, currentButtons }));
+        }
+        
         private bool showingCursor = true;
 
         private void pbxMain_MouseEnter(object sender, EventArgs e)
@@ -477,12 +531,7 @@ namespace VM12
                 }
             }
         }
-
-        //private void hTimer_Tick(object sender, EventArgs e)
-        //{
-        //    vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new int[] { hTimer.Interval }));
-        //}
-
+        
         private void hTime_Thread(object state)
         {
             Stopwatch hTimer_watch = new Stopwatch();
@@ -499,7 +548,7 @@ namespace VM12
                 {
                     Thread.Sleep(9);
                 }
-                catch
+                catch(ThreadInterruptedException)
                 {
                     return;
                 }
@@ -530,7 +579,7 @@ namespace VM12
                 Dictionary<string, VM12.AutoConst> autoCosnts = vm12.autoConsts;
                 
                 int metadata_addr = autoCosnts.TryGetValue("metadata", out VM12.AutoConst m_addr) ? m_addr.Addr : throw new Exception();
-                int heap_addr = autoCosnts.TryGetValue("metadata", out VM12.AutoConst h_addr) ? h_addr.Addr : throw new Exception();
+                int heap_addr = autoCosnts.TryGetValue("heap", out VM12.AutoConst h_addr) ? h_addr.Addr : throw new Exception();
 
                 HeapView.Heap heap_struct;
 
@@ -569,6 +618,32 @@ namespace VM12
         public static ProgramDebugger GetProgramDebugger()
         {
             return debugger;
+        }
+
+        private void profilerToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (vm12 != null)
+            {
+                profiler.SetVM(vm12);
+            }
+
+            profiler.Show();
+            profiler.BringToFront();
+        }
+
+        private void VM12Form_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            e.Handled = true;
+        }
+
+        private void memoryToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (vm12 != null)
+            {
+                MemoryInspector inspector = new MemoryInspector();
+                inspector.SetVM12(vm12);
+                inspector.Show();
+            }
         }
 #endif
     }

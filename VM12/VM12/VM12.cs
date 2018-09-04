@@ -11,6 +11,8 @@ using VM12_Opcode;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
+using SKON;
+using System.Numerics;
 
 namespace VM12
 {
@@ -39,9 +41,9 @@ namespace VM12
 
     unsafe class VM12
     {
-        public const int RAM_SIZE = 4194304;
-        public const int VRAM_SIZE = 307200;
-        public const int ROM_SIZE = 12275712;
+        public const int RAM_SIZE = 10_485_760;
+        public const int VRAM_SIZE = 307_200;
+        public const int ROM_SIZE = 5_984_256;
 
         public const int RAM_START = 0;
         public const int VRAM_START = RAM_SIZE;
@@ -53,13 +55,109 @@ namespace VM12
         public const int SCREEN_HEIGHT = 480;
 
         public const int STORAGE_START_ADDR = 0;
-        public const int STORAGE_SIZE = 357_913_941;
+        public const int STORAGE_SIZE = 357_913_941 / 2;
+
+        public const int STACK_MAX_ADDRESS = 0x100_000;
 
         public int[] MEM = new int[MEM_SIZE];
-
+        
         private FileInfo storageFile;
-        //public byte[] STORAGE = new byte[STORAGE_SIZE * 3];
+        //public byte[] STORAGE = new byte[STORAGE_SIZE * 2];
 
+        private static byte[][,] AllocateStorageMemory(int addresses, int chunkChunks, int chunkSize)
+        {
+            byte[][,] array = new byte[addresses / chunkChunks][,];
+
+            return array;
+        }
+
+        private const int STORAGE_CHUNK_SIZE = 128;
+        private const int STORAGE_CHUNK_GROUPING = 4096;
+
+        public static readonly byte[][,] S = AllocateStorageMemory(MEM_SIZE, STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE);
+        public static readonly bool[] S_HIT = new bool[MEM_SIZE / STORAGE_CHUNK_SIZE];
+
+        private static void WriteStorage(byte* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE; i++)
+                {
+                    storage_data[group_index + i] = data[i];
+                }
+            }
+
+            S_HIT[address] = true;
+        }
+
+        private static void WriteStorage(int* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            Console.WriteLine($"Writing to address {address}:");
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
+                {
+                    storage_data[group_index + i * 2] = (byte) (data[i] >> 12 & 0xFFF);
+                    storage_data[group_index + i * 2 + 1] = (byte) (data[i] & 0xFFF);
+
+                    Console.Write($"{data[i]:X}, ");
+                }
+            }
+
+            Console.WriteLine();
+
+            S_HIT[address] = true;
+        }
+
+        private static void ReadStorage(byte* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE; i++)
+                {
+                    data[i] = storage_data[group_index + i];
+                }
+            }
+        }
+
+        private static void ReadStorage(int* data, int address)
+        {
+            int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            int s_index = address / STORAGE_CHUNK_GROUPING;
+
+            if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
+
+            fixed (byte* storage_data = S[s_index])
+            {
+                for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
+                {
+                    data[i] = storage_data[group_index + i * 2] << 12 | storage_data[group_index + i * 2 + 1];
+                }
+            }
+        }
+
+        private static byte[,] GetChunk(int address, out int offset)
+        {
+            offset = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
+            return S[address / STORAGE_CHUNK_GROUPING];
+        }
+        
         private bool interruptSet = false;
 
         private Interrupt[] intrr = new Interrupt[Enum.GetValues(typeof(InterruptType)).Length];
@@ -191,15 +289,19 @@ namespace VM12
         }
 #elif DEBUG
 
+        private Dictionary<int, bool[,]> fontCache = new Dictionary<int, bool[,]>();
+
         public volatile bool UseDebugger = false;
         
         public int[] InterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
 
         public int[] MissedInterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
 
-        public int[] instructionFreq = new int[Enum.GetValues(typeof(Opcode)).Length];
+        public long[] instructionFreq = new long[Enum.GetValues(typeof(Opcode)).Length];
 
         public int[] instructionTimes = new int[Enum.GetValues(typeof(Opcode)).Length];
+
+        public long[] romInstructionCounter = new long[MEM_SIZE];
 
         #region Debug
 
@@ -215,7 +317,7 @@ namespace VM12
 
             public override string ToString()
             {
-                return name + ": " + base.ToString();
+                return name;
             }
         }
 
@@ -248,31 +350,36 @@ namespace VM12
 
         public Dictionary<string, AutoConst> autoConsts { get; private set; } = new Dictionary<string, AutoConst>();
 
-        int GetConstValue(string name)
+        int[] GetConstValue(string name)
         {
             AutoConst constant = autoConsts[name];
             return GetConstValue(constant);
         }
 
-        int GetConstValue(AutoConst constant)
+        int[] GetConstValue(AutoConst constant)
         {
             switch (constant.Length)
             {
                 case 1:
-                    return MEM[constant.Addr];
+                    return new int[] { MEM[constant.Addr] };
                 case 2:
-                    return MEM[constant.Addr] << 12 | MEM[constant.Addr + 1];
+                    return new int[] { MEM[constant.Addr] << 12 | MEM[constant.Addr + 1] };
                 default:
                     // TODO: Maybe better printout
-                    return MEM[constant.Addr] << 12 | MEM[constant.Addr + 1];
+                    int[] values = new int[constant.Length];
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        values[i] = MEM[constant.Addr + i];
+                    }
+                    return values;
             }
         }
 
-        Dictionary<string, int> ConstValues
+        Dictionary<string, int[]> ConstValues
         {
             get
             {
-                Dictionary<string, int> values = new Dictionary<string, int>();
+                Dictionary<string, int[]> values = new Dictionary<string, int[]>();
 
                 foreach (var c in autoConsts)
                 {
@@ -283,7 +390,7 @@ namespace VM12
             }
         }
 
-        List<ProcMetadata> metadata = new List<ProcMetadata>();
+        public List<ProcMetadata> metadata = new List<ProcMetadata>();
 
         public ProcMetadata GetMetadataFromOffset(int offset)
         {
@@ -389,7 +496,7 @@ namespace VM12
             get
             {
                 int stackStart = FP == -1 ? 0 : (FP + 5);
-                int values = SP + 1 - stackStart;
+                int values = SP - stackStart;
 
                 int[] stack = new int[values];
 
@@ -401,7 +508,7 @@ namespace VM12
                 return stack;
             }
         }
-
+        
         string[] CurrentCompactFrame => GetCompactStackFrame(CurrentStackFrame);
 
         string[] GetCompactStackFrame(StackFrame frame)
@@ -445,7 +552,12 @@ namespace VM12
             frame.prev_addr = MEM[fp + 2] << 12 | (ushort)MEM[fp + 3];
 
             frame.locals = MEM[fp + 4] << 12 | MEM[fp + 5];
-            frame.localValues = new int[frame.locals];
+
+            if (frame.locals > fp) frame.locals &= 0xFFF;
+
+            if (frame.locals > fp) frame.locals = -1;
+            else frame.localValues = new int[frame.locals];
+
             for (int i = 0; i < frame.locals; i++)
             {
                 frame.localValues[i] = MEM[fp - frame.locals + i];
@@ -541,6 +653,21 @@ namespace VM12
             return depth;
         }
 
+        public int GetStackDepth(int fp)
+        {
+            int currentFP = fp;
+            int count = 0;
+
+            do
+            {
+                count++;
+
+                currentFP = MEM[currentFP + 2] << 12 | MEM[currentFP + 3];
+            } while (currentFP != 0);
+
+            return count;
+        }
+
         public DirectoryInfo sourceDir { get; private set; }
 
         #endregion
@@ -551,6 +678,7 @@ namespace VM12
 
             sourceDir = metadata.Directory;
 
+            //ReadSKONMetadata(metadata);
             ParseMetadata(metadata);
 
             breaks = new bool[MEM.Length];
@@ -564,8 +692,9 @@ namespace VM12
                 }
             }
 
-            /*
             storageFile = storage;
+            ReadStorageData(storageFile);
+            /*
             using (FileStream stream = storage.OpenRead())
             {
                 stream.Read(STORAGE, 0, (int) storage.Length);
@@ -575,9 +704,50 @@ namespace VM12
 
         Regex command = new Regex("^\\[(\\S+?):(.+)\\]$");
 
+        void ReadSKONMetadata(FileInfo metadataFile)
+        {
+            SKONObject metadata = SKON.SKON.LoadFile(Path.ChangeExtension(metadataFile.FullName, "skon"));
+
+            foreach (var constant in metadata["constants"].Values)
+            {
+                AutoConst c = new AutoConst(constant["name"].String, Convert.ToInt32(constant["value"].String.Substring(2).Replace("_", ""), 16), constant["length"].Int ?? -1);
+
+                autoConsts[c.Name] = c;
+            }
+
+            foreach (var proc in metadata["procs"].Values)
+            {
+                ProcMetadata procMeta = new ProcMetadata();
+
+                procMeta.name = proc["name"].String;
+                procMeta.file = proc["file"].String;
+                procMeta.location = (ROM_START + proc["location"].Int) ?? -1;
+                procMeta.sourceLine = proc["proc-line"].Int ?? -1;
+                procMeta.breaks = new List<int>(proc["break"].Values.Select(skon => skon.Int ?? -1));
+                procMeta.lineLinks = proc["link-lines"].Values
+                    .Select(v => v.String.Split(':'))
+                    .Select(v => v.Select(i => int.Parse(i)).ToArray())
+                    .ToDictionary(kvs => kvs[0], kvs => kvs[1]);
+                procMeta.size = proc["size"].Int ?? -1;
+
+                if (!source.ContainsKey(procMeta.file))
+                {
+                    string file = Directory.EnumerateFiles(metadataFile.DirectoryName, Path.GetExtension(procMeta.file), SearchOption.AllDirectories).FirstOrDefault(p => Path.GetFileName(p) == procMeta.file);
+                    if (File.Exists(file))
+                    {
+                        source[procMeta.file] = File.ReadAllLines(file);
+                    }
+                }
+
+                this.metadata.Add(procMeta);
+            }
+        }
+
         void ParseMetadata(FileInfo metadataFile)
         {
             string[] lines = File.ReadAllLines(metadataFile.FullName);
+
+            var dirFiles = Directory.EnumerateFiles(metadataFile.DirectoryName, "*", SearchOption.AllDirectories).ToList();
 
             ProcMetadata currMetadata = null;
             foreach (var line in lines)
@@ -625,10 +795,10 @@ namespace VM12
 
                                 if (!source.ContainsKey(currMetadata.file))
                                 {
-                                    string path = Path.Combine(metadataFile.DirectoryName, currMetadata.file);
-                                    if (File.Exists(path))
+                                    string file = dirFiles.FirstOrDefault(p => Path.GetFileName(p) == currMetadata.file);
+                                    if (file != null)
                                     {
-                                        source[currMetadata.file] = File.ReadAllLines(path);
+                                        source[currMetadata.file] = File.ReadAllLines(file);
                                     }
                                 }
                                 break;
@@ -689,11 +859,34 @@ namespace VM12
                 metadata.Add(currMetadata);
             }
         }
+
+        void ReadStorageData(FileInfo storageFile)
+        {
+            byte[] chunk = new byte[STORAGE_CHUNK_SIZE];
+
+            using (FileStream stream = storageFile.OpenRead())
+            using (BinaryReader reader = new BinaryReader(stream))
+            {
+                while (stream.Position != stream.Length)
+                {
+                    // Read one chunk of data
+                    int addr = reader.ReadInt32();
+                    stream.Read(chunk, 0, chunk.Length);
+
+                    fixed(byte* chunk_data = chunk) {
+                        WriteStorage(chunk_data, addr);
+                    }
+
+                    Console.WriteLine($"Read chunk {addr}");
+                    Console.WriteLine(String.Join(",", chunk));
+                }
+            }
+        }
 #endif
 
         public int InterruptCount = 0;
         public int MissedInterrupts = 0;
-
+        
         public unsafe void Start()
         {
             Running = true;
@@ -716,6 +909,8 @@ namespace VM12
                 //int SP = this.SP;
                 //int FP = this.FP;
                 int FPloc = this.FP;
+
+                int* char_data = stackalloc int[8];
 
                 while (true)
                 {
@@ -758,8 +953,9 @@ namespace VM12
                     }
 
                     Opcode op = (Opcode)(mem[PC]);
-
+                    
 #if DEBUG
+                    romInstructionCounter[PC]++;
                     instructionFreq[(int)op]++;
 #if BREAKS
                     if (breaks[PC])
@@ -783,6 +979,14 @@ namespace VM12
                             interruptsEnabled = interruptsEnabledActual;
                         }
                     }
+
+                    if ((uint) SP > STACK_MAX_ADDRESS)
+                    {
+                        interruptsEnabledActual = interruptsEnabled || interruptsEnabledActual;
+                        interruptsEnabled = false;
+
+                        HitBreakpoint?.Invoke(this, new EventArgs());
+                    }
 #endif
                     switch (op)
                     {
@@ -803,10 +1007,18 @@ namespace VM12
                             mem[SP + 1] = FP >> 12 & 0xFF;
                             mem[SP + 2] = FP & 0xFF;
                             SP += 2;
+                            PC++;
                             break;
                         case Opcode.Pc:
                             mem[SP + 1] = PC >> 12 & 0xFFF;
                             mem[SP + 2] = PC & 0xFFF;
+                            SP += 2;
+                            PC++;
+                            break;
+                        case Opcode.Pt:
+                            // FIXME: Use a bigger register
+                            mem[SP + 1] = (int) (programTime >> 12 & 0xFFF);
+                            mem[SP + 2] = (int) (programTime & 0xFFF);
                             SP += 2;
                             PC++;
                             break;
@@ -855,12 +1067,14 @@ namespace VM12
                             break;
                         case Opcode.Store_sp:
                             int store_sp_address = (mem[SP - 2] << 12) | (ushort)(mem[SP - 1]);
+                            if (store_sp_address >= ROM_START) Debugger.Break();
                             mem[store_sp_address] = mem[SP];
                             SP -= 3;
                             PC++;
                             break;
                         case Opcode.Store_sp_l:
                             int store_sp_l_address = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]);
+                            if (store_sp_l_address >= ROM_START) Debugger.Break();
                             mem[store_sp_l_address] = mem[SP - 1];
                             mem[store_sp_l_address + 1] = mem[SP];
                             SP -= 4;
@@ -886,13 +1100,12 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Swap_l:
-                            int* swap_l_temp = stackalloc int[2];
-                            swap_l_temp[0] = mem[SP - 3];
-                            swap_l_temp[1] = mem[SP - 2];
-                            mem[SP - 3] = mem[SP - 1];
-                            mem[SP - 2] = mem[SP];
-                            mem[SP - 1] = swap_l_temp[0];
-                            mem[SP] = swap_l_temp[1];
+                            int swap_l_temp = mem[SP];
+                            mem[SP] = mem[SP - 2];
+                            mem[SP - 2] = swap_l_temp;
+                            swap_l_temp = mem[SP - 1];
+                            mem[SP - 1] = mem[SP - 3];
+                            mem[SP - 3] = swap_l_temp;
                             PC++;
                             break;
                         case Opcode.Swap_s_l:
@@ -944,11 +1157,12 @@ namespace VM12
                             SP -= 2;
                             add2 += add1;
                             carry = add2 >> 12 > 0xFFF;
-                            mem[SP - 1] = add2 >> 12;
+                            mem[SP - 1] = add2 >> 12 & 0xFFF;
                             mem[SP] = add2 & 0xFFF;
                             PC++;
                             break;
                         case Opcode.Add_c:
+                            throw new NotImplementedException();
                             break;
                         case Opcode.Sub:
                             // TODO: The sign might not work here!
@@ -1073,6 +1287,9 @@ namespace VM12
                             break;
                         case Opcode.Dsi:
                             interruptsEnabled = false;
+#if DEBUG
+                            interruptsEnabledActual = false;
+#endif
                             PC++;
                             break;
                         case Opcode.Hlt:
@@ -1146,7 +1363,8 @@ namespace VM12
                                     }
                                     break;
                                 case JumpMode.Gz:
-                                    if ((mem[SP] & 0x800) == 0)
+                                    int gz_value = mem[SP];
+                                    if ((gz_value & 0x800) == 0 && gz_value != 0)
                                     {
                                         PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
                                     }
@@ -1168,7 +1386,8 @@ namespace VM12
                                     SP--;
                                     break;
                                 case JumpMode.Ge:
-                                    if (mem[SP] >= 0)
+                                    int ge_temp = mem[SP];
+                                    if (ge_temp >= 0 && (ge_temp & 0x800) == 0)
                                     {
                                         PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
                                     }
@@ -1213,9 +1432,9 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Ro:
-                                    int sign_ext(int i) => (int)((i & 0x800) != 0 ? (uint)(i & 0xFFFF_F800) : (uint)i);
-
-                                    PC += sign_ext(mem[SP]) + 1;
+                                    int ro_value = mem[SP];
+                                    // Sign extend and add one (jmp argument) and then to PC
+                                    PC += ((int)((ro_value & 0x800) != 0 ? (uint)(ro_value | 0xFFFF_F800) : (uint)ro_value)) + 1;
                                     SP--;
                                     break;
                                 case JumpMode.Z_l:
@@ -1241,7 +1460,8 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Gz_l:
-                                    if ((mem[SP - 1] << 12 | mem[SP]) > 0)
+                                    int gz_l_value = (mem[SP - 1] << 12 | mem[SP]);
+                                    if ((gz_l_value & 0x800) == 0 && gz_l_value > 0)
                                     {
                                         PC = mem[PC + 1] << 12 | mem[PC + 2];
                                     }
@@ -1263,6 +1483,16 @@ namespace VM12
                                     SP -= 2;
                                     break;
                                 case JumpMode.Ge_l:
+                                    int ge_l_temp = mem[SP - 1];
+                                    if (ge_l_temp >= 0 && (ge_l_temp & 0x800) == 0)
+                                    {
+                                        PC = mem[PC + 1] << 12 | mem[PC + 2];
+                                    }
+                                    else
+                                    {
+                                        PC += 3;
+                                    }
+                                    SP -= 2;
                                     break;
                                 case JumpMode.Le_l:
                                     if ((mem[SP - 1] & 0x800) > 0 || (mem[SP -1] | mem[SP]) == 0)
@@ -1298,8 +1528,14 @@ namespace VM12
                                     SP -= 4;
                                     break;
                                 case JumpMode.Ro_l:
+                                    int ro_l_value = mem[SP - 1] << 12 | mem[SP];
+                                    // Sign extend and add one (jmp argument) and then to PC
+                                    int ro_l_jump_length = ((int)((ro_l_value & 0x80_0000) != 0 ? (uint)(ro_l_value | 0xFF80_0000) : (uint)ro_l_value)) + 1;
+                                    PC += ro_l_jump_length;
+                                    SP -= 2;
                                     break;
                                 default:
+                                    Debugger.Break();
                                     break;
                             }
                             break;
@@ -1320,6 +1556,7 @@ namespace VM12
                                 mem[++SP] = locals >> 12 & 0xFFF;       // Locals
                                 mem[++SP] = locals & 0xFFF;
                                 this.locals = locals;
+                                
                                 FPloc = FP - locals;
 #if DEBUG
                                 CallInstruction = true;
@@ -1329,6 +1566,7 @@ namespace VM12
                         case Opcode.Call_v:
                             {
                                 int call_addr = (mem[SP - 1] << 12) | (ushort)(mem[SP]);
+                                SP -= 2;
                                 int return_addr = PC + 1;
                                 int last_fp = FP;
                                 int parameters = mem[call_addr];
@@ -1338,9 +1576,10 @@ namespace VM12
                                 mem[++SP] = return_addr >> 12 & 0xFFF;
                                 FP = SP;
                                 mem[++SP] = return_addr & 0xFFF;
-                                mem[++SP] = last_fp >> 12 & 0xFFF;
-                                mem[++SP] = 0;
-                                mem[++SP] = locals;
+                                mem[++SP] = last_fp >> 12 & 0xFFF;      // Prev FP
+                                mem[++SP] = last_fp & 0xFFF;
+                                mem[++SP] = locals >> 12 & 0xFFF;       // Locals
+                                mem[++SP] = locals & 0xFFF;
                                 this.locals = locals;
                                 FPloc = FP - locals;
 #if DEBUG
@@ -1350,6 +1589,7 @@ namespace VM12
                             }
                         case Opcode.Ret:
                             SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]);
+                            if (SP < 0) Debugger.Break();
                             PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
                             this.locals = (mem[FP + 4] << 12 | mem[FP + 5]);
@@ -1386,11 +1626,7 @@ namespace VM12
                             break;
                         case Opcode.Ret_v:
                             int return_values = mem[PC + 1];
-                            int* values = stackalloc int[return_values];
-                            for (int i = 0; i < return_values; i++)
-                            {
-                                values[i] = mem[SP - i];
-                            }
+                            int returnValuesStart = SP;
                             SP = FP - 1 - (mem[FP + 4] << 12 | mem[FP + 5]) + return_values;
                             PC = mem[FP] << 12 | (ushort)mem[FP + 1];
                             FP = mem[FP + 2] << 12 | (ushort)mem[FP + 3];
@@ -1398,7 +1634,7 @@ namespace VM12
                             FPloc = FP - this.locals;
                             for (int i = 0; i < return_values; i++)
                             {
-                                mem[SP - i] = values[i];
+                                mem[SP - i] = mem[returnValuesStart - i];
                             }
 #if DEBUG
                             RetInstruction = true;
@@ -1422,15 +1658,17 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Inc_local:
-                            local_addr = FPloc + mem[PC + 1];
-                            mem[local_addr]++;
+                            int inc_local_addr = FPloc + mem[PC + 1];
+                            int inc_local_value = mem[inc_local_addr] + 1;
+                            carry = inc_local_value > 0xFFF;
+                            mem[inc_local_addr] = inc_local_value & 0xFFF;
                             PC += 2;
                             break;
                         case Opcode.Inc_local_l:
-                            local_addr = FPloc + mem[PC + 1];
-                            int linc_local_value = ((mem[local_addr] << 12) | (mem[local_addr + 1])) + 1;
-                            mem[local_addr + 1] = linc_local_value & 0xFFF;
-                            mem[local_addr] = (linc_local_value >> 12) & 0xFFF;
+                            int linc_local_addr = FPloc + mem[PC + 1];
+                            int linc_local_value = ((mem[linc_local_addr] << 12) | (mem[linc_local_addr + 1])) + 1;
+                            mem[linc_local_addr + 1] = linc_local_value & 0xFFF;
+                            mem[linc_local_addr] = (linc_local_value >> 12) & 0xFFF;
                             carry = (linc_local_value >> 12) > 0xFFF;
                             PC += 2;
                             break;
@@ -1460,28 +1698,158 @@ namespace VM12
                             int color = mem[SP];
                             int char_addr = mem[SP - 2] << 12 | mem[SP - 1];
                             int vram_addr = mem[SP - 4] << 12 | mem[SP - 3];
+
                             if (vram_addr < VRAM_START || vram_addr >= ROM_START)
                             {
                                 Debugger.Break();
                             }
+
+                            /*
+                            bool[,] data;
+
+                            bool cached = char_addr >= ROM_START ? fontCache.TryGetValue(char_addr, out data) : false;
+
+                            // Check if there is data cached
+                            if (cached == false)
+                            {
+                                data = new bool[12, 8];
+                                // If not, generate the data
+                                bool not_zero = false;
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    char_data[i] = mem[char_addr + i];
+                                    not_zero |= char_data[i] != 0;
+                                }
+
+                                if (not_zero)
+                                {
+                                    int mask = 0x800;
+                                    for (int i = 0; i < 12; i++)
+                                    {
+                                        if ((char_data[0] & mask) != 0) data[i, 0] = true;
+                                        if ((char_data[1] & mask) != 0) data[i, 1] = true;
+                                        if ((char_data[2] & mask) != 0) data[i, 2] = true;
+                                        if ((char_data[3] & mask) != 0) data[i, 3] = true;
+                                        if ((char_data[4] & mask) != 0) data[i, 4] = true;
+                                        if ((char_data[5] & mask) != 0) data[i, 5] = true;
+                                        if ((char_data[6] & mask) != 0) data[i, 6] = true;
+                                        if ((char_data[7] & mask) != 0) data[i, 7] = true;
+                                        
+                                        mask >>= 1;
+                                    }
+                                }
+                            }
+
+                            // Draw the data
+                            fixed (bool* font_data = data)
+                            {
+                                for (int y = 0; y < 12; y++)
+                                {
+                                    int offset = y * 8;
+                                    
+                                    // Copy the 8 ints.
+                                    if (font_data[offset + 0]) mem[vram_addr + 0] = color;
+                                    if (font_data[offset + 1]) mem[vram_addr + 1] = color;
+                                    if (font_data[offset + 2]) mem[vram_addr + 2] = color;
+                                    if (font_data[offset + 3]) mem[vram_addr + 3] = color;
+                                    if (font_data[offset + 4]) mem[vram_addr + 4] = color;
+                                    if (font_data[offset + 5]) mem[vram_addr + 5] = color;
+                                    if (font_data[offset + 6]) mem[vram_addr + 6] = color;
+                                    if (font_data[offset + 7]) mem[vram_addr + 7] = color;
+
+                                    vram_addr += SCREEN_WIDTH;
+                                }
+                            }
+
+                            // Check if we should cache the data
+                            if (!cached && char_addr >= ROM_START)
+                            {
+                                fontCache[char_addr] = data;
+                            }
+
+                            SP -= 5;
+                            PC++;
+                            break;
+                            */
+                            
+                            bool not_zero = false;
+                            for (int i = 0; i < 8; i++)
+                            {
+                                char_data[i] = mem[char_addr + i];
+                                not_zero |= char_data[i] != 0;
+                            }
+
+                            if (not_zero)
+                            {
+                                int mask = 0x800;
+                                for (int i = 0; i < 12; i++)
+                                {
+                                    if ((char_data[0] & mask) != 0) mem[vram_addr + 0] = color;
+                                    if ((char_data[1] & mask) != 0) mem[vram_addr + 1] = color;
+                                    if ((char_data[2] & mask) != 0) mem[vram_addr + 2] = color;
+                                    if ((char_data[3] & mask) != 0) mem[vram_addr + 3] = color;
+                                    if ((char_data[4] & mask) != 0) mem[vram_addr + 4] = color;
+                                    if ((char_data[5] & mask) != 0) mem[vram_addr + 5] = color;
+                                    if ((char_data[6] & mask) != 0) mem[vram_addr + 6] = color;
+                                    if ((char_data[7] & mask) != 0) mem[vram_addr + 7] = color;
+
+                                    vram_addr += SCREEN_WIDTH;
+                                    mask >>= 1;
+                                }
+                            }
+                            
+                            SP -= 5;
+                            PC++;
+                            break;
+
                             int start_vram = vram_addr;
                             for (int x = 0; x < 8; x++)
                             {
-                                int char_data = mem[char_addr];
-                                if (char_data != 0)
+                                int char_data2 = mem[char_addr];
+                                if (char_data2 != 0)
                                 {
+                                    /*
+                                    if ((char_data & 0x800) != 0) mem[vram_addr + 0 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x400) != 0) mem[vram_addr + 1 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x200) != 0) mem[vram_addr + 2 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x100) != 0) mem[vram_addr + 3 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x080) != 0) mem[vram_addr + 4 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x040) != 0) mem[vram_addr + 5 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x020) != 0) mem[vram_addr + 6 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x010) != 0) mem[vram_addr + 7 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x008) != 0) mem[vram_addr + 8 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x004) != 0) mem[vram_addr + 9 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x002) != 0) mem[vram_addr + 10 * SCREEN_WIDTH] = color;
+                                    if ((char_data & 0x001) != 0) mem[vram_addr + 11 * SCREEN_WIDTH] = color;
+                                    */
+                                    /*
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x800) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x400) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x200) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x100) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x080) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x040) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x020) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x010) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x008) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x004) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x002) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x001) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
+                                    */
+                                    
+                                    vram_addr = start_vram + x;
                                     for (int y = 0; y < 12; y++)
                                     {
-                                        if ((char_data & 0x800) != 0)
+                                        if ((char_data2 & 0x800) != 0)
                                         {
                                             mem[vram_addr] = color;
                                         }
                                         vram_addr += SCREEN_WIDTH;
-                                        char_data <<= 1;
+                                        char_data2 <<= 1;
                                     }
+                                    
                                 }
-                                start_vram += 1;
-                                vram_addr = start_vram;
+                                vram_addr++;
                                 char_addr += 1;
                             }
                             SP -= 5;
@@ -1604,13 +1972,22 @@ namespace VM12
 
                             endBlit:  break;
                         case Opcode.Write:
-                            int ioAddr = (mem[SP - 6] << 24) | (mem[SP - 5] << 12) | mem[SP - 4];
-                            int buf = mem[SP - 3] << 12 | mem[SP - 2];
+                            int w_ioAddr = mem[SP - 5] << 12 | mem[SP - 4];
+                            int w_buf = mem[SP - 3] << 12 | mem[SP - 2];
                             int w_len = mem[SP - 1] << 12 | mem[SP];
 
+                            for (int i = 0; i < w_len; i++)
+                            {
+                                WriteStorage(&mem[w_buf + (i * STORAGE_CHUNK_SIZE)], w_ioAddr + i);
+                            }
+
+                            SP -= 6;
+                            PC++;
+                            break;
+#region Complex_io
                             IOMode ioMode = (IOMode) mem[PC + 1];
                             
-                            if ((ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
+                            if ((w_ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
                             {
                                 //const int wordSize = 8;
                                 
@@ -1644,6 +2021,75 @@ namespace VM12
 
                             SP -= 7;
                             break;
+#endregion
+                        case Opcode.Read:
+                            int r_ioAddr = (mem[SP - 5] << 12) | mem[SP - 4];
+                            int r_buf = mem[SP - 3] << 12 | mem[SP - 2];
+                            int r_len = mem[SP - 1] << 12 | mem[SP];
+                            
+                            for (int i = 0; i < r_len; i++)
+                            {
+                                ReadStorage(&mem[r_buf + (i * STORAGE_CHUNK_SIZE)], r_ioAddr + i);
+                            }
+
+                            SP -= 6;
+                            PC++;
+                            break;
+
+                        case Opcode.Clz:
+                            int clz_data = mem[SP];
+                            int clz_result = 12;
+                            if (clz_data != 0)
+                            {
+                                clz_result = 0;
+                                if ((clz_data & 0xFFFF0000) == 0) { clz_result += 16; clz_data <<= 16; }
+                                if ((clz_data & 0xFF000000) == 0) { clz_result += 8; clz_data <<= 8; }
+                                if ((clz_data & 0xF0000000) == 0) { clz_result += 4; clz_data <<= 4; }
+                                if ((clz_data & 0xC0000000) == 0) { clz_result += 2; clz_data <<= 2; }
+                                if ((clz_data & 0x80000000) == 0) { clz_result += 1; }
+
+                                clz_result -= 20;
+                            }
+                            mem[SP] = clz_result;
+                            PC++;
+                            break;
+                        case Opcode.Ctz:
+                            int ctz_data = mem[SP];
+                            int ctz_result = 12;
+                            if (ctz_data != 0)
+                            {
+                                ctz_result = 0;
+                                if ((ctz_data & 0x0000FFFF) == 0) { ctz_result += 16; ctz_data >>= 16; }
+                                if ((ctz_data & 0x000000FF) == 0) { ctz_result += 8; ctz_data >>= 8; }
+                                if ((ctz_data & 0x0000000F) == 0) { ctz_result += 4; ctz_data >>= 4; }
+                                if ((ctz_data & 0x00000003) == 0) { ctz_result += 2; ctz_data >>= 2; }
+                                if ((ctz_data & 0x00000001) == 0) { ctz_result += 1; }
+
+                                ctz_result -= 20;
+                            }
+                            mem[SP] = ctz_result;
+                            PC++;
+                            break;
+                        case Opcode.Selz:
+                            mem[SP - 2] = mem[SP] == 0 ? mem[SP - 1] : mem[SP - 2];
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Selgz:
+                            mem[SP - 2] = ((mem[SP] & 0x800) == 0 && mem[SP] > 0) ? mem[SP - 1] : mem[SP - 2];
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Selge:
+                            mem[SP - 2] = ((mem[SP] & 0x800) == 0 && mem[SP] >= 0) ? mem[SP - 1] : mem[SP - 2];
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Selc:
+                            mem[SP - 1] = carry ? mem[SP] : mem[SP - 1];
+                            SP -= 1;
+                            PC++;
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }
@@ -1655,6 +2101,11 @@ namespace VM12
                     // this.FP = FP;
 
 #if DEBUG
+                    if (SP > 1000)
+                    {
+                        ;
+                    }
+
                     if (SP > SPWatermark)
                     {
                         SPWatermark = SP;
@@ -1664,6 +2115,11 @@ namespace VM12
                     {
                         FPWatermark = FP;
                     }
+
+                    if (SP < 0)
+                    {
+                        Debugger.Break();
+                    }
 #endif
                     
                     //SpinWait.SpinUntil(() => sw.ElapsedTicks > TimerInterval);
@@ -1672,15 +2128,47 @@ namespace VM12
                     //Thread.SpinWait(1000);
                 }
             }
-            end: Running = false;
+            end:
 
-            /*
+            this.SP = 0;
+            this.FP = 0;
+            this.PC = ROM_START;
+
+#if DEBUG
+            DebugBreakEvent.Set();
+#endif
+
+            Console.WriteLine();
+            Console.WriteLine();
+
             using (FileStream stream = storageFile.OpenWrite())
             {
                 // Only write the changed data!
-                stream.Write(STORAGE, 0, STORAGE.Length);
+                BinaryWriter writer = new BinaryWriter(stream);
+
+                byte[] data = new byte[STORAGE_CHUNK_SIZE];
+
+                for (int chunk = 0; chunk < S_HIT.Length; chunk++)
+                {
+                    if (S_HIT[chunk])
+                    {
+                        int addr = chunk;
+
+                        writer.Write(addr);
+
+                        byte[,] chunkGroup = GetChunk(addr, out int chunkOffset);
+                        
+                        Buffer.BlockCopy(chunkGroup, chunkOffset, data, 0, data.Length);
+
+                        writer.Write(data);
+
+                        Console.WriteLine($"Write chunk {addr}");
+                        Console.WriteLine(String.Join(",", data));
+                    }
+                }
             }
-            */
+
+            Running = false;
         }
 
         public void Stop()

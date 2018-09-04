@@ -85,7 +85,7 @@ namespace Debugging
 #if DEBUG
             stack_view.UpdateStack();
             var frame = vm12.CurrentStackFrame;
-            sourceView.Open(Path.Combine(vm12.sourceDir.FullName, frame.file), frame.line);
+            sourceView.Open(vm12.sourceDir, frame.file, frame.line);
             toolStripLabelOpcode.Text = vm12.Opcode.ToString();
             stackDepth = VM12.CountStackDepth(frame);
 #endif

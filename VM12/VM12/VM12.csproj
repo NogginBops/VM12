@@ -8,7 +8,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>VM12</RootNamespace>
     <AssemblyName>VM12</AssemblyName>
-    <TargetFrameworkVersion>v4.7</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFrameworkProfile />
@@ -23,6 +23,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -33,13 +34,26 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
     <StartupObject>VM12.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Be.Windows.Forms.HexBox, Version=1.6.0.38064, Culture=neutral, PublicKeyToken=e0e5adf0ebc99863, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\Be.Windows.Forms.HexBox.dll</HintPath>
+    </Reference>
+    <Reference Include="SKON.NET, Version=0.1.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\SKON.NET.0.1.4\lib\net20\SKON.NET.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Design" />
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.Numerics.Vectors, Version=4.1.3.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Numerics.Vectors.4.4.0\lib\net46\System.Numerics.Vectors.dll</HintPath>
+    </Reference>
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -51,6 +65,42 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DebugTools\Field.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DebugTools\Field.Designer.cs">
+      <DependentUpon>Field.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DebugTools\HotSpotView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DebugTools\HotSpotView.Designer.cs">
+      <DependentUpon>HotSpotView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DebugTools\MemoryInspector.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DebugTools\MemoryInspector.Designer.cs">
+      <DependentUpon>MemoryInspector.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DebugTools\MemoryView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DebugTools\MemoryView.Designer.cs">
+      <DependentUpon>MemoryView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DebugTools\ProcMetadataView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DebugTools\ProcMetadataView.Designer.cs">
+      <DependentUpon>ProcMetadataView.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DebugTools\ProcProfiler.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DebugTools\ProcProfiler.Designer.cs">
+      <DependentUpon>ProcProfiler.cs</DependentUpon>
+    </Compile>
     <Compile Include="DebugTools\ProgramDebugger.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -86,6 +136,9 @@
     <Compile Include="DebugTools\SourceView.Designer.cs">
       <DependentUpon>SourceView.cs</DependentUpon>
     </Compile>
+    <Compile Include="Util\ExtendedPictureBox.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Util\Utils.cs" />
     <Compile Include="VM12Form.cs">
       <SubType>Form</SubType>
@@ -96,11 +149,30 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="VM12.cs" />
+    <EmbeddedResource Include="DebugTools\Field.resx">
+      <DependentUpon>Field.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DebugTools\HotSpotView.resx">
+      <DependentUpon>HotSpotView.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DebugTools\MemoryInspector.resx">
+      <DependentUpon>MemoryInspector.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DebugTools\MemoryView.resx">
+      <DependentUpon>MemoryView.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DebugTools\ProcMetadataView.resx">
+      <DependentUpon>ProcMetadataView.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DebugTools\ProcProfiler.resx">
+      <DependentUpon>ProcProfiler.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="DebugTools\ProgramDebugger.resx">
       <DependentUpon>ProgramDebugger.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="DebugTools\Frequency dialog.resx">
       <DependentUpon>Frequency dialog.cs</DependentUpon>
+      <SubType>Designer</SubType>
     </EmbeddedResource>
     <EmbeddedResource Include="DebugTools\HeapView.resx">
       <DependentUpon>HeapView.cs</DependentUpon>
@@ -118,6 +190,7 @@
     <EmbeddedResource Include="VM12Form.resx">
       <DependentUpon>VM12Form.cs</DependentUpon>
     </EmbeddedResource>
+    <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
@@ -164,6 +237,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\Step_in_color_disabled.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Be.Windows.Forms.HexBox.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

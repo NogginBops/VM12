@@ -34,23 +34,23 @@
         Jmp,
         Z, Nz,
         C, Cz,
-        Gz, Lz,
-        Ge, Le,
+        Gz, Lz,     // signed
+        Ge, Le,     // signed
         Eq, Neq,
         Ro,
         
         Z_l = 128, Nz_l,
-        Gz_l, Lz_l,
-        Ge_l, Le_l,
+        Gz_l, Lz_l,     // signed
+        Ge_l, Le_l,     // signed
         Eq_l, Neq_l,
         Ro_l
     }
-
+    
     public enum Opcode
     {
         Nop,
         Pop,
-        Fp, Pc,
+        Fp, Pc, Pt,
         Sp, Set_sp,
         Load_lit, Load_lit_l,
         Load_sp, Load_sp_l,
@@ -83,6 +83,9 @@
         Div_l, Mod, Mod_l,
         Blit, Blit_mask,
         Read, Write,
+
+        Clz, Ctz,
+        Selz, Selgz, Selge, Selc
     }
 
     public enum Opcode_old : short

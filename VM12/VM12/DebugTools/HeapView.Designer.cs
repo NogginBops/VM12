@@ -86,6 +86,7 @@
             this.heapViewImg.Size = new System.Drawing.Size(914, 520);
             this.heapViewImg.TabIndex = 0;
             this.heapViewImg.TabStop = false;
+            this.heapViewImg.DoubleClick += new System.EventHandler(this.heapViewImg_DoubleClick);
             this.heapViewImg.Resize += new System.EventHandler(this.heapViewImg_Resize);
             // 
             // heapViewRefreshTimer

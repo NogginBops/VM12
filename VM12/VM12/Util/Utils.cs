@@ -61,5 +61,30 @@ namespace VM12
 
             return int.TryParse(str, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
         }
+
+        public static bool TryParseNumber(string str, out int value)
+        {
+            if (str.StartsWith("0x"))
+            {
+                return int.TryParse(str.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+            }
+            else if (str.StartsWith("0b"))
+            {
+                try
+                {
+                    value = Convert.ToInt32(str.Substring(2), 2);
+                    return true;
+                }
+                catch
+                {
+                    value = default;
+                    return false;
+                }
+            }
+            else
+            {
+                return int.TryParse(str, out value);
+            }
+        }
     }
 }
