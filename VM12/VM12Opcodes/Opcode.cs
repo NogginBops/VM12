@@ -45,7 +45,7 @@
         Eq_l, Neq_l,
         Ro_l
     }
-
+    
     public enum Opcode
     {
         Nop,

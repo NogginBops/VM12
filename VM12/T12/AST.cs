@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Text;
+using System.Linq;
 
 namespace T12
 {
@@ -16,6 +17,9 @@ namespace T12
 
         public static AST Parse(Queue<Token> Tokens)
         {
+            // We can probably do this better!
+            Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
+
             var program = ASTProgram.Parse(Tokens);
 
             return new AST(program);
@@ -60,19 +64,20 @@ namespace T12
         public readonly ASTType ReturnType;
         public readonly ReadOnlyCollection<(ASTType Type, string Name)> Parameters;
         
-        public readonly ReadOnlyCollection<ASTStatement> Body;
+        public readonly ReadOnlyCollection<ASTBlockItem> Body;
 
-        public ASTFunction(string Name, ASTType ReturnType, List<(ASTType, string)> Parameters, List<ASTStatement> Body)
+        public ASTFunction(string Name, ASTType ReturnType, List<(ASTType, string)> Parameters, List<ASTBlockItem> Body)
         {
             this.Name = Name;
             this.ReturnType = ReturnType;
             this.Parameters = new ReadOnlyCollection<(ASTType Type, string Name)>(Parameters);
-            this.Body = new ReadOnlyCollection<ASTStatement>(Body);
+            this.Body = new ReadOnlyCollection<ASTBlockItem>(Body);
         }
 
         public static ASTFunction Parse(Queue<Token> Tokens)
         {
-            if (Tokens.Peek().IsType == false) Fail("Expected a type!");
+            var type_tok = Tokens.Peek();
+            if (type_tok.IsType == false) Fail("Expected a type!");
             var returnType = ASTType.Parse(Tokens);
             
             var ident_tok = Tokens.Dequeue();
@@ -111,12 +116,12 @@ namespace T12
             var open_brace_tok = Tokens.Dequeue();
             if (open_brace_tok.Type != TokenType.Open_brace) Fail("Expected '{'");
 
-            List<ASTStatement> body = new List<ASTStatement>();
+            List<ASTBlockItem> body = new List<ASTBlockItem>();
 
             peek = Tokens.Peek();
             while (peek.Type != TokenType.Close_brace)
             {
-                body.Add(ASTStatement.Parse(Tokens));
+                body.Add(ASTBlockItem.Parse(Tokens));
                 if (!Tokens.TryPeek(out peek)) Fail("Expected a closing brace!");
             }
 
@@ -127,32 +132,33 @@ namespace T12
             return new ASTFunction(name, returnType, parameters, body);
         }
     }
-    
-    public abstract class ASTStatement : ASTNode
+
+    public abstract class ASTBlockItem : ASTNode
     {
-        public static ASTStatement Parse(Queue<Token> Tokens)
+        public static ASTBlockItem Parse(Queue<Token> Tokens)
         {
-            // Here we need to figure out what statement we need to parse
             var peek = Tokens.Peek();
-            
-            // We switch on the token trying to find what kind of statement this is.
-            // TODO: Add more kinds of statements
             switch (peek.Type)
             {
-                case TokenType.Keyword_Return:
-                    return ASTReturnStatement.Parse(Tokens);
                 case TokenType.Keyword_Word:
-                    return ASTVariableDeclaration.Parse(Tokens);
-                case TokenType.Identifier:
-                    return ASTVariableAssignment.Parse(Tokens);
+                    return ASTDeclaration.Parse(Tokens);
                 default:
-                    Fail($"Unexpected token '{peek}'");
-                    return default;
+                    return ASTStatement.Parse(Tokens);
             }
         }
     }
 
-    public class ASTVariableDeclaration : ASTStatement
+    #region Declarations
+
+    public abstract class ASTDeclaration : ASTBlockItem
+    {
+        public static new ASTBlockItem Parse(Queue<Token> Tokens)
+        {
+            return ASTVariableDeclaration.Parse(Tokens);
+        }
+    }
+
+    public class ASTVariableDeclaration : ASTDeclaration
     {
         public readonly ASTType Type;
         public readonly string VariableName;
@@ -192,34 +198,140 @@ namespace T12
             return new ASTVariableDeclaration(type, name, init);
         }
     }
-    
-    public class ASTVariableAssignment : ASTStatement
-    {
-        public readonly string VariableName;
-        public readonly ASTExpression AssignmentExpression;
 
-        public ASTVariableAssignment(string VariableName, ASTExpression AssignmentExpression)
+    // Is this the right way to do this?
+    public class ASTTypeDeclaration : ASTDeclaration
+    {
+
+    }
+
+    #endregion
+
+    #region Statements
+
+    public abstract class ASTStatement : ASTBlockItem
+    {
+        public static new ASTStatement Parse(Queue<Token> Tokens)
         {
-            this.VariableName = VariableName;
-            this.AssignmentExpression = AssignmentExpression;
+            // Here we need to figure out what statement we need to parse
+            var peek = Tokens.Peek();
+            
+            // We switch on the token trying to find what kind of statement this is.
+            // TODO: Add more kinds of statements
+            switch (peek.Type)
+            {
+                case TokenType.Semicolon:
+                    return ASTEmptyStatement.Parse(Tokens);
+                //case TokenType.Identifier:
+                //    return ASTAssignmentStatement.Parse(Tokens);
+                case TokenType.Keyword_Return:
+                    return ASTReturnStatement.Parse(Tokens);
+                case TokenType.Keyword_If:
+                    return ASTIfStatement.Parse(Tokens);
+                case TokenType.Keyword_For:
+                    return ASTForWithDeclStatement.Parse(Tokens);
+                case TokenType.Keyword_While:
+                    return ASTWhileStatement.Parse(Tokens);
+                case TokenType.Keyword_Do:
+                    return ASTDoWhileStatement.Parse(Tokens);
+                case TokenType.Keyword_Break:
+                    return ASTBreakStatement.Parse(Tokens);
+                case TokenType.Keyword_Continue:
+                    return ASTContinueStatement.Parse(Tokens);
+                case TokenType.Open_brace:
+                    return ASTCompoundStatement.Parse(Tokens);
+                default:
+                    return ASTExpressionStatement.Parse(Tokens);
+            }
+        }
+    }
+    
+    public class ASTEmptyStatement : ASTStatement
+    {
+        public ASTEmptyStatement() { }
+
+        public static new ASTEmptyStatement Parse(Queue<Token> Tokens)
+        {
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected a semicolon!");
+
+            return new ASTEmptyStatement();
+        }
+    }
+
+    public class ASTExpressionStatement : ASTStatement
+    {
+        public readonly ASTExpression Expr;
+
+        public ASTExpressionStatement(ASTExpression Expr)
+        {
+            this.Expr = Expr;
         }
 
-        public static new ASTVariableAssignment Parse(Queue<Token> Tokens)
+        public static new ASTExpressionStatement Parse(Queue<Token> Tokens)
         {
-            var ident_tok = Tokens.Dequeue();
-            if (ident_tok.IsIdentifier == false) Fail("Expected identifier!");
-            string name = ident_tok.Value;
-
-            var equals_tok = Tokens.Dequeue();
-            if (equals_tok.Type != TokenType.Equal) Fail("Expected an equals in varable assignment");
-
             var expr = ASTExpression.Parse(Tokens);
 
             var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("A statement must end in a semicolon!");
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
 
-            return new ASTVariableAssignment(name, expr);
+            return new ASTExpressionStatement(expr);
         }
+    }
+
+    public class ASTAssignmentStatement : ASTStatement
+    {
+        public readonly ReadOnlyCollection<string> VariableNames;
+        public readonly ASTExpression AssignmentExpression;
+
+        public ASTAssignmentStatement(List<string> VariableNames, ASTExpression AssignmentExpression)
+        {
+            this.VariableNames = new ReadOnlyCollection<string>(VariableNames);
+            this.AssignmentExpression = AssignmentExpression;
+        }
+
+        public static new ASTAssignmentStatement Parse(Queue<Token> Tokens)
+        {
+            List<string> ids = new List<string>();
+
+            var ident_tok = Tokens.Dequeue();
+            if (ident_tok.IsIdentifier == false) Fail("Expected identifier!");
+            ids.Add(ident_tok.Value);
+
+            ASTExpression expr = null;
+
+            var peek = Tokens.Peek();
+            while (peek.Type == TokenType.Equal)
+            {
+                // Dequeue equals
+                Tokens.Dequeue();
+
+                var cont_ident_tok = Tokens.Peek();
+                if (cont_ident_tok.IsIdentifier)
+                {
+                    // Here we add another value to assign to.
+                    ids.Add(cont_ident_tok.Value);
+                    Tokens.Dequeue();
+                }
+                else
+                {
+                    // Here we parse the experssion
+                    expr = ASTExpression.Parse(Tokens);
+                    break;
+                }
+
+                peek = Tokens.Peek();
+            }
+
+            if (expr == null) Fail("Assignment must end in an expression!");
+
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("A statement must end in a semicolon!");
+            
+            return new ASTAssignmentStatement(ids, expr);
+        }
+
+        
     }
     
     public class ASTReturnStatement : ASTStatement
@@ -245,115 +357,277 @@ namespace T12
         }
     }
 
+    public class ASTIfStatement : ASTStatement
+    {
+        public readonly ASTExpression Condition;
+        public readonly ASTStatement IfTrue;
+        public readonly ASTStatement IfFalse;
+
+        public ASTIfStatement(ASTExpression Condition, ASTStatement IfTrue, ASTStatement IfFalse)
+        {
+            this.Condition = Condition;
+            this.IfTrue = IfTrue;
+            this.IfFalse = IfFalse;
+        }
+
+        public static new ASTIfStatement Parse(Queue<Token> Tokens)
+        {
+            var if_tok = Tokens.Dequeue();
+            if (if_tok.Type != TokenType.Keyword_If) Fail("Expected if keyword!");
+
+            var open_paren_tok = Tokens.Dequeue();
+            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected a opening parenthesis!");
+
+            var expr = ASTExpression.Parse(Tokens);
+
+            var close_paren_tok = Tokens.Dequeue();
+            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected a closing parenthesis!");
+
+            var ifTrue = ASTStatement.Parse(Tokens);
+
+            var ifFalse = (ASTStatement) null;
+
+            var else_peek = Tokens.Peek();
+            if (else_peek.Type == TokenType.Keyword_Else)
+            {
+                // Dequeue the else keyword
+                Tokens.Dequeue();
+
+                ifFalse = ASTStatement.Parse(Tokens);
+            }
+
+            return new ASTIfStatement(expr, ifTrue, ifFalse);
+        }
+    }
+
+    public class ASTCompoundStatement : ASTStatement
+    {
+        public readonly ReadOnlyCollection<ASTBlockItem> Block;
+
+        public ASTCompoundStatement(List<ASTBlockItem> Block)
+        {
+            this.Block = new ReadOnlyCollection<ASTBlockItem>(Block);
+        }
+
+        public static new ASTCompoundStatement Parse(Queue<Token> Tokens)
+        {
+            var open_brace_tok = Tokens.Dequeue();
+            if (open_brace_tok.Type != TokenType.Open_brace) Fail("Expected opening brace!");
+
+            List<ASTBlockItem> blockItems = new List<ASTBlockItem>();
+
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_brace)
+            {
+                blockItems.Add(ASTBlockItem.Parse(Tokens));
+
+                peek = Tokens.Peek();
+            }
+
+            var close_brace_tok = Tokens.Dequeue();
+            if (close_brace_tok.Type != TokenType.Close_brace) Fail("Expected closing brace!");
+
+            return new ASTCompoundStatement(blockItems);
+        }
+    }
+
+    public class ASTForWithDeclStatement : ASTStatement
+    {
+        public readonly ASTVariableDeclaration Declaration;
+        public readonly ASTExpression Condition;
+        public readonly ASTExpression PostExpression;
+        public readonly ASTStatement Body;
+
+        public ASTForWithDeclStatement(ASTVariableDeclaration Declaration, ASTExpression Condition, ASTExpression PostExpression, ASTStatement Body)        {
+            this.Declaration = Declaration;
+            this.Condition = Condition;
+            this.PostExpression = PostExpression;
+            this.Body = Body;
+        }
+
+        public static new ASTForWithDeclStatement Parse(Queue<Token> Tokens)
+        {
+            var for_tok = Tokens.Dequeue();
+            if (for_tok.Type != TokenType.Keyword_For) Fail("Expected token for!");
+
+            var open_paren_tok = Tokens.Dequeue();
+            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected opening parenthesis!");
+
+            var declaration = ASTVariableDeclaration.Parse(Tokens);
+
+            var condition = ASTExpression.Parse(Tokens);
+
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected a semicolon!");
+
+            var postExpr = ASTExpression.Parse(Tokens);
+            
+            var close_paren_tok = Tokens.Dequeue();
+            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis!");
+
+            var body = ASTStatement.Parse(Tokens);
+
+            return new ASTForWithDeclStatement(declaration, condition, postExpr, body);
+        }
+    }
+
+    public class ASTWhileStatement : ASTStatement
+    {
+
+    }
+
+    public class ASTDoWhileStatement : ASTStatement
+    {
+
+    }
+
+    public class ASTBreakStatement : ASTStatement
+    {
+
+    }
+
+    public class ASTContinueStatement : ASTStatement
+    {
+
+    }
+
+    #endregion
+
+    #region Expressions
+
     public class ASTExpression : ASTNode
     {
         public static ASTExpression Parse(Queue<Token> Tokens)
         {
             // We start by parsing logical or which has the lowerst precedence
             // It will then go through all levels of precedence
-            return ParseLogicalOr(Tokens);
+            return ParseConditional(Tokens);
         }
 
-        // The nineth (lowest) level of precedence (||)
+        // The tenth level of precedence (?:)
+        public static ASTExpression ParseConditional(Queue<Token> Tokens)
+        {
+            var expr = ParseLogicalOr(Tokens);
+
+            var peek = Tokens.Peek();
+            if (peek.Type == TokenType.Questionmark)
+            {
+                // Dequeue the questionmark
+                Tokens.Dequeue();
+
+                var ifTrue = ASTExpression.Parse(Tokens);
+
+                var colon_tok = Tokens.Dequeue();
+                if (colon_tok.Type != TokenType.Colon) Fail("Expected a colon!");
+
+                var ifFalse = ASTExpression.Parse(Tokens);
+
+                expr = new ASTConditionalExpression(expr, ifTrue, ifFalse);
+            }
+
+            return expr;
+        }
+
+        // The nineth level of precedence (||)
         public static ASTExpression ParseLogicalOr(Queue<Token> Tokens)
         {
-            var term = ParseLogicalAnd(Tokens);
+            var expr = ParseLogicalAnd(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.DoublePipe)
             {
                 var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
                 var next_term = ParseLogicalAnd(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                expr = new ASTBinaryOp(op_type, expr, next_term);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // The eigth level of precedence (&&)
         public static ASTExpression ParseLogicalAnd(Queue<Token> Tokens)
         {
-            var term = ParseBitwiseOr(Tokens);
+            var expr = ParseBitwiseOr(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.DoubleAnd)
             {
                 var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
                 var next_term = ParseBitwiseOr(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                expr = new ASTBinaryOp(op_type, expr, next_term);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // The seventh level of precedence (|)
         public static ASTExpression ParseBitwiseOr(Queue<Token> Tokens)
         {
-            var term = ParseBitwiseXor(Tokens);
+            var expr = ParseBitwiseXor(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.Pipe)
             {
                 var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
                 var next_term = ParseBitwiseXor(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                expr = new ASTBinaryOp(op_type, expr, next_term);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // The sixth level of precedence (^)
         public static ASTExpression ParseBitwiseXor(Queue<Token> Tokens)
         {
-            var term = ParseBitwiseAnd(Tokens);
+            var expr = ParseBitwiseAnd(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.Caret)
             {
                 var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
                 var next_term = ParseBitwiseAnd(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                expr = new ASTBinaryOp(op_type, expr, next_term);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // The fifth level of precedence (&)
         public static ASTExpression ParseBitwiseAnd(Queue<Token> Tokens)
         {
-            var term = ParseEqual(Tokens);
+            var expr = ParseEqual(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.And)
             {
                 var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
                 var next_term = ParseEqual(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                expr = new ASTBinaryOp(op_type, expr, next_term);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // The fourth level of precedence (!= | ==)
         public static ASTExpression ParseEqual(Queue<Token> Tokens)
         {
-            var term = ParseRelational(Tokens);
+            var expr = ParseRelational(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.NotEqual || peek.Type == TokenType.DoubleEqual)
             {
                 var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
                 var next_term = ParseRelational(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                expr = new ASTBinaryOp(op_type, expr, next_term);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
         
         // The third level of precedence (< | > | <= | >=)
@@ -449,32 +723,6 @@ namespace T12
             }
         }
     }
-    
-    public class ASTAssignExpression : ASTExpression
-    {
-        public readonly string VariableName;
-        public readonly ASTExpression ValueExpression;
-
-        public ASTAssignExpression(string VariableName, ASTExpression ValueExpression)
-        {
-            this.VariableName = VariableName;
-            this.ValueExpression = ValueExpression;
-        }
-
-        public static new ASTAssignExpression Parse(Queue<Token> Tokens)
-        {
-            var ident_tok = Tokens.Dequeue();
-            if (ident_tok.Type != TokenType.Identifier) Fail("Expected an identifier!");
-            string name = ident_tok.Value;
-
-            var equals_tok = Tokens.Dequeue();
-            if (equals_tok.Type != TokenType.Equal) Fail("Expected equals in assignment!");
-
-            var expr = ASTExpression.Parse(Tokens);
-
-            return new ASTAssignExpression(name, expr);
-        }
-    }
 
     public class ASTLitteral : ASTExpression
     {
@@ -516,11 +764,27 @@ namespace T12
 
     public class ASTVariableExpression : ASTExpression
     {
-        public readonly string VariableName;
+        public enum AssignmentOperationType
+        {
+            Unknown,
+            Set,
+            Add,
+            Subtract,
+            Multiply,
+            Divide,
+            Modulo,
+            Bitwise_And,
+            Bitwise_Or,
+            Botwise_Xor,
+        }
 
-        public ASTVariableExpression(string VariableName)
+        public readonly string VariableName;
+        public readonly ASTExpression AssignmentExpression;
+
+        public ASTVariableExpression(string VariableName, ASTExpression AssignmentExpression)
         {
             this.VariableName = VariableName;
+            this.AssignmentExpression = AssignmentExpression;
         }
 
         public static new ASTVariableExpression Parse(Queue<Token> Tokens)
@@ -529,7 +793,51 @@ namespace T12
             if (ident_tok.IsIdentifier == false) Fail("Expected an identifier!");
             string name = ident_tok.Value;
 
-            return new ASTVariableExpression(name);
+            ASTExpression expr = null;
+
+            var peek = Tokens.Peek();
+            if (peek.IsAssignmentOp)
+            {
+                var op_tok = Tokens.Dequeue();
+
+                expr = ASTExpression.Parse(Tokens);
+
+                if (op_tok.Type != TokenType.Equal)
+                {
+                    // Replace expr with the appropriate bin op
+                    var op_type = TokenToOperatorType(op_tok);
+
+                    expr = new ASTBinaryOp(op_type, new ASTVariableExpression(name, null), expr);
+                }
+            }
+
+            return new ASTVariableExpression(name, expr);
+        }
+
+        public static ASTBinaryOp.BinaryOperatorType TokenToOperatorType(Token token)
+        {
+            switch (token.Type)
+            {
+                case TokenType.PlusEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Addition;
+                case TokenType.MinusEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Subtraction;
+                case TokenType.AsteriskEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Multiplication;
+                case TokenType.SlashEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Division;
+                case TokenType.PercentEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Modulo;
+                case TokenType.AndEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Bitwise_And;
+                case TokenType.PipeEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Bitwise_Or;
+                case TokenType.CaretEqual:
+                    return ASTBinaryOp.BinaryOperatorType.Bitwise_Xor;
+                default:
+                    Fail($"Token '{token}' is not a assignment operator!");
+                    return ASTBinaryOp.BinaryOperatorType.Unknown;
+            }
         }
     }
 
@@ -652,6 +960,22 @@ namespace T12
             }
         }
     }
+
+    public class ASTConditionalExpression : ASTExpression
+    {
+        public readonly ASTExpression Condition;
+        public readonly ASTExpression IfTrue;
+        public readonly ASTExpression IfFalse;
+
+        public ASTConditionalExpression(ASTExpression Condition, ASTExpression IfTrue, ASTExpression IfFalse)
+        {
+            this.Condition = Condition;
+            this.IfTrue = IfTrue;
+            this.IfFalse = IfFalse;
+        }
+    }
+    
+    #endregion
 
     public class ASTType : ASTNode
     {

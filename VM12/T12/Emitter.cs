@@ -9,19 +9,13 @@ namespace T12
 
     using TypeMap = Dictionary<string, int>;
 
-    public class Emitter
+    public static class Emitter
     {
         private static void Fail(string error)
         {
             throw new InvalidOperationException(error);
         }
-
-        private static int StackIndex(VarMap vmap, TypeMap tmap)
-        {
-            // FIXME: Different variables will have different sizes
-            return vmap.Sum(kvp => tmap[kvp.Value.Type.TypeName]);
-        }
-
+        
         public static string EmitAsem(AST ast)
         {
             StringBuilder builder = new StringBuilder();
@@ -43,9 +37,23 @@ namespace T12
             return builder.ToString();
         }
 
+        private static int SizeOfType(ASTType type, TypeMap map)
+        {
+            if (map.TryGetValue(type.TypeName, out int size))
+            {
+                return size;
+            }
+            else
+            {
+                Fail($"Could not find type named '{type.TypeName}'");
+                return default;
+            }
+        }
+
         private static void EmitFunction(StringBuilder builder, ASTFunction func, TypeMap typeMap)
         {
             VarMap VariableMap = new VarMap();
+            int local_index = 0;
 
             builder.AppendLine($":{func.Name}");
 
@@ -58,15 +66,18 @@ namespace T12
 
             foreach (var param in func.Parameters)
             {
-                VariableMap.Add(param.Name, (StackIndex(VariableMap, typeMap), param.Type));
+                VariableMap.Add(param.Name, (local_index, param.Type));
+                local_index += SizeOfType(param.Type, typeMap);
             }
 
-            foreach (var statement in func.Body)
+            VarMap Scope = new VarMap(VariableMap);
+
+            foreach (var blockItem in func.Body)
             {
-                EmitStatment(builder, statement, VariableMap, typeMap);
+                EmitBlockItem(builder, blockItem, Scope, VariableMap, ref local_index, typeMap);
             }
 
-            int locals = StackIndex(VariableMap, typeMap);
+            int locals = local_index;
 
             string params_string = string.Join(", ", func.Parameters.Select(param => $"/{param.Name} {param.Type.TypeName}"));
 
@@ -96,35 +107,132 @@ namespace T12
             builder.Insert(param_index, $"\t{@params} {locals}\t; {combined_string}\n");
         }
 
-        private static void EmitStatment(StringBuilder builder, ASTStatement statement, VarMap varMap, TypeMap typeMap)
+        private static void EmitBlockItem(StringBuilder builder, ASTBlockItem blockItem, VarMap scope, VarMap varMap, ref int local_index, TypeMap typeMap)
         {
-            switch (statement)
+            switch (blockItem)
             {
-                case ASTReturnStatement returnStatement:
-                    {
-                        EmitExpression(builder, returnStatement.ReturnValueExpression, varMap);
-                        // FIXME: Handle the size of the return type!
-                        builder.AppendLine("\tret1");
-                        break;
-                    }
+                case ASTDeclaration declaration:
+                    EmitDeclaration(builder, declaration, scope, varMap, ref local_index, typeMap);
+                    break;
+                case ASTStatement statement:
+                    // @TODO: Make this cleaner, like using an imutable map or other datastructure for handling scopes
+                    // Make a copy of the scope so that the statement does not modify the current scope
+                    var new_scope = new VarMap(scope);
+                    EmitStatment(builder, statement, new_scope, varMap, ref local_index, typeMap);
+                    break;
+                default:
+                    Fail($"Unknown block item {blockItem}, this is a compiler bug!");
+                    break;
+            }
+        }
+
+        private static void EmitDeclaration(StringBuilder builder, ASTDeclaration declaration, VarMap scope, VarMap varMap, ref int local_index, TypeMap typeMap)
+        {
+            switch (declaration)
+            {
                 case ASTVariableDeclaration variableDeclaration:
                     {
                         string varName = variableDeclaration.VariableName;
-                        if (varMap.ContainsKey(varName)) Fail($"Cannot declare the variable '{varName}' more than once!");
+                        if (scope.ContainsKey(varName)) Fail($"Cannot declare the variable '{varName}' more than once!");
 
                         if (variableDeclaration.Initializer != null)
                         {
-                            EmitExpression(builder, variableDeclaration.Initializer, varMap);
-                            varMap.Add(varName, (StackIndex(varMap, typeMap), variableDeclaration.Type));
+                            EmitExpression(builder, variableDeclaration.Initializer, scope, varMap);
+
+                            scope.Add(varName, (local_index, variableDeclaration.Type));
+                            varMap.Add(varName, (local_index, variableDeclaration.Type));
+                            local_index += SizeOfType(variableDeclaration.Type, typeMap);
+
                             builder.AppendLine($"\tstore {varMap[varName].Offset}\t; [{varName}]");
                         }
                         break;
                     }
-                case ASTVariableAssignment variableAssignment:
+                default:
+                    Fail($"Unknown declaration {declaration}, this is a compiler bug!");
+                    break;
+            }
+        }
+
+        private static void EmitStatment(StringBuilder builder, ASTStatement statement, VarMap scope, VarMap varMap, ref int local_index, TypeMap typeMap)
+        {
+            switch (statement)
+            {
+                case ASTEmptyStatement _:
+                    builder.AppendLine("\tnop");
+                    break;
+                case ASTReturnStatement returnStatement:
                     {
-                        string varName = variableAssignment.VariableName;
-                        EmitExpression(builder, variableAssignment.AssignmentExpression, varMap);
-                        builder.AppendLine($"\tstore {varMap[varName].Offset}\t; [{varName}]");
+                        EmitExpression(builder, returnStatement.ReturnValueExpression, scope, varMap);
+                        // FIXME: Handle the size of the return type!
+                        builder.AppendLine("\tret1");
+                        break;
+                    }
+                case ASTAssignmentStatement assignment:
+                    {
+                        string varName = assignment.VariableNames[0];
+                        EmitExpression(builder, assignment.AssignmentExpression, scope, varMap);
+                        builder.AppendLine($"\tstore {scope[varName].Offset}\t; [{varName}]");
+                        break;
+                    }
+                case ASTIfStatement ifStatement:
+                    {
+                        EmitExpression(builder, ifStatement.Condition, scope, varMap);
+                        // FIXME: There could be hash collisions!
+                        
+                        int hash = ifStatement.GetHashCode();
+                        if (ifStatement.IfFalse == null)
+                        {
+                            // If-statement without else
+                            // builder.AppendLine($"\t; If {ifStatement.Condition.GetType()} ({hash})");
+                            builder.AppendLine($"\tjz :post_{hash}");
+                            //builder.AppendLine($"\t:if_{hash}");
+                            EmitStatment(builder, ifStatement.IfTrue, scope, varMap, ref local_index, typeMap);
+                            builder.AppendLine($"\t:post_{hash}");
+                        }
+                        else
+                        {
+                            // If-statement with else
+                            // builder.AppendLine($"\t; If Else {ifStatement.Condition.GetType()} ({hash})");
+                            builder.AppendLine($"\tjz :else_{hash}");
+                            //builder.AppendLine($"\t:if_{hash}");
+                            EmitStatment(builder, ifStatement.IfTrue, scope, varMap, ref local_index, typeMap);
+                            builder.AppendLine($"\tjmp :post_{hash}");
+                            builder.AppendLine($"\t:else_{hash}");
+                            EmitStatment(builder, ifStatement.IfFalse, scope, varMap, ref local_index, typeMap);
+                            builder.AppendLine($"\t:post_{hash}");
+                        }
+
+                    }
+                    break;
+                case ASTCompoundStatement compoundStatement:
+                    foreach (var blockItem in compoundStatement.Block)
+                    {
+                        EmitBlockItem(builder, blockItem, scope, varMap, ref local_index, typeMap);
+                    }
+                    break;
+                case ASTExpressionStatement expression:
+                    EmitExpression(builder, expression.Expr, scope, varMap);
+                    break;
+                case ASTForWithDeclStatement forWithDecl:
+                    {
+                        int hash = forWithDecl.GetHashCode();
+
+                        builder.AppendLine($"\t; For loop {forWithDecl.Condition.GetType()} {hash}");
+
+                        VarMap new_scope = new VarMap(scope);
+                        EmitDeclaration(builder, forWithDecl.Declaration, new_scope, varMap, ref local_index, typeMap);
+
+                        builder.AppendLine($"\t:for_cond_{hash}");
+                        EmitExpression(builder, forWithDecl.Condition, new_scope, varMap);
+                        builder.AppendLine($"\tjz :for_end_{hash}");
+
+                        EmitStatment(builder, forWithDecl.Body, new_scope, varMap, ref local_index, typeMap);
+
+                        EmitExpression(builder, forWithDecl.PostExpression, new_scope, varMap);
+
+                        builder.AppendLine($"\tjmp :for_cond_{hash}");
+                        builder.AppendLine($"\t:for_end_{hash}");
+
                         break;
                     }
                 default:
@@ -133,7 +241,7 @@ namespace T12
             }
         }
 
-        private static void EmitExpression(StringBuilder builder, ASTExpression expression, VarMap varMap)
+        private static void EmitExpression(StringBuilder builder, ASTExpression expression, VarMap scope, VarMap varMap)
         {
             switch (expression)
             {
@@ -141,12 +249,24 @@ namespace T12
                     EmitLitteral(builder, litteral);
                     break;
                 case ASTVariableExpression variable:
-                    if (varMap.TryGetValue(variable.VariableName, out var var) == false)
+                    if (scope.TryGetValue(variable.VariableName, out var var) == false)
                         Fail($"Cannot use variable '{variable.VariableName}' before it is declared!");
-                    builder.AppendLine($"\tload {var.Offset}\t; [{variable.VariableName}]");
+
+                    if (variable.AssignmentExpression != null)
+                    {
+                        EmitExpression(builder, variable.AssignmentExpression, scope, varMap);
+                        builder.AppendLine($"\tstore {var.Offset}\t; [{variable.VariableName}]");
+
+                        // FIXME: Don't do this if not nessesary
+                        builder.AppendLine($"\tload {var.Offset}\t; [{variable.VariableName}]");
+                    }
+                    else
+                    {
+                        builder.AppendLine($"\tload {var.Offset}\t; [{variable.VariableName}]");
+                    }
                     break;
                 case ASTUnaryOp unaryOp:
-                    EmitExpression(builder, unaryOp.Expr, varMap);
+                    EmitExpression(builder, unaryOp.Expr, scope, varMap);
                     switch (unaryOp.OperatorType)
                     {
                         case ASTUnaryOp.UnaryOperationType.Identity:
@@ -173,8 +293,8 @@ namespace T12
                     }
                     break;
                 case ASTBinaryOp binaryOp:
-                    EmitExpression(builder, binaryOp.Left, varMap);
-                    EmitExpression(builder, binaryOp.Right, varMap);
+                    EmitExpression(builder, binaryOp.Left, scope, varMap);
+                    EmitExpression(builder, binaryOp.Right, scope, varMap);
                     // FIXME: Consider the size of the result of the expression
                     switch (binaryOp.OperatorType)
                     {
@@ -202,10 +322,45 @@ namespace T12
                         case ASTBinaryOp.BinaryOperatorType.Bitwise_Xor:
                             builder.AppendLine("\txor");
                             break;
+                        case ASTBinaryOp.BinaryOperatorType.Equal:
+                            // TODO: Better handling?
+                            builder.AppendLine("\txor ; Equals");
+                            break;
+                        case ASTBinaryOp.BinaryOperatorType.Less_than:
+                            // FIXME: This is really inefficient
+                            builder.AppendLine("\tswap ; Less than");
+                            builder.AppendLine("\tsub");
+                            builder.AppendLine("\tload #0");
+                            builder.AppendLine("\tswap");
+                            builder.AppendLine("\tload #1");
+                            builder.AppendLine("\tswap");
+                            builder.AppendLine("\tselgz ; If b - a > 0 signed");
+                            break;
+                        case ASTBinaryOp.BinaryOperatorType.Greater_than:
+                            // FIXME: This is really inefficient
+                            builder.AppendLine("\tsub ; Greater than");
+                            builder.AppendLine("\tload #0");
+                            builder.AppendLine("\tswap");
+                            builder.AppendLine("\tload #1");
+                            builder.AppendLine("\tswap");
+                            builder.AppendLine("\tselgz ; If b - a > 0 signed");
+                            break;
                         default:
                             Fail($"Unknown binary operator type {binaryOp.OperatorType}, this is a compiler bug!");
                             break;
                     }
+                    break;
+                case ASTConditionalExpression conditional:
+                    int hash = conditional.GetHashCode();
+                    // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({hash})");
+                    EmitExpression(builder, conditional.Condition, scope, varMap);
+                    builder.AppendLine($"\tjz :else_cond_{hash}");
+                    builder.AppendLine($"\t:if_cond_{hash}");
+                    EmitExpression(builder, conditional.IfTrue, scope, varMap);
+                    builder.AppendLine($"\tjmp :post_cond_{hash}");
+                    builder.AppendLine($"\t:else_cond_{hash}");
+                    EmitExpression(builder, conditional.IfFalse, scope, varMap);
+                    builder.AppendLine($"\t:post_cond_{hash}");
                     break;
                 default:
                     Fail($"Unknown expression type {expression}, this is a compiler bug!");

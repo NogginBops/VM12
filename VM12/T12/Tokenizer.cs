@@ -7,6 +7,8 @@ namespace T12
 {
     public enum TokenType
     {
+        Comment,
+
         Open_brace,
         Close_brace,
 
@@ -15,39 +17,56 @@ namespace T12
 
         Semicolon,
         Comma,
-        
+        Colon,
+
+        DoubleAnd,
+        DoublePipe,
+        DoubleEqual,
+        NotEqual,
+
+        Less_than_or_equal,
+        Greater_than_or_equal,
+
+        Equal,
+        PlusEqual,
+        MinusEqual,
+        AsteriskEqual,
+        SlashEqual,
+        PercentEqual,
+        AndEqual,
+        PipeEqual,
+        CaretEqual,
+
         Plus,
         Minus,
         Asterisk,
         Slash,
         Percent,
 
-        Tilde,
-        Exclamationmark,
-        
-        DoubleAnd,
-        DoublePipe,
-        DoubleEqual,
-        NotEqual,
-
-        Equal,
-        
         And,
         Pipe,
         Caret,
 
+        Tilde,
+        Exclamationmark,
+        Questionmark,
+        
         Open_angle_bracket,
         Close_angle_bracket,
-
-        Less_than_or_equal,
-        Greater_than_or_equal,
-
+        
         Keyword_Void,
         Keyword_Word,
         Keyword_DWord,
         Keyword_Bool,
         Keyword_Return,
-
+        Keyword_If,
+        Keyword_Else,
+        Keyword_For,
+        Keyword_While,
+        Keyword_Do,
+        Keyword_Break,
+        Keyword_Continue,
+        
         Identifier,
         Word_Litteral,
 
@@ -101,6 +120,20 @@ namespace T12
                 Type == TokenType.Caret;
         }
 
+        public bool IsAssignmentOp
+        {
+            get =>
+                Type == TokenType.Equal ||
+                Type == TokenType.PlusEqual ||
+                Type == TokenType.MinusEqual ||
+                Type == TokenType.AsteriskEqual ||
+                Type == TokenType.SlashEqual ||
+                Type == TokenType.PercentEqual ||
+                Type == TokenType.AndEqual ||
+                Type == TokenType.PipeEqual ||
+                Type == TokenType.CaretEqual;
+        }
+
         public bool IsLitteral
         {
             get =>
@@ -125,6 +158,8 @@ namespace T12
     {
         private static List<(TokenType Type, Regex Regex)> TokenRegexes = new List<(TokenType, Regex)>
         {
+            ( TokenType.Comment, new Regex("^\\/\\/.*") ),
+
             ( TokenType.Open_brace, new Regex("^{") ),
             ( TokenType.Close_brace, new Regex("^}") ),
 
@@ -133,6 +168,27 @@ namespace T12
 
             ( TokenType.Semicolon, new Regex("^;") ),
             ( TokenType.Comma, new Regex("^,") ),
+            ( TokenType.Colon, new Regex("^:") ),
+
+            ( TokenType.DoubleAnd, new Regex("^&&") ),
+            ( TokenType.DoublePipe, new Regex("^\\|\\|") ),
+            ( TokenType.DoubleEqual, new Regex("^==") ),
+            ( TokenType.NotEqual, new Regex("^!=") ),
+
+            ( TokenType.Less_than_or_equal, new Regex("^<=") ),
+            ( TokenType.Greater_than_or_equal, new Regex("^>=") ),
+            ( TokenType.Open_angle_bracket, new Regex("^<") ),
+            ( TokenType.Close_angle_bracket, new Regex("^>") ),
+
+            ( TokenType.Equal, new Regex("^=") ),
+            ( TokenType.PlusEqual, new Regex("^\\+=") ),
+            ( TokenType.MinusEqual, new Regex("^\\-=") ),
+            ( TokenType.AsteriskEqual, new Regex("^\\*=") ),
+            ( TokenType.SlashEqual, new Regex("^\\/=") ),
+            ( TokenType.PercentEqual, new Regex("^%=") ),
+            ( TokenType.AndEqual, new Regex("^&=") ),
+            ( TokenType.PipeEqual, new Regex("^\\|=") ),
+            ( TokenType.CaretEqual, new Regex("^\\^=") ),
 
             ( TokenType.Plus, new Regex("^\\+") ),
             ( TokenType.Minus, new Regex("^\\-") ),
@@ -140,31 +196,26 @@ namespace T12
             ( TokenType.Slash, new Regex("^\\/") ),
             ( TokenType.Percent, new Regex("^%") ),
 
-            ( TokenType.Tilde, new Regex("^~") ),
-            ( TokenType.Exclamationmark, new Regex("^!") ),
-
-            ( TokenType.DoubleAnd, new Regex("^&&") ),
-            ( TokenType.DoublePipe, new Regex("^\\|\\|") ),
-            ( TokenType.DoubleEqual, new Regex("^==") ),
-            ( TokenType.NotEqual, new Regex("^!=") ),
-
-            ( TokenType.Equal, new Regex("^=") ),
-
             ( TokenType.And, new Regex("^&") ),
             ( TokenType.Pipe, new Regex("^\\|") ),
             ( TokenType.Caret, new Regex("^\\^") ),
 
-            ( TokenType.Open_angle_bracket, new Regex("^<") ),
-            ( TokenType.Close_angle_bracket, new Regex("^>") ),
-
-            ( TokenType.Less_than_or_equal, new Regex("^<=") ),
-            ( TokenType.Greater_than_or_equal, new Regex("^>=") ),
-
+            ( TokenType.Tilde, new Regex("^~") ),
+            ( TokenType.Exclamationmark, new Regex("^!") ),
+            ( TokenType.Questionmark, new Regex("^\\?") ),
+            
             ( TokenType.Keyword_Void, new Regex("^void") ),
             ( TokenType.Keyword_Word, new Regex("^word") ),
             ( TokenType.Keyword_DWord, new Regex("^dword") ),
             ( TokenType.Keyword_Bool, new Regex("^bool") ),
             ( TokenType.Keyword_Return, new Regex("^return") ),
+            ( TokenType.Keyword_If, new Regex("^if") ),
+            ( TokenType.Keyword_Else, new Regex("^else") ),
+            ( TokenType.Keyword_For, new Regex("^for") ),
+            ( TokenType.Keyword_While, new Regex("^while") ),
+            ( TokenType.Keyword_Do, new Regex("^do") ),
+            ( TokenType.Keyword_Break, new Regex("^break") ),
+            ( TokenType.Keyword_Continue, new Regex("^continue") ),
 
             ( TokenType.Identifier, new Regex("^[a-zA-Z]\\w*") ),
             ( TokenType.Word_Litteral, new Regex("^[0-9]+") ),

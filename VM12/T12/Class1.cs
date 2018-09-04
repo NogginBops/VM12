@@ -11,31 +11,34 @@ namespace T12
             string TestCode = @"
 word main()
 {
+    // Now we can have comments?
     word a = 0;
     a = 4 + 4;
-    return 4 % 2;
+    return 4 % 2; // Test
 }
 
-word test()
+word clamp(word val, word min, word max)
 {
-    word a = 0;
-    word b = 10 + a;
-    b = b * 2 + a;
-    return ~!(1 ^ ~b + ~-a);
+    return val < min ? min : val > max ? max : val;
 }
 
-word add(word a, word b)
+word clamp2(word val, word min, word max)
 {
-    word c = a * 2;
-    return a + b + c;
+    if (val < min) return min;
+    if (val > max) return max;
+    return val;
 }
 
-word set_bit(word data, word bit)
-{
-    return ~data & 1 ^ bit;
+word pow(word base, word exp) {
+    word result = 1;
+    for (word i = 0; i < exp; i += 1)
+    {
+        result *= base;
+    }
+    return result;
 }
             ";
-
+            
             var tokens = Tokenizer.Tokenize(TestCode);
             
             AST ast = AST.Parse(tokens);
