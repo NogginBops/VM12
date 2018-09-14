@@ -280,7 +280,17 @@ namespace Debugging
                 {
                     if (dgvStack.Rows[e.RowIndex].Cells[e.ColumnIndex].FormattedValue.ToString() != e.FormattedValue.ToString())
                     {
-                        localsDict[(frame.procName, e.RowIndex - (frame.FP - frame.locals))] = e.FormattedValue.ToString();
+                        string value = e.FormattedValue.ToString();
+
+                        localsDict[(frame.procName, e.RowIndex - (frame.FP - frame.locals))] = value;
+
+                        if (value.EndsWith("_H"))
+                        {
+                            string newVal = value.ReplaceEnd("_H", "_L");
+                            localsDict[(frame.procName, e.RowIndex - (frame.FP - frame.locals) + 1)] = newVal;
+                            dgvStack.Rows[e.RowIndex + 1].Cells[e.ColumnIndex].Value = newVal;
+                        }
+
                         e.Cancel = false;
                     }
                 }

@@ -45,6 +45,18 @@ namespace VM12
             return -1;
         }
 
+        public static string ReplaceEnd(this string value, string toReplace, string replacement)
+        {
+            if (value.EndsWith(toReplace))
+            {
+                return value.Substring(0, value.Length - toReplace.Length) + replacement;
+            }
+            else
+            {
+                return value;
+            }
+        }
+
         public static T[] SubArray<T>(this T[] source, int offset, int length)
         {
             T[] sub = new T[length];
