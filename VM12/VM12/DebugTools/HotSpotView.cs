@@ -12,13 +12,15 @@ using VM12_Opcode;
 namespace Profiler
 {
     using VM12 = VM12.VM12;
-
+    
     public partial class HotSpotView : UserControl
     {
         private VM12 vm12;
 
+#if DEBUG
         private VM12.ProcMetadata metadata;
-        
+#endif
+
         private DataGridViewCellStyle JmpTargetStyle = new DataGridViewCellStyle();
 
         private DataGridViewRow JmpTargetRow;
@@ -37,12 +39,14 @@ namespace Profiler
             this.vm12 = vm12;
         }
 
+#if DEBUG
         internal void SetProc(VM12.ProcMetadata metadata)
         {
             this.metadata = metadata;
 
             UpdateHotSpots(metadata);
         }
+#endif
 
         internal void UpdateData()
         {
@@ -101,6 +105,7 @@ namespace Profiler
                 { JumpMode.Ro_l,    "Ro_l"  },
         };
 
+#if DEBUG
         private void UpdateHotSpots(VM12.ProcMetadata metadata)
         {
             dgvHotSpot.Rows.Clear();
@@ -136,9 +141,11 @@ namespace Profiler
                 }
             }
         }
+#endif
 
         private void UpdateCounts()
         {
+#if DEBUG
             if (metadata != null)
             {
                 int row = 0;
@@ -151,10 +158,12 @@ namespace Profiler
                     dgvHotSpot.Rows[row++].Cells[0].Value = vm12.romInstructionCounter[index];
                 }
             }
+#endif
         }
-
+        
         private void dvgHotSpot_RowEnter(object sender, DataGridViewCellEventArgs e)
         {
+#if DEBUG
             if (JmpTargetRow != null) JmpTargetRow.DefaultCellStyle = null;
             JmpTargetRow = null;
 
@@ -189,6 +198,7 @@ namespace Profiler
 
                 Console.WriteLine(((DataGridView)sender).Rows[e.RowIndex].Cells[e.ColumnIndex]);
             }
+#endif
         }
     }
 }

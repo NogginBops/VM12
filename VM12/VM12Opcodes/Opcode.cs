@@ -85,7 +85,9 @@
         Read, Write,
 
         Clz, Ctz,
-        Selz, Selgz, Selge, Selc
+        Selz, Selgz, Selge, Selc,
+
+        Graf_clear, Graf_fill,
     }
 
     public enum Opcode_old : short

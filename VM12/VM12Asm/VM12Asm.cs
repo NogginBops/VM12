@@ -321,6 +321,9 @@ namespace VM12Asm
             { new Regex(sname("lmod")), "mod.l" },
             { new Regex(sname("blitm")), "blit.mask" },
 
+            { new Regex(sname("graf_clear")), "graf.clear" },
+            { new Regex(sname("graf_fill")), "graf.fill" },
+
             { new Regex("\\[FP\\]"), "fp" },
             { new Regex("\\[PC\\]"), "pc" },
             { new Regex("\\[PT\\]"), "pt" },
@@ -441,6 +444,9 @@ namespace VM12Asm
             { "selgz", Opcode.Selgz },
             { "selge", Opcode.Selge },
             { "selc", Opcode.Selc },
+
+            { "graf.clear", Opcode.Graf_clear },
+            { "graf.fill", Opcode.Graf_fill },
         };
 
         static Dictionary<string, int> arguments = new Dictionary<string, int>()

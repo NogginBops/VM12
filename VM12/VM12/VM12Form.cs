@@ -619,9 +619,11 @@ namespace VM12
         {
             return debugger;
         }
+#endif
 
         private void profilerToolStripMenuItem_Click(object sender, EventArgs e)
         {
+#if DEBUG
             if (vm12 != null)
             {
                 profiler.SetVM(vm12);
@@ -629,6 +631,7 @@ namespace VM12
 
             profiler.Show();
             profiler.BringToFront();
+#endif
         }
 
         private void VM12Form_KeyPress(object sender, KeyPressEventArgs e)
@@ -645,6 +648,5 @@ namespace VM12
                 inspector.Show();
             }
         }
-#endif
     }
 }

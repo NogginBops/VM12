@@ -12,6 +12,7 @@ namespace VM12.DebugTools
 {
     public partial class ProcMetadataView : UserControl
     {
+#if DEBUG
         private VM12.ProcMetadata metadata;
 
         public ProcMetadataView()
@@ -38,5 +39,6 @@ namespace VM12.DebugTools
                 procName.Text = "N/A";
             }
         }
+#endif
     }
 }

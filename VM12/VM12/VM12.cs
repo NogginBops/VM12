@@ -2090,6 +2090,12 @@ namespace VM12
                             SP -= 1;
                             PC++;
                             break;
+                        case Opcode.Graf_clear:
+                            int clear_color = mem[SP];
+                            SP -= 1;
+                            Utils.MemSet(mem + VRAM_START, clear_color, VRAM_SIZE);
+                            PC++;
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }

@@ -98,5 +98,27 @@ namespace VM12
                 return int.TryParse(str, out value);
             }
         }
+
+        [DllImport("msvcrt.dll", EntryPoint = "memcpy", CallingConvention = CallingConvention.Cdecl, SetLastError = false)]
+        public static extern IntPtr MemCopy(IntPtr dest, IntPtr src, uint count);
+
+        public static unsafe void MemSet(int* data, int value, int count)
+        {
+            int block_size = 32;
+            int length = Math.Min(block_size, count);
+            
+            int index = 0;
+            while (index < length)
+            {
+                data[index++] = value;
+            }
+
+            while (index < count)
+            {
+                MemCopy((IntPtr)data + (index * sizeof(int)), (IntPtr)data, (uint)Math.Min(block_size, (count - index)) * sizeof(int));
+                index += block_size;
+                block_size *= 2;
+            }
+        }
     }
 }
