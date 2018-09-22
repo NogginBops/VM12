@@ -23,7 +23,9 @@ namespace Debugging
         public MemoryInspector()
         {
             InitializeComponent();
-            
+
+            memViewRefreshTimer.Enabled = true;
+
             memStartAddress.ValueTextChanged += MemStartAddress_ValueTextChanged;
             memLength.ValueTextChanged += MemLength_ValueTextChanged;
             memEndAddress.ValueTextChanged += MemEndAddress_ValueTextChanged;
@@ -32,19 +34,12 @@ namespace Debugging
         internal void SetVM12(VM12 vm12)
         {
             this.vm12 = vm12;
+            memoryView.SetVM12(vm12);
+
             memStartAddress.ValueText = "0";
             memLength.ValueText = "100";
         }
-
-        public void UpdateData()
-        {
-            int[] data = new int[dataLength];
-
-            Array.Copy(vm12.MEM, startAddress, data, 0, dataLength);
-
-            memoryView1.setData(data.SelectMany(i => new byte[] { (byte)(i >> 8), (byte)(i & 0xFF) }).ToArray());
-        }
-
+        
         bool changingLength = false;
         bool changingEnd = false;
 
@@ -63,7 +58,7 @@ namespace Debugging
 
                 memEndAddress.ValueText = $"0x{val + dataLength:X}";
 
-                UpdateData();
+                memoryView.SetStartAndLength(startAddress, dataLength);
             }
         }
 
@@ -85,8 +80,8 @@ namespace Debugging
                 dataLength = val;
 
                 memEndAddress.ValueText = $"0x{val + startAddress}";
-
-                UpdateData();
+                
+                memoryView.SetLength(dataLength);
             }
 
             changingLength = false;
@@ -117,11 +112,21 @@ namespace Debugging
                 }
 
                 memLength.ValueText = $"{dataLength}";
-
-                UpdateData();
+                
+                memoryView.SetLength(dataLength);
             }
 
             changingEnd = false;
+        }
+
+        private void memViewRefreshTimer_Tick(object sender, EventArgs e)
+        {
+            memoryView.UpdateView();
+        }
+
+        private void refreshToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            memViewRefreshTimer.Enabled = refreshToolStripMenuItem.Checked;
         }
     }
 }

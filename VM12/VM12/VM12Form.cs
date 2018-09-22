@@ -162,22 +162,21 @@ namespace VM12
                         vm12.Stop();
                     }
 
-#if DEBUG
-                    FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
-
                     FileInfo storageFile = new FileInfo(Path.Combine(inf.DirectoryName, "Store.dsk"));
-
                     if (storageFile.Exists == false)
                     {
                         storageFile.Create();
                     }
 
+#if DEBUG
+                    FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
+                    
                     vm12 = new VM12(rom, metadataFile, storageFile);
 
                     vm12.HitBreakpoint += Vm12_HitBreakpoint;
                     debugger.SetVM(vm12);
 #else
-                    vm12 = new VM12(rom);
+                    vm12 = new VM12(rom, storageFile);
 #endif
 
                     // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!

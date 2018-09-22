@@ -28,13 +28,16 @@
         /// </summary>
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             this.menuStrip1 = new System.Windows.Forms.MenuStrip();
-            this.viewToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.optionsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
-            this.memStartAddress = new Debugging.Field();
-            this.memoryView1 = new Debugging.MemoryView();
-            this.memLength = new Debugging.Field();
             this.memEndAddress = new Debugging.Field();
+            this.memLength = new Debugging.Field();
+            this.memStartAddress = new Debugging.Field();
+            this.memoryView = new Debugging.MemoryView();
+            this.memViewRefreshTimer = new System.Windows.Forms.Timer(this.components);
+            this.refreshToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
@@ -45,18 +48,20 @@
             // menuStrip1
             // 
             this.menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.viewToolStripMenuItem});
+            this.optionsToolStripMenuItem});
             this.menuStrip1.Location = new System.Drawing.Point(0, 0);
             this.menuStrip1.Name = "menuStrip1";
             this.menuStrip1.Size = new System.Drawing.Size(1069, 24);
             this.menuStrip1.TabIndex = 1;
             this.menuStrip1.Text = "menuStrip1";
             // 
-            // viewToolStripMenuItem
+            // optionsToolStripMenuItem
             // 
-            this.viewToolStripMenuItem.Name = "viewToolStripMenuItem";
-            this.viewToolStripMenuItem.Size = new System.Drawing.Size(44, 20);
-            this.viewToolStripMenuItem.Text = "View";
+            this.optionsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.refreshToolStripMenuItem});
+            this.optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
+            this.optionsToolStripMenuItem.Size = new System.Drawing.Size(61, 20);
+            this.optionsToolStripMenuItem.Text = "Options";
             // 
             // splitContainer1
             // 
@@ -72,10 +77,32 @@
             // 
             // splitContainer1.Panel2
             // 
-            this.splitContainer1.Panel2.Controls.Add(this.memoryView1);
+            this.splitContainer1.Panel2.Controls.Add(this.memoryView);
             this.splitContainer1.Size = new System.Drawing.Size(1069, 500);
             this.splitContainer1.SplitterDistance = 220;
             this.splitContainer1.TabIndex = 2;
+            // 
+            // memEndAddress
+            // 
+            this.memEndAddress.AutoSize = true;
+            this.memEndAddress.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.memEndAddress.LableText = "End address:";
+            this.memEndAddress.Location = new System.Drawing.Point(12, 67);
+            this.memEndAddress.Name = "memEndAddress";
+            this.memEndAddress.Size = new System.Drawing.Size(182, 26);
+            this.memEndAddress.TabIndex = 2;
+            this.memEndAddress.ValueText = "";
+            // 
+            // memLength
+            // 
+            this.memLength.AutoSize = true;
+            this.memLength.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.memLength.LableText = "Length:";
+            this.memLength.Location = new System.Drawing.Point(12, 35);
+            this.memLength.Name = "memLength";
+            this.memLength.Size = new System.Drawing.Size(182, 26);
+            this.memLength.TabIndex = 1;
+            this.memLength.ValueText = "";
             // 
             // memStartAddress
             // 
@@ -90,33 +117,25 @@
             // 
             // memoryView1
             // 
-            this.memoryView1.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.memoryView1.Location = new System.Drawing.Point(0, 0);
-            this.memoryView1.Name = "memoryView1";
-            this.memoryView1.Size = new System.Drawing.Size(845, 500);
-            this.memoryView1.TabIndex = 0;
+            this.memoryView.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.memoryView.Location = new System.Drawing.Point(0, 0);
+            this.memoryView.Name = "memoryView1";
+            this.memoryView.Size = new System.Drawing.Size(845, 500);
+            this.memoryView.TabIndex = 0;
             // 
-            // memLength
+            // memViewRefreshTimer
             // 
-            this.memLength.AutoSize = true;
-            this.memLength.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.memLength.LableText = "Length:";
-            this.memLength.Location = new System.Drawing.Point(12, 35);
-            this.memLength.Name = "memLength";
-            this.memLength.Size = new System.Drawing.Size(182, 26);
-            this.memLength.TabIndex = 1;
-            this.memLength.ValueText = "";
+            this.memViewRefreshTimer.Tick += new System.EventHandler(this.memViewRefreshTimer_Tick);
             // 
-            // memEndAddress
+            // refreshToolStripMenuItem
             // 
-            this.memEndAddress.AutoSize = true;
-            this.memEndAddress.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.memEndAddress.LableText = "End address:";
-            this.memEndAddress.Location = new System.Drawing.Point(12, 67);
-            this.memEndAddress.Name = "memEndAddress";
-            this.memEndAddress.Size = new System.Drawing.Size(182, 26);
-            this.memEndAddress.TabIndex = 2;
-            this.memEndAddress.ValueText = "";
+            this.refreshToolStripMenuItem.Checked = true;
+            this.refreshToolStripMenuItem.CheckOnClick = true;
+            this.refreshToolStripMenuItem.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.refreshToolStripMenuItem.Name = "refreshToolStripMenuItem";
+            this.refreshToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.refreshToolStripMenuItem.Text = "Refresh";
+            this.refreshToolStripMenuItem.Click += new System.EventHandler(this.refreshToolStripMenuItem_Click);
             // 
             // MemoryInspector
             // 
@@ -142,12 +161,14 @@
 
         #endregion
 
-        private MemoryView memoryView1;
+        private MemoryView memoryView;
         private System.Windows.Forms.MenuStrip menuStrip1;
-        private System.Windows.Forms.ToolStripMenuItem viewToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem optionsToolStripMenuItem;
         private System.Windows.Forms.SplitContainer splitContainer1;
         private Field memStartAddress;
         private Field memEndAddress;
         private Field memLength;
+        private System.Windows.Forms.Timer memViewRefreshTimer;
+        private System.Windows.Forms.ToolStripMenuItem refreshToolStripMenuItem;
     }
 }

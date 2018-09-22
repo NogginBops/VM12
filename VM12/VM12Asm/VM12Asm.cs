@@ -19,7 +19,7 @@ namespace VM12Asm
             Label,
             Argument
         }
-        
+
         class Macro
         {
             public string name;
@@ -123,7 +123,7 @@ namespace VM12Asm
                 return $"{name}({Path.GetFileName(file.Raw.path)}:{line})";
             }
         }
-        
+
         class RawFile
         {
             public string path;
@@ -203,7 +203,7 @@ namespace VM12Asm
                 this.Length = length;
             }
         }
-        
+
         const int _12BIT_MASK = 0x0FFF;
 
         const int ROM_OFFSET = 0xA4B_000;
@@ -353,7 +353,7 @@ namespace VM12Asm
         static Regex sizeof_expr = new Regex("^sizeof\\(#(.+)\\)$");
 
         static Regex endof_expr = new Regex("^endof\\(#(.+)\\)$");
-        
+
         static Regex sizeof_proc_expr = new Regex("^sizeof\\((:.+)\\)$");
 
         static Regex endof_proc_expr = new Regex("^endof\\((:.+)\\)$");
@@ -463,7 +463,7 @@ namespace VM12Asm
             { "JM.Eq", (int) JumpMode.Eq },
             { "JM.Neq", (int) JumpMode.Neq },
             { "JM.Ro", (int) JumpMode.Ro },
-            
+
             { "JM.Z.l", (int) JumpMode.Z_l },
             { "JM.Nz.l", (int) JumpMode.Nz_l },
             { "JM.Gz.l", (int) JumpMode.Gz_l },
@@ -485,17 +485,19 @@ namespace VM12Asm
 
         static bool verbose_lit = false;
 
+        static bool verbose_expr = false;
+
         static bool verbose_token = false;
 
         static bool dump_mem = false;
-        
+
         static int pplines = 0;
         static int macroUses = 0;
         static int lines = 0;
         static int tokens = 0;
 
         static List<Macro> globalMacros = new List<Macro>();
-        
+
         static Dictionary<string, Constant> globalConstants = new Dictionary<string, Constant>();
 
         static Dictionary<string, AutoConst> autoConstants = new Dictionary<string, AutoConst>();
@@ -528,7 +530,7 @@ namespace VM12Asm
         }
 
         static List<WarningEntry> Warnings = new List<WarningEntry>();
-        
+
         static int autoStringIndex = 0;
 
         static Dictionary<string, string> autoStrings = new Dictionary<string, string>();
@@ -546,6 +548,7 @@ namespace VM12Asm
             verbose = false;
             verbose_addr = false;
             verbose_lit = false;
+            verbose_expr = false;
             verbose_token = false;
 
             dump_mem = false;
@@ -566,9 +569,9 @@ namespace VM12Asm
         public static void Main(params string[] args)
         {
             Console.ForegroundColor = conColor;
-            
+
             IEnumerator<string> enumerator = args.AsEnumerable().GetEnumerator();
-            
+
             string file = null;
             string name = null;
             bool generateStringSource = true;
@@ -577,7 +580,7 @@ namespace VM12Asm
             bool overwrite = false;
             bool hold = false;
             bool open = false;
-            
+
             long preprocessTime = 0;
             long parseTime = 0;
             long assemblyTime = 0;
@@ -621,6 +624,9 @@ namespace VM12Asm
                     case "-vl":
                         verbose_lit = true;
                         break;
+                    case "-ve":
+                        verbose_expr = true;
+                        break;
                     case "-d":
                         dump_mem = true;
                         break;
@@ -640,21 +646,21 @@ namespace VM12Asm
                 Console.Write("Destination filename: ");
                 name = Console.ReadLine();
             }
-            
+
             Console.WriteLine();
             Console.WriteLine();
 
             Console.WriteLine("Preprocessing...");
 
             autoStringsFile.Clear();
-            
+
             autoStringsFile.AppendLine("!noprintouts");
             autoStringsFile.AppendLine("!global");
             autoStringsFile.AppendLine("!no_map");
             autoStringsFile.AppendLine();
 
             Console.WriteLine($"Parsing...");
-            
+
             #region Usings
 
             Dictionary<string, AsemFile> files = new Dictionary<string, AsemFile>();
@@ -665,9 +671,9 @@ namespace VM12Asm
 
             FileInfo fileInf = new FileInfo(file);
             DirectoryInfo dirInf = fileInf.Directory;
-            
+
             FileInfo[] dirFiles = dirInf.GetFiles($"*.12asm", SearchOption.AllDirectories);
-            
+
             // TODO: Files with the same name but differnet directories
             while (remainingUsings.Count > 0)
             {
@@ -729,7 +735,7 @@ namespace VM12Asm
             }
 
             procMapFile.Clear();
-            
+
             procMapFile.AppendLine("!noprintouts");
             procMapFile.AppendLine("!no_map");
             procMapFile.AppendLine("!global");
@@ -760,7 +766,7 @@ namespace VM12Asm
 
             procMapFile.AppendLine($":__proc_map_strings__");
             procMapFile.AppendLine($"\t@\"{sb}\"");
-            
+
             procMapFile.Insert(insertIndex, $"<proc_map_entries = {procsMapped}>\n" +
                                             $"<proc_map_strings_length = {sb.Length}>\n" +
                                             $"<proc_map_length = #({procsMapped} 8 *)>\n\n");
@@ -778,7 +784,7 @@ namespace VM12Asm
             parseTime += watch.ElapsedTicks;
 
             files["ProcMapData.12asm"] = procMapAsem;
-            
+
             if (generateProcMapSource)
             {
                 File.WriteAllText(Path.Combine(dirInf.FullName, "ProcMapData.12asm"), compiler_generated_warning + procMapFile.ToString());
@@ -793,7 +799,7 @@ namespace VM12Asm
                     Console.WriteLine(f);
                 }
             }
-            
+
             #endregion
 
             if (verbose && verbose_token)
@@ -890,19 +896,19 @@ namespace VM12Asm
 
                 #endregion
             }
-            
+
             Console.WriteLine("Assembling...");
 
             watch.Restart();
             LibFile libFile = Assemble(files, executable, out bool success);
             watch.Stop();
             assemblyTime += watch.ElapsedTicks;
-            
+
             if (success == false)
             {
                 goto noFile;
             }
-            
+
             if (dump_mem)
             {
                 bool toFile = false;
@@ -912,7 +918,7 @@ namespace VM12Asm
                     output = new StreamWriter(File.Create(Path.Combine(dirInf.FullName, "output.txt")), Encoding.ASCII, 2048);
                 }
 
-                output.WriteLine($"Result ({libFile.UsedInstructions} used words ({((double) libFile.UsedInstructions / ROM_SIZE):P5})): ");
+                output.WriteLine($"Result ({libFile.UsedInstructions} used words ({((double)libFile.UsedInstructions / ROM_SIZE):P5})): ");
                 output.WriteLine();
 
                 Console.ForegroundColor = ConsoleColor.White;
@@ -973,13 +979,13 @@ namespace VM12Asm
             Console.WriteLine($"Allocated {VRAM_OFFSET - 1 - autoVars} ({(((double)VRAM_OFFSET - 1 - autoVars) / (VRAM_OFFSET - 1 - STACK_SIZE)):P5}) words to auto() vars {autoVars - STACK_SIZE} words remaining");
 
             total.Stop();
-            
+
             double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 100;
             double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 100;
             double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 100;
             double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
             double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
-            
+
             string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");
             Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms {pplines} lines");
@@ -1020,7 +1026,7 @@ namespace VM12Asm
 
                 using (BinaryWriter bw = new BinaryWriter(stream))
                 {
-                    for (int pos = 0; pos < libFile.Instructions.Length; )
+                    for (int pos = 0; pos < libFile.Instructions.Length;)
                     {
                         int skipped = 0;
                         while (pos < libFile.Instructions.Length && libFile.Instructions[pos] == 0)
@@ -1088,7 +1094,7 @@ namespace VM12Asm
             metaFile.Delete();
 
             SKONObject skonObject = SKONObject.GetEmptyMap();
-            
+
             using (FileStream stream = metaFile.Create())
             using (StreamWriter writer = new StreamWriter(stream))
             {
@@ -1172,7 +1178,7 @@ namespace VM12Asm
             List<Macro> macros = new List<Macro>();
 
             List<string> newLines = new List<string>(lines);
-            
+
             bool global = false;
 
             // Go through all lines and parse and replace macros
@@ -1190,7 +1196,7 @@ namespace VM12Asm
                 }
 
                 string line = Regex.Replace(lines[i], ";.*", "");
-                
+
                 var match = macroDefLoose.Match(line);
                 if (match.Success)
                 {
@@ -1210,7 +1216,7 @@ namespace VM12Asm
                         {
                             newLines[i + l] = "";
                         }
-                        
+
                         Macro macro = new Macro();
 
                         macro.name = match.Groups[1].Value;
@@ -1232,7 +1238,7 @@ namespace VM12Asm
                             macros.Add(macro);
                         }
 
-                        if (verbose) Console.WriteLine($"Defined {(global?"global ":"")}macro '{macro.name}'");
+                        if (verbose) Console.WriteLine($"Defined {(global ? "global " : "")}macro '{macro.name}'");
                         //Console.WriteLine($"Start {i}, End {i + offset}, Name {match.Groups[1]}");
                         //Console.WriteLine(string.Join("\n", macro.lines));
                     }
@@ -1250,7 +1256,7 @@ namespace VM12Asm
                         //Console.WriteLine($"Found macro use! Name '{useMatch.Groups[1]}' args '{useMatch.Groups[2]}'");
 
                         string useName = useMatch.Groups[1].Value;
-                        string[] args = useMatch.Groups[2].Value.Split(new []{ ',' }, StringSplitOptions.RemoveEmptyEntries);
+                        string[] args = useMatch.Groups[2].Value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToArray();
 
                         // Find a macro with the same name and numer of arguments
                         Macro macro = macros.Concat(globalMacros).FirstOrDefault(m => (m.name == useName) && (m.args.Length == args.Length));
@@ -1274,7 +1280,7 @@ namespace VM12Asm
                                     }
                                 }
                             }
-                            
+
                             string macroResult = string.Join(" ", macroLines);
 
                             StringBuilder newLineString = new StringBuilder(line);
@@ -1285,7 +1291,7 @@ namespace VM12Asm
                     }
                 }
             }
-            
+
             for (int i = 0; i < newLines.Count; i++)
             {
                 foreach (var conversion in preprocessorConversions)
@@ -1310,14 +1316,14 @@ namespace VM12Asm
                         newLines[forward] = "";
                         forward++;
                     } while (cont);
-                    
+
                     i = forward - 1;
                 }
             }
-            
+
             return newLines.ToArray();
         }
-        
+
         static AsemFile Parse(RawFile file)
         {
             Dictionary<string, string> usings = new Dictionary<string, string>();
@@ -1369,7 +1375,7 @@ namespace VM12Asm
                     continue;
                 }
 
-                string line = it_line.Trim(new[]{ ' ', '\t', '¤' });
+                string line = it_line.Trim(new[] { ' ', '\t', '¤' });
 
                 if (line.Length < 0)
                 {
@@ -1392,7 +1398,7 @@ namespace VM12Asm
 
                     Match mauto = auto.Match(value);
                     bool isAuto = mauto.Success;
-                    
+
                     Constant constant = new Constant(c.Groups[1].Value, file, line_num, value);
                     constants[c.Groups[1].Value] = constant;
 
@@ -1449,7 +1455,7 @@ namespace VM12Asm
                         {
                             Token t;
                             Match l;
-                            
+
                             if (opcodes.TryGetValue(token, out Opcode opcode))
                             {
                                 t = Token.InstToken(line_num, token, breakpoint, opcode);
@@ -1501,7 +1507,7 @@ namespace VM12Asm
                                 Error(file, line_num, $"Could not parse token: \"{token}\"");
                                 t = new Token();
                             }
-                            
+
                             currProc.tokens.Add(t);
                         }
                     }
@@ -1517,7 +1523,7 @@ namespace VM12Asm
                             currProc.name = l.Groups[1].Value;
 
                             procs[currProc.name] = currProc;
-                            
+
                             if (l.Groups[3].Success)
                             {
                                 currProc.location_const = l.Groups[3].Value; // ToInt(ParseLitteral(file, line_num, l.Groups[3].Value, constants));
@@ -1536,7 +1542,7 @@ namespace VM12Asm
                     }
                 }
             }
-            if(currProc.name != null)
+            if (currProc.name != null)
             {
                 procs[currProc.name] = currProc;
             }
@@ -1555,9 +1561,9 @@ namespace VM12Asm
             Dictionary<Proc, ProcMetadata> metadata = new Dictionary<Proc, ProcMetadata>();
 
             int offset = 0;
-            
+
             Dictionary<string, Dictionary<string, int>> proc_label_instructions = new Dictionary<string, Dictionary<string, int>>();
-            
+
             Dictionary<string, Dictionary<int, string>> proc_label_uses = new Dictionary<string, Dictionary<int, string>>();
 
             Dictionary<string, Dictionary<int, (Constant constant, int size)>> delayed_const_uses = new Dictionary<string, Dictionary<int, (Constant, int)>>();
@@ -1576,7 +1582,7 @@ namespace VM12Asm
 
             foreach (var file in files)
             {
-                Console.WriteLine($"Evaluating {file.Value.Constants.Count} const expressions in file '{file.Key}'");
+               if (verbose_expr) Console.WriteLine($"Evaluating {file.Value.Constants.Count} const expressions in file '{file.Key}'");
 
                 foreach (var eval_expr in file.Value.Constants.ToList())
                 {
@@ -1589,12 +1595,12 @@ namespace VM12Asm
 
                     if (eval_expr.Value.value != result)
                     {
-                        Console.WriteLine($"Evaluated constant '{eval_expr.Value.value}' to constant '{result}' for constant '{eval_expr.Key}'");
+                        if (verbose_expr) Console.WriteLine($"Evaluated constant '{eval_expr.Value.value}' to constant '{result}' for constant '{eval_expr.Key}'");
                     }
 
                     file.Value.Constants[eval_expr.Key].value = result;
                 }
-                
+
                 offset = 0;
 
                 bool temp_verbose = verbose;
@@ -1685,7 +1691,7 @@ namespace VM12Asm
                             proc.Value.parameters = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, parameters.Value, false, file.Value.Constants));
                             proc.Value.locals = ToInt(ParseLitteral(file.Value.Raw, proc.Value.line, locals.Value, false, file.Value.Constants));
                         }
-                        
+
 
                         if (proc.Value.parameters == null || proc.Value.locals == null)
                         {
@@ -1696,12 +1702,12 @@ namespace VM12Asm
                     VM12Asm.tokens += proc.Value.tokens.Count;
 
                     IEnumerator<Token> tokens = proc.Value.tokens.GetEnumerator();
-                    
+
                     if (tokens.MoveNext() == false)
                     {
                         continue;
                     }
-                    
+
                     Token current = tokens.Current;
 
                     Token peek = tokens.Current;
@@ -1725,7 +1731,8 @@ namespace VM12Asm
                                 breakpoints[proc.Value] = new List<int>();
                             }
 
-                            breakpoints[proc.Value].Add(instructions.Count - 1);
+                            // We should break on the next added instruction
+                            breakpoints[proc.Value].Add(instructions.Count);
                         }
 
                         switch (current.Type)
@@ -1747,7 +1754,7 @@ namespace VM12Asm
                                         else if (peek.Type == TokenType.Litteral)
                                         {
                                             string evalRes = EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants, null, out bool delay);
-                                            
+
                                             if (delay)
                                             {
                                                 ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 1);
@@ -1794,7 +1801,7 @@ namespace VM12Asm
 
                                         if (peek.Type == TokenType.Label)
                                         {
-                                            instructions.Add((short) current.Opcode);
+                                            instructions.Add((short)current.Opcode);
                                             local_label_uses[instructions.Count] = peek.Value;
                                             instructions.Add(0);
                                             instructions.Add(0);
@@ -1839,14 +1846,14 @@ namespace VM12Asm
                                         break;
                                     case Opcode.Jmp:
                                         // Shift breakpoints before adding instructions
-                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
+                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 1);
 
                                         instructions.Add((short)current.Opcode);
 
                                         JumpMode mode = JumpMode.Jmp;
                                         if (peek.Type == TokenType.Argument)
                                         {
-                                            mode = (JumpMode) arguments[peek.Value];
+                                            mode = (JumpMode)arguments[peek.Value];
                                             if (Enum.IsDefined(typeof(JumpMode), mode))
                                             {
                                                 instructions.Add((short)mode);
@@ -1865,7 +1872,7 @@ namespace VM12Asm
 
                                         if (mode == JumpMode.Ro || mode == JumpMode.Ro_l)
                                         {
-
+                                            // These don't take a label as the next instruction
                                         }
                                         else if (peek.Type == TokenType.Label)
                                         {
@@ -1921,7 +1928,7 @@ namespace VM12Asm
                                                     Error(file.Value.Raw, current.Line, $"The litteral {peek.Value} does not fit in 24-bits! {current.Opcode} only takes 24-bit arguments!");
                                                 }
 
-                                                instructions.Add(value.Length < 2 ? (short) 0 : value[1]);
+                                                instructions.Add(value.Length < 2 ? (short)0 : value[1]);
                                                 instructions.Add(value[0]);
                                             }
 
@@ -2010,7 +2017,7 @@ namespace VM12Asm
                                         }
                                         break;
                                     default:
-                                        instructions.Add((short) (current.Opcode ?? Opcode.Nop));
+                                        instructions.Add((short)(current.Opcode ?? Opcode.Nop));
                                         break;
                                 }
                                 break;
@@ -2066,12 +2073,12 @@ namespace VM12Asm
                                 Error(file.Value.Raw, current.Line, $"Unhandled argument: \"{current.Value}\"!");
                                 break;
                         }
-                        
+
                         current = tokens.Current;
                     }
 
                     offset = instructions.Count;
-                    
+
                     proc_label_instructions[proc.Key] = local_labels;
 
                     proc_label_uses[proc.Key] = local_label_uses;
@@ -2081,7 +2088,7 @@ namespace VM12Asm
                     assembledProcs[proc.Value] = instructions;
 
                     procmeta.size = instructions.Count;
-                    
+
                     metadata[proc.Value] = procmeta;
 
                     if (verbose) Console.WriteLine("----------------------");
@@ -2093,7 +2100,7 @@ namespace VM12Asm
             offset = 0;
 
             if (verbose) Console.WriteLine();
-            
+
             foreach (var asem in assembledProcs)
             {
                 if (asem.Key.location_const != null)
@@ -2115,7 +2122,7 @@ namespace VM12Asm
                     offset += asem.Value.Count;
                 }
             }
-            
+
             var metadataArray = metadata.Values.ToArray();
 
             for (int i = 0; i < metadataArray.Length - 1; i++)
@@ -2199,16 +2206,16 @@ namespace VM12Asm
                 }
 
                 // FIXME: New breakpoints
-                /*
+
                 if (breakpoints.ContainsKey(proc.Key))
                 {
                     metadata[proc.Key].breaks = breakpoints[proc.Key];
                 }
-                */
+
             }
-            
+
             if (verbose) Console.WriteLine();
-            
+
             short[] compiledInstructions = new short[ROM_SIZE];
 
             int usedInstructions = 0;
@@ -2219,9 +2226,9 @@ namespace VM12Asm
 
                 proc.Value.CopyTo(compiledInstructions, metadata[proc.Key].location);
             }
-            
+
             success = true;
-            
+
             return new LibFile(compiledInstructions, metadata.Values.ToArray(), usedInstructions);
         }
 
@@ -2241,7 +2248,7 @@ namespace VM12Asm
             Match sizeof_proc_expression = sizeof_proc_expr.Match(expr.value);
             Match endof_proc_expression = endof_proc_expr.Match(expr.value);
             Match auto_expression = auto.Match(expr.value);
-            
+
             if (IsLitteral(expr.file, expr.line, expr.value, constants))
             {
                 delay = false;
@@ -2254,7 +2261,7 @@ namespace VM12Asm
                 string[] tokens = constant_expression.Groups[1].Value.Split(' ');
 
                 Stack<string> stack = new Stack<string>(tokens.Length);
-                
+
                 int num = 0;
                 foreach (var token in tokens)
                 {
@@ -2311,7 +2318,22 @@ namespace VM12Asm
             }
             else if (expr.value.StartsWith("#"))
             {
-                return EvalConstant(constants[expr.value.Substring(1)], constants, fileConstants, procs, out delay);
+                string substring = expr.value.Substring(1);
+
+                // NOTE: Should this really be valid?
+                // Right now we have it to allow constant expressions in macros
+                // macro(#2) could then use that as a macro and we would be sure that it is the constant number
+                // that is being referenced and not the local. We probably want somehting smarter that can detect and remove the precceding '#'
+                // Maybe some notation in the macro definition to tell the preprossesor to remove the preceding '#'
+                if (IsNumber(expr.file, expr.line, substring))
+                {
+                    delay = false;
+                    return substring;
+                }
+                else
+                {
+                    return EvalConstant(constants[substring], constants, fileConstants, procs, out delay);
+                }
             }
             else if (external_expression.Success)
             {
@@ -2434,7 +2456,7 @@ namespace VM12Asm
                 if (autoConstants.TryGetValue(expr.name, out AutoConst autoConst))
                 {
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Using already allocated auto '{autoConst.Name}' with value {autoConst.Value}");
+                    if (verbose) Console.WriteLine($"Using already allocated auto '{autoConst.Name}' with value {autoConst.Value}");
                     Console.ForegroundColor = conColor;
                     delay = false;
                     return autoConst.Value;
@@ -2467,7 +2489,7 @@ namespace VM12Asm
             delay = false;
             return result;
         }
-        
+
         static bool IsLitteral(RawFile file, int line, string litteral, Dictionary<string, Constant> constants)
         {
             Constant constant;
@@ -2495,7 +2517,7 @@ namespace VM12Asm
 
             return false;
         }
-        
+
         static short[] ParseLitteral(RawFile file, int line, string litteral, bool raw, Dictionary<string, Constant> constants)
         {
             Constant constant;

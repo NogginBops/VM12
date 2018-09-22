@@ -283,9 +283,12 @@ namespace VM12
         public int FPWatermark = int.MinValue;
 
 #if !DEBUG
-        public VM12(short[] ROM)
+        public VM12(short[] ROM, FileInfo storage)
         {
             Array.Copy(ROM, 0, MEM, ROM_START, ROM.Length);
+
+            storageFile = storage;
+            ReadStorageData(storageFile);
         }
 #elif DEBUG
 
@@ -859,6 +862,7 @@ namespace VM12
                 metadata.Add(currMetadata);
             }
         }
+#endif
 
         void ReadStorageData(FileInfo storageFile)
         {
@@ -873,7 +877,8 @@ namespace VM12
                     int addr = reader.ReadInt32();
                     stream.Read(chunk, 0, chunk.Length);
 
-                    fixed(byte* chunk_data = chunk) {
+                    fixed (byte* chunk_data = chunk)
+                    {
                         WriteStorage(chunk_data, addr);
                     }
 
@@ -882,7 +887,6 @@ namespace VM12
                 }
             }
         }
-#endif
 
         public int InterruptCount = 0;
         public int MissedInterrupts = 0;

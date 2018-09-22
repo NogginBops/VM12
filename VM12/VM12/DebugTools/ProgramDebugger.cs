@@ -78,6 +78,7 @@ namespace Debugging
         {
             CatchVM();
             UpdateDebug();
+            FindForm().Focus();
         }
         
         private void UpdateDebug()
@@ -161,6 +162,8 @@ namespace Debugging
                 CatchVM();
 
                 UpdateDebug();
+
+                Focus();
             }
         }
 
@@ -169,6 +172,7 @@ namespace Debugging
             if (vm12 != null && !vm12.Stopped)
             {
                 ReleaseVM();
+                Application.OpenForms[0].Focus();
             }
         }
 
