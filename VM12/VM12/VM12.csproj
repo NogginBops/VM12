@@ -242,4 +242,12 @@
     <Content Include="Be.Windows.Forms.HexBox.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PreBuildEvent>echo "Building T12 pre build"
+"$(DevEnvDir)\devenv" "$(SolutionDir)\VM12.sln" /Build $(configuration) /project "$(SolutionDir)\T12\T12.csproj"
+</PreBuildEvent>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PostBuildEvent>copy $(SolutionDir)\T12\\bin\$(ConfigurationName)\netcoreapp2.1\* $(TargetDir)</PostBuildEvent>
+  </PropertyGroup>
 </Project>

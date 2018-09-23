@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Text;
 using System.Linq;
 
 namespace T12
 {
+    using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
+
     public class AST
     {
         public readonly ASTProgram Program;
@@ -18,6 +19,7 @@ namespace T12
         public static AST Parse(Queue<Token> Tokens)
         {
             // We can probably do this better!
+            // Because we will want to emit comments to the assembly
             Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
 
             var program = ASTProgram.Parse(Tokens);
@@ -38,40 +40,168 @@ namespace T12
     
     public class ASTProgram : ASTNode
     {
-        public readonly ReadOnlyCollection<ASTFunction> Functions;
+        public readonly List<ASTDirective> Directives;
+        public readonly List<ASTFunction> Functions;
 
-        public ASTProgram(IList<ASTFunction> Functions)
+        public ASTProgram(List<ASTDirective> Directives, List<ASTFunction> Functions)
         {
-            this.Functions = new ReadOnlyCollection<ASTFunction>(Functions);
+            this.Directives = Directives;
+            this.Functions = Functions;
         }
 
         public static ASTProgram Parse(Queue<Token> Tokens)
         {
+            List<ASTDirective> directives = new List<ASTDirective>();
             List<ASTFunction> functions = new List<ASTFunction>();
 
-            while (Tokens.Count > 0)
+            var peek = Tokens.Peek();
+            while (peek.IsDirectiveKeyword)
+            {
+                var directive = ASTDirective.Parse(Tokens);
+                directives.Add(directive);
+
+                peek = Tokens.Peek();
+            }
+            
+            while (Tokens.Count > 0 && Tokens.Peek().IsType)
             {
                 functions.Add(ASTFunction.Parse(Tokens));
             }
 
-            return new ASTProgram(functions);
+            if (Tokens.Count > 0) Fail($"There was '{Tokens.Count}' tokens left that couldn't be parsed. Next token: '{Tokens.Peek()}'");
+
+            return new ASTProgram(directives, functions);
         }
     }
+
+    #region Directives
+
+    public abstract class ASTDirective : ASTNode
+    {
+        public static ASTDirective Parse(Queue<Token> Tokens)
+        {
+            var peek = Tokens.Peek();
+            switch (peek.Type)
+            {
+                case TokenType.Keyword_Use:
+                    return ASTUseDirective.Parse(Tokens);
+                case TokenType.Keyword_Extern:
+                    return ASTExternFunctionDirective.Parse(Tokens);
+                default:
+                    Fail($"Unexpected token '{peek}' expected a valid directive!");
+                    return default;
+            }
+        }
+    }
+
+    public class ASTUseDirective : ASTDirective
+    {
+        public readonly string FileName;
+
+        public ASTUseDirective(string filename)
+        {
+            FileName = filename;
+        }
+
+        public static new ASTUseDirective Parse(Queue<Token> Tokens)
+        {
+            var use_tok = Tokens.Dequeue();
+            if (use_tok.Type != TokenType.Keyword_Use) Fail("Exptected 'use'!");
+
+            string name = "";
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Semicolon)
+            {
+                var tok = Tokens.Dequeue();
+                name += tok.Value;
+
+                peek = Tokens.Peek();
+            }
+
+            // Dequeue semicolon
+            Tokens.Dequeue();
+            
+            return new ASTUseDirective(name);
+        }
+    }
+
+    public class ASTExternFunctionDirective : ASTDirective
+    {
+        public readonly string FunctionName;
+        public readonly List<(ASTType Type, string Name)> Parameters;
+        public readonly ASTType ReturnType;
+
+        public ASTExternFunctionDirective(string functionName, List<(ASTType, string)> parameters, ASTType returnType)
+        {
+            FunctionName = functionName;
+            Parameters = parameters;
+            ReturnType = returnType;
+        }
+
+        public static new ASTExternFunctionDirective Parse(Queue<Token> Tokens)
+        {
+            var extern_tok = Tokens.Dequeue();
+            if (extern_tok.Type != TokenType.Keyword_Extern) Fail("Expected 'extern'!");
+
+            var retType = ASTType.Parse(Tokens);
+
+            var name_tok = Tokens.Dequeue();
+            if (name_tok.IsIdentifier == false) Fail($"Expected external function name (identifier)! Got {name_tok}");
+            string funcName = name_tok.Value;
+
+            List<(ASTType, string)> parameters = new List<(ASTType, string)>();
+
+            // Confirm that we have a opening parenthesis
+            var open_paren_tok = Tokens.Dequeue();
+            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected '('");
+
+            // We peeked so we can handle this loop more uniform by always dequeueing at the start
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_parenthesis)
+            {
+                ASTType type = ASTType.Parse(Tokens);
+
+                string name = "";
+                if (Tokens.Peek().IsIdentifier)
+                    name = Tokens.Dequeue().Value;
+
+                parameters.Add((type, name));
+
+                var cont_token = Tokens.Peek();
+                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
+                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
+                // Dequeue the comma
+                Tokens.Dequeue();
+
+                peek = Tokens.Peek();
+            }
+
+            var close_paren_tok = Tokens.Dequeue();
+            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+
+            return new ASTExternFunctionDirective(funcName, parameters, retType);
+        }
+    }
+
+    #endregion
 
     public class ASTFunction : ASTNode
     {
         public readonly string Name;
         public readonly ASTType ReturnType;
-        public readonly ReadOnlyCollection<(ASTType Type, string Name)> Parameters;
+        public readonly List <(ASTType Type, string Name)> Parameters;
         
-        public readonly ReadOnlyCollection<ASTBlockItem> Body;
+        public readonly List<ASTBlockItem> Body;
 
         public ASTFunction(string Name, ASTType ReturnType, List<(ASTType, string)> Parameters, List<ASTBlockItem> Body)
         {
             this.Name = Name;
             this.ReturnType = ReturnType;
-            this.Parameters = new ReadOnlyCollection<(ASTType Type, string Name)>(Parameters);
-            this.Body = new ReadOnlyCollection<ASTBlockItem>(Body);
+            this.Parameters = Parameters;
+            this.Body = Body;
         }
 
         public static ASTFunction Parse(Queue<Token> Tokens)
@@ -103,7 +233,8 @@ namespace T12
                 parameters.Add((type, param_name));
 
                 var cont_token = Tokens.Peek();
-                if (cont_token.Type != TokenType.Comma) break;
+                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
+                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
                 // Dequeue the comma
                 Tokens.Dequeue();
                 
@@ -137,13 +268,17 @@ namespace T12
     {
         public static ASTBlockItem Parse(Queue<Token> Tokens)
         {
+
             var peek = Tokens.Peek();
-            switch (peek.Type)
+            // FIXME: We need to handle custom types!
+            // We could do this by looking two tokens ahead and seeing if it is a '='
+            if (peek.IsBaseType)
             {
-                case TokenType.Keyword_Word:
-                    return ASTDeclaration.Parse(Tokens);
-                default:
-                    return ASTStatement.Parse(Tokens);
+                return ASTDeclaration.Parse(Tokens);
+            }
+            else
+            {
+                return ASTStatement.Parse(Tokens);
             }
         }
     }
@@ -348,12 +483,16 @@ namespace T12
             var ret_tok = Tokens.Dequeue();
             if (ret_tok.Type != TokenType.Keyword_Return) Fail("Expected return keyword!");
 
-            var retValExpr = ASTExpression.Parse(Tokens);
+            ASTExpression returnValExpr = null;
+
+            var peek = Tokens.Peek();
+            if (peek.Type != TokenType.Semicolon)
+                returnValExpr = ASTExpression.Parse(Tokens);
 
             var semicolon_tok = Tokens.Dequeue();
             if (semicolon_tok.Type != TokenType.Semicolon) Fail("A statement must end in a semicolon!");
 
-            return new ASTReturnStatement(retValExpr);
+            return new ASTReturnStatement(returnValExpr);
         }
     }
 
@@ -452,7 +591,8 @@ namespace T12
 
             var open_paren_tok = Tokens.Dequeue();
             if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected opening parenthesis!");
-
+            
+            // Ends with a semicolon
             var declaration = ASTVariableDeclaration.Parse(Tokens);
 
             var condition = ASTExpression.Parse(Tokens);
@@ -473,33 +613,101 @@ namespace T12
 
     public class ASTWhileStatement : ASTStatement
     {
+        public readonly ASTExpression Condition;
+        public readonly ASTStatement Body;
 
+        public ASTWhileStatement(ASTExpression Condition, ASTStatement Body)
+        {
+            this.Condition = Condition;
+            this.Body = Body;
+        }
+
+        public static new ASTWhileStatement Parse(Queue<Token> Tokens)
+        {
+            var while_tok = Tokens.Dequeue();
+            if (while_tok.Type != TokenType.Keyword_While) Fail("Expected while!");
+
+            var open_paren_tok = Tokens.Dequeue();
+            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected opening parenthesis!");
+
+            var condition = ASTExpression.Parse(Tokens);
+
+            var close_paren_tok = Tokens.Dequeue();
+            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis!");
+            
+            var body = ASTStatement.Parse(Tokens);
+
+            return new ASTWhileStatement(condition, body);
+        }
     }
 
     public class ASTDoWhileStatement : ASTStatement
     {
+        public readonly ASTStatement Body;
+        public readonly ASTExpression Condition;
 
+        public ASTDoWhileStatement(ASTStatement Body, ASTExpression Condition)
+        {
+            this.Body = Body;
+            this.Condition = Condition;
+        }
+
+        public static new ASTDoWhileStatement Parse(Queue<Token> Tokens)
+        {
+            var do_tok = Tokens.Dequeue();
+            if (do_tok.Type != TokenType.Keyword_Do) Fail("Expected do!");
+
+            var body = ASTStatement.Parse(Tokens);
+
+            var while_tok = Tokens.Dequeue();
+            if (while_tok.Type != TokenType.Keyword_While) Fail("Expected while!");
+
+            var open_paren_tok = Tokens.Dequeue();
+            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected opening parenthesis!");
+
+            var condition = ASTExpression.Parse(Tokens);
+
+            var close_paren_tok = Tokens.Dequeue();
+            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis!");
+
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected a semicolon!");
+
+            return new ASTDoWhileStatement(body, condition);
+        }
     }
 
     public class ASTBreakStatement : ASTStatement
     {
+        public static new ASTBreakStatement Parse(Queue<Token> Tokens)
+        {
+            var break_tok = Tokens.Dequeue();
+            if (break_tok.Type != TokenType.Keyword_Break) Fail("Expected keyword break!");
 
+            return new ASTBreakStatement();
+        }
     }
 
     public class ASTContinueStatement : ASTStatement
     {
+        public static new ASTContinueStatement Parse(Queue<Token> Tokens)
+        {
+            var break_tok = Tokens.Dequeue();
+            if (break_tok.Type != TokenType.Keyword_Continue) Fail("Expected keyword continue!");
 
+            return new ASTContinueStatement();
+        }
     }
 
     #endregion
 
     #region Expressions
 
-    public class ASTExpression : ASTNode
+    public abstract class ASTExpression : ASTNode
     {
         public static ASTExpression Parse(Queue<Token> Tokens)
         {
-            // We start by parsing logical or which has the lowerst precedence
+            // We start by parsing logical or which has the lowest precedence
             // It will then go through all levels of precedence
             return ParseConditional(Tokens);
         }
@@ -685,7 +893,7 @@ namespace T12
             return term;
         }
 
-        //
+        // Other kinds of expressions like function calls and variable assignment
         public static ASTExpression ParseFactor(Queue<Token> Tokens)
         {
             var peek = Tokens.Peek();
@@ -714,7 +922,24 @@ namespace T12
             }
             else if (peek.IsIdentifier)
             {
-                return ASTVariableExpression.Parse(Tokens);
+                var peek_action_tok = Tokens.ElementAt(1);
+
+                // FIXME: Make variable assignment different from a variable expression
+                if (peek_action_tok.Type == TokenType.Equal)
+                {
+                    // Variable assignment expression
+                    return ASTVariableExpression.Parse(Tokens);
+                }
+                else if (peek_action_tok.Type == TokenType.Open_parenthesis)
+                {
+                    // Function call
+                    return ASTFunctionCall.Parse(Tokens);
+                }
+                else
+                {
+                    // Variable expression
+                    return ASTVariableExpression.Parse(Tokens);
+                }
             }
             else
             {
@@ -724,8 +949,15 @@ namespace T12
         }
     }
 
-    public class ASTLitteral : ASTExpression
+    public abstract class ASTLitteral : ASTExpression
     {
+        public readonly ASTBaseType Type;
+
+        public ASTLitteral(ASTBaseType type)
+        {
+            Type = type;
+        }
+
         public static new ASTLitteral Parse(Queue<Token> Tokens)
         {
             var peek = Tokens.Peek();
@@ -733,6 +965,12 @@ namespace T12
             {
                 case TokenType.Word_Litteral:
                     return ASTWordLitteral.Parse(Tokens);
+                case TokenType.Keyword_True:
+                    Tokens.Dequeue();
+                    return ASTBoolLitteral.True;
+                case TokenType.Keyword_False:
+                    Tokens.Dequeue();
+                    return ASTBoolLitteral.False;
                 default:
                     Fail($"Expected litteral, got '{peek}'");
                     return default;
@@ -745,7 +983,7 @@ namespace T12
         public readonly string Value;
         public readonly int IntValue;
 
-        public ASTWordLitteral(string Value, int IntValue)
+        public ASTWordLitteral(string Value, int IntValue) : base(ASTBaseType.Word)
         {
             this.Value = Value;
             this.IntValue = IntValue;
@@ -760,6 +998,14 @@ namespace T12
 
             return new ASTWordLitteral(tok.Value, value);
         }
+    }
+
+    public class ASTBoolLitteral : ASTLitteral
+    {
+        public static readonly ASTBoolLitteral True = new ASTBoolLitteral();
+        public static readonly ASTBoolLitteral False = new ASTBoolLitteral();
+
+        private ASTBoolLitteral() : base(ASTBaseType.Bool) { }
     }
 
     public class ASTVariableExpression : ASTExpression
@@ -786,7 +1032,7 @@ namespace T12
             this.VariableName = VariableName;
             this.AssignmentExpression = AssignmentExpression;
         }
-
+        
         public static new ASTVariableExpression Parse(Queue<Token> Tokens)
         {
             var ident_tok = Tokens.Dequeue();
@@ -839,6 +1085,11 @@ namespace T12
                     return ASTBinaryOp.BinaryOperatorType.Unknown;
             }
         }
+    }
+
+    public class ASTPointerExpression : ASTExpression
+    {
+
     }
 
     public class ASTUnaryOp : ASTExpression
@@ -917,7 +1168,12 @@ namespace T12
             this.Left = Left;
             this.Right = Right;
         }
-        
+
+        public override string ToString()
+        {
+            return $"{base.ToString()}({OperatorTypeToString(OperatorType)})";
+        }
+
         public static BinaryOperatorType TokenToOperatorType(Token token)
         {
             switch (token.Type)
@@ -959,6 +1215,52 @@ namespace T12
                     return BinaryOperatorType.Unknown;
             }
         }
+
+        public static string OperatorTypeToString(BinaryOperatorType type)
+        {
+            switch (type)
+            {
+                case BinaryOperatorType.Addition:
+                    return "+";
+                case BinaryOperatorType.Subtraction:
+                    return "-";
+                case BinaryOperatorType.Multiplication:
+                    return "*";
+                case BinaryOperatorType.Division:
+                    return "/";
+                case BinaryOperatorType.Modulo:
+                    return "%";
+                case BinaryOperatorType.Bitwise_And:
+                    return "&";
+                case BinaryOperatorType.Bitwise_Or:
+                    return "|";
+                case BinaryOperatorType.Bitwise_Xor:
+                    return "^";
+                case BinaryOperatorType.Bitwise_shift_left:
+                    return "<<";
+                case BinaryOperatorType.Bitwise_shift_right:
+                    return ">>";
+                case BinaryOperatorType.Logical_And:
+                    return "&&";
+                case BinaryOperatorType.Logical_Or:
+                    return "||";
+                case BinaryOperatorType.Equal:
+                    return "==";
+                case BinaryOperatorType.Not_equal:
+                    return "!=";
+                case BinaryOperatorType.Less_than:
+                    return "<";
+                case BinaryOperatorType.Less_than_or_equal:
+                    return "<=";
+                case BinaryOperatorType.Greater_than:
+                    return ">";
+                case BinaryOperatorType.Greater_than_or_equal:
+                    return ">=";
+                case BinaryOperatorType.Unknown:
+                default:
+                    return "UNKNOWN";
+            }
+        }
     }
 
     public class ASTConditionalExpression : ASTExpression
@@ -975,15 +1277,65 @@ namespace T12
         }
     }
     
+    public class ASTFunctionCall : ASTExpression
+    {
+        public readonly string FunctionName;
+        public readonly List<ASTExpression> Arguments;
+
+        public ASTFunctionCall(string functionName, List<ASTExpression> arguments)
+        {
+            FunctionName = functionName;
+            Arguments = arguments;
+        }
+
+        public static new ASTFunctionCall Parse(Queue<Token> Tokens)
+        {
+            var name_tok = Tokens.Dequeue();
+            if (name_tok.IsIdentifier == false) Fail("Expected identifier!");
+            string funcName = name_tok.Value;
+
+            var open_paren_tok = Tokens.Dequeue();
+            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected '('");
+
+            List<ASTExpression> arguments = new List<ASTExpression>();
+
+            // We peeked so we can handle this loop more uniform by always dequeueing at the start
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_parenthesis)
+            {
+                var expr = ASTExpression.Parse(Tokens);
+                arguments.Add(expr);
+
+                var cont_token = Tokens.Peek();
+                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
+                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
+                // Dequeue the comma
+                Tokens.Dequeue();
+
+                peek = Tokens.Peek();
+            }
+
+            var close_paren_tok = Tokens.Dequeue();
+            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+
+            return new ASTFunctionCall(funcName, arguments);
+        }
+    }
+
     #endregion
 
-    public class ASTType : ASTNode
+    public abstract class ASTType : ASTNode
     {
         public readonly string TypeName;
-
+        
         public ASTType(string Type)
         {
             this.TypeName = Type;
+        }
+
+        public override string ToString()
+        {
+            return TypeName;
         }
 
         public static ASTType Parse(Queue<Token> Tokens)
@@ -992,11 +1344,66 @@ namespace T12
             if (!tok.IsType) Fail("Exptected type identifier!");
 
             // Temporary
-            if (tok.Type != TokenType.Keyword_Word) Fail("We only support word variables atm!");
+            //if (tok.Type != TokenType.Keyword_Word) Fail("We only support word variables atm!");
             
-            // Special classes for primitive types?
+            ASTType type;
+            if (ASTBaseType.BaseTypeMap.TryGetValue(tok.Value, out ASTBaseType baseType))
+            {
+                type = baseType;
+            }
+            else
+            {
+                type = new ASTStructType(tok.Value);
+            }
+            
+            // If there is a following asterisk we make a pointer out of the type
+            while (Tokens.Peek().Type == TokenType.Asterisk)
+            {
+                Tokens.Dequeue();
 
-            return new ASTType(tok.Value);
+                type = new ASTPointerType(type);
+            }
+
+            // Temporary
+            //if (type != ASTBaseType.Word) Fail("We only support word variables atm!");
+
+            return type;
         }
+    }
+
+    public class ASTBaseType : ASTType
+    {
+        public static readonly Dictionary<string, ASTBaseType> BaseTypeMap = new Dictionary<string, ASTBaseType>()
+        {
+            { "word", new ASTBaseType("word", 1) },
+            { "dword", new ASTBaseType("dword", 2) },
+            { "bool", new ASTBaseType("bool", 1) },
+        };
+
+        public static ASTBaseType Word => BaseTypeMap["word"];
+        public static ASTBaseType DoubleWord => BaseTypeMap["dword"];
+        public static ASTBaseType Bool => BaseTypeMap["bool"];
+
+        public readonly int Size;
+
+        private ASTBaseType(string name, int size) : base(name)
+        {
+            Size = size;
+        }
+    }
+
+    public class ASTPointerType : ASTType
+    {
+        public readonly ASTType BaseType;
+        
+        public ASTPointerType(ASTType baseType) : base($"{baseType.TypeName}*")
+        {
+            BaseType = baseType;
+        }
+    }
+
+    public class ASTStructType : ASTType
+    {
+        public ASTStructType(string name) : base(name) { }
     }
 }

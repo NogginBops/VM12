@@ -16,6 +16,7 @@ namespace T12
         Close_parenthesis,
 
         Semicolon,
+        Period,
         Comma,
         Colon,
 
@@ -66,7 +67,13 @@ namespace T12
         Keyword_Do,
         Keyword_Break,
         Keyword_Continue,
-        
+
+        Keyword_Use,
+        Keyword_Extern,
+
+        Keyword_True,
+        Keyword_False,
+
         Identifier,
         Word_Litteral,
 
@@ -81,66 +88,65 @@ namespace T12
         public readonly TokenType Type;
         public readonly string Value;
 
-        public bool IsType
-        {
-            get =>
-                Type == TokenType.Keyword_Void ||
-                Type == TokenType.Keyword_Word ||
-                Type == TokenType.Keyword_DWord ||
-                Type == TokenType.Keyword_Bool ||
-                Type == TokenType.Identifier;
-        }
+        // NOTE: This is not 100% to be true, change name?
+        public bool IsType =>
+            Type == TokenType.Keyword_Void ||
+            Type == TokenType.Keyword_Word ||
+            Type == TokenType.Keyword_DWord ||
+            Type == TokenType.Keyword_Bool ||
+            Type == TokenType.Identifier;
 
-        public bool IsUnaryOp
-        {
-            get =>
-                Type == TokenType.Minus ||
-                Type == TokenType.Tilde ||
-                Type == TokenType.Exclamationmark;
-        }
+        public bool IsBaseType =>
+            Type == TokenType.Keyword_Void ||
+            Type == TokenType.Keyword_Word ||
+            Type == TokenType.Keyword_DWord ||
+            Type == TokenType.Keyword_Bool;
 
-        public bool IsBinaryOp
-        {
-            get =>
-                Type == TokenType.Plus ||
-                Type == TokenType.Minus ||
-                Type == TokenType.Asterisk ||
-                Type == TokenType.Slash ||
-                Type == TokenType.DoubleAnd ||
-                Type == TokenType.DoublePipe ||
-                Type == TokenType.DoubleEqual ||
-                Type == TokenType.NotEqual ||
-                Type == TokenType.Open_angle_bracket ||
-                Type == TokenType.Close_angle_bracket ||
-                Type == TokenType.Less_than_or_equal ||
-                Type == TokenType.Greater_than_or_equal ||
-                Type == TokenType.Percent ||
-                Type == TokenType.And ||
-                Type == TokenType.Pipe ||
-                Type == TokenType.Caret;
-        }
+        public bool IsUnaryOp =>
+            Type == TokenType.Minus ||
+            Type == TokenType.Tilde ||
+            Type == TokenType.Exclamationmark;
 
-        public bool IsAssignmentOp
-        {
-            get =>
-                Type == TokenType.Equal ||
-                Type == TokenType.PlusEqual ||
-                Type == TokenType.MinusEqual ||
-                Type == TokenType.AsteriskEqual ||
-                Type == TokenType.SlashEqual ||
-                Type == TokenType.PercentEqual ||
-                Type == TokenType.AndEqual ||
-                Type == TokenType.PipeEqual ||
-                Type == TokenType.CaretEqual;
-        }
+        public bool IsBinaryOp =>
+            Type == TokenType.Plus ||
+            Type == TokenType.Minus ||
+            Type == TokenType.Asterisk ||
+            Type == TokenType.Slash ||
+            Type == TokenType.DoubleAnd ||
+            Type == TokenType.DoublePipe ||
+            Type == TokenType.DoubleEqual ||
+            Type == TokenType.NotEqual ||
+            Type == TokenType.Open_angle_bracket ||
+            Type == TokenType.Close_angle_bracket ||
+            Type == TokenType.Less_than_or_equal ||
+            Type == TokenType.Greater_than_or_equal ||
+            Type == TokenType.Percent ||
+            Type == TokenType.And ||
+            Type == TokenType.Pipe ||
+            Type == TokenType.Caret;
 
-        public bool IsLitteral
-        {
-            get =>
-                Type == TokenType.Word_Litteral;
-        }
+        public bool IsAssignmentOp => 
+            Type == TokenType.Equal ||
+            Type == TokenType.PlusEqual ||
+            Type == TokenType.MinusEqual ||
+            Type == TokenType.AsteriskEqual ||
+            Type == TokenType.SlashEqual ||
+            Type == TokenType.PercentEqual ||
+            Type == TokenType.AndEqual ||
+            Type == TokenType.PipeEqual ||
+            Type == TokenType.CaretEqual;
 
-        public bool IsIdentifier => Type == TokenType.Identifier;
+        public bool IsLitteral => 
+            Type == TokenType.Word_Litteral ||
+            Type == TokenType.Keyword_True ||
+            Type == TokenType.Keyword_False;
+
+        public bool IsIdentifier => 
+            Type == TokenType.Identifier;
+
+        public bool IsDirectiveKeyword => 
+            Type == TokenType.Keyword_Use ||
+            Type == TokenType.Keyword_Extern;
 
         public Token(TokenType Type, string Value)
         {
@@ -167,6 +173,7 @@ namespace T12
             ( TokenType.Close_parenthesis, new Regex("^\\)") ),
 
             ( TokenType.Semicolon, new Regex("^;") ),
+            ( TokenType.Period, new Regex("^\\.") ),
             ( TokenType.Comma, new Regex("^,") ),
             ( TokenType.Colon, new Regex("^:") ),
 
@@ -204,18 +211,24 @@ namespace T12
             ( TokenType.Exclamationmark, new Regex("^!") ),
             ( TokenType.Questionmark, new Regex("^\\?") ),
             
-            ( TokenType.Keyword_Void, new Regex("^void") ),
-            ( TokenType.Keyword_Word, new Regex("^word") ),
-            ( TokenType.Keyword_DWord, new Regex("^dword") ),
-            ( TokenType.Keyword_Bool, new Regex("^bool") ),
-            ( TokenType.Keyword_Return, new Regex("^return") ),
-            ( TokenType.Keyword_If, new Regex("^if") ),
-            ( TokenType.Keyword_Else, new Regex("^else") ),
-            ( TokenType.Keyword_For, new Regex("^for") ),
-            ( TokenType.Keyword_While, new Regex("^while") ),
-            ( TokenType.Keyword_Do, new Regex("^do") ),
-            ( TokenType.Keyword_Break, new Regex("^break") ),
-            ( TokenType.Keyword_Continue, new Regex("^continue") ),
+            ( TokenType.Keyword_Void, new Regex("^void\\b") ),
+            ( TokenType.Keyword_Word, new Regex("^word\\b") ),
+            ( TokenType.Keyword_DWord, new Regex("^dword\\b") ),
+            ( TokenType.Keyword_Bool, new Regex("^bool\\b") ),
+            ( TokenType.Keyword_Return, new Regex("^return\\b") ),
+            ( TokenType.Keyword_If, new Regex("^if\\b") ),
+            ( TokenType.Keyword_Else, new Regex("^else\\b") ),
+            ( TokenType.Keyword_For, new Regex("^for\\b") ),
+            ( TokenType.Keyword_While, new Regex("^while\\b") ),
+            ( TokenType.Keyword_Do, new Regex("^do\\b") ),
+            ( TokenType.Keyword_Break, new Regex("^break\\b") ),
+            ( TokenType.Keyword_Continue, new Regex("^continue\\b") ),
+
+            ( TokenType.Keyword_Use, new Regex("^use\\b") ),
+            ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),
+
+            ( TokenType.Keyword_True, new Regex("^true\\b") ),
+            ( TokenType.Keyword_False, new Regex("^false\\b") ),
 
             ( TokenType.Identifier, new Regex("^[a-zA-Z]\\w*") ),
             ( TokenType.Word_Litteral, new Regex("^[0-9]+") ),
