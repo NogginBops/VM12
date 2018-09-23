@@ -44,8 +44,8 @@ namespace T12
 
             File.WriteAllText(outFile, result);
 
-            //Console.WriteLine();
-            //Console.WriteLine(result);
+            Console.WriteLine();
+            Console.WriteLine(result);
             
             Console.ReadKey();
         }

@@ -179,7 +179,11 @@ namespace T12
 
         private static int SizeOfType(ASTType type, TypeMap map)
         {
-            if (map.TryGetValue(type.TypeName, out Type outType))
+            if (type is ASTPointerType)
+            {
+                return ASTPointerType.Size;
+            }
+            else if (map.TryGetValue(type.TypeName, out Type outType))
             {
                 return outType.Size;
             }
@@ -370,6 +374,10 @@ namespace T12
                         string varName = variableDeclaration.VariableName;
                         if (scope.ContainsKey(varName)) Fail($"Cannot declare the variable '{varName}' more than once!");
 
+                        scope.Add(varName, (local_index, variableDeclaration.Type));
+                        varMap.Add(varName, (local_index, variableDeclaration.Type));
+                        local_index += SizeOfType(variableDeclaration.Type, typeMap);
+
                         if (variableDeclaration.Initializer != null)
                         {
                             var initExpr = variableDeclaration.Initializer;
@@ -377,11 +385,7 @@ namespace T12
                             if (initType != variableDeclaration.Type) Fail($"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{variableDeclaration.Type}'");
 
                             EmitExpression(builder, initExpr, scope, varMap, functionMap);
-
-                            scope.Add(varName, (local_index, variableDeclaration.Type));
-                            varMap.Add(varName, (local_index, variableDeclaration.Type));
-                            local_index += SizeOfType(variableDeclaration.Type, typeMap);
-
+                            
                             builder.AppendLine($"\tstore {varMap[varName].Offset}\t; [{varName}]");
                         }
                         break;

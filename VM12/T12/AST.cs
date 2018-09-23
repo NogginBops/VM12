@@ -1337,6 +1337,21 @@ namespace T12
         {
             return TypeName;
         }
+        
+        public static bool operator ==(ASTType left, ASTType right) => left?.TypeName == right?.TypeName;
+        public static bool operator !=(ASTType left, ASTType right) => left?.TypeName != right?.TypeName;
+
+        public override bool Equals(object obj)
+        {
+            var type = obj as ASTType;
+            return type != null &&
+                   TypeName == type.TypeName;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(TypeName);
+        }
 
         public static ASTType Parse(Queue<Token> Tokens)
         {
@@ -1395,10 +1410,24 @@ namespace T12
     public class ASTPointerType : ASTType
     {
         public readonly ASTType BaseType;
-        
+
+        public const int Size = 2;
+
         public ASTPointerType(ASTType baseType) : base($"{baseType.TypeName}*")
         {
             BaseType = baseType;
+        }
+        
+        public override bool Equals(object obj)
+        {
+            if (obj is ASTPointerType) return BaseType == (obj as ASTPointerType);
+
+            return base.Equals(obj);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(BaseType);
         }
     }
 
