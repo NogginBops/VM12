@@ -17,15 +17,6 @@ using System.Numerics;
 namespace VM12
 {
     using Debugger = System.Diagnostics.Debugger;
-
-    enum InterruptType : int
-    {
-        stop,
-        h_Timer = 0xFFF_FF0,
-        v_Blank = 0xFFF_FE0,
-        keyboard = 0xFFF_FD0,
-        mouse = 0xFFF_FC0,
-    }
     
     class Interrupt
     {
@@ -1889,92 +1880,6 @@ namespace VM12
                             SP -= 2;
                             PC++;
                             break;
-                        case Opcode.Blit:
-                            int blit_src_addr = mem[SP - 9] << 12 | mem[SP - 8];
-                            int blit_sx = mem[SP - 7];
-                            int blit_sy = mem[SP - 6];
-                            int blit_width = mem[SP - 5];
-                            int blit_height = mem[SP - 4];
-                            int blit_dst_addr = mem[SP - 3] << 12 | mem[SP - 2];
-                            int blit_dx = mem[SP - 1];
-                            int blit_dy = mem[SP - 0];
-                            BlitMode blit_mode = (BlitMode)mem[PC + 1];
-
-                            if (blit_mode == BlitMode.Black)
-                            {
-                                for (int y = 0; y < blit_height; y++)
-                                {
-                                    int dst_addr = blit_dst_addr + blit_dx + (blit_width * blit_dy);
-                                    Array.Clear(MEM, dst_addr, blit_width);
-                                }
-
-                                goto endBlit;
-                            }
-
-                            for (int y = 0; y < blit_height; ++y)
-                            {
-                                for (int x = 0; x < blit_width; ++x)
-                                {
-
-                                    int dst_addr = blit_dst_addr + x + (blit_width * y);
-                                    mem[dst_addr] = 0;
-                                    /*
-                                    // A = src, B = dst
-                                    switch (blit_mode)
-                                    {
-                                        case BlitMode.Black:
-                                            mem[dst_addr] = 0;
-                                            break;
-                                        case BlitMode.And:
-                                            mem[dst_addr] &= mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.AAndNotB:
-                                            mem[dst_addr] = ~mem[dst_addr] & mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.Src:
-                                            mem[dst_addr] = mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.NotAAndB:
-                                            mem[dst_addr] &= ~mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.Dest:
-                                            break;
-                                        case BlitMode.Xor:
-                                            mem[dst_addr] ^= mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.Or:
-                                            mem[dst_addr] |= mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.Nor:
-                                            mem[dst_addr] = ~(mem[dst_addr] | mem[blit_src_addr + x + (blit_width * y)]);
-                                            break;
-                                        case BlitMode.Xnor:
-                                            mem[dst_addr] = ~(mem[dst_addr] ^ mem[blit_src_addr + x + (blit_width * y)]);
-                                            break;
-                                        case BlitMode.NotB:
-                                            mem[dst_addr] = ~mem[dst_addr];
-                                            break;
-                                        case BlitMode.AOrNotB:
-                                            mem[dst_addr] = ~mem[dst_addr] | mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.NotA:
-                                            mem[dst_addr] = ~mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.NotAOrB:
-                                            mem[dst_addr] = mem[dst_addr] | ~mem[blit_src_addr + x + (blit_width * y)];
-                                            break;
-                                        case BlitMode.Nand:
-                                            mem[dst_addr] = ~(mem[dst_addr] & mem[blit_src_addr + x + (blit_width * y)]);
-                                            break;
-                                        case BlitMode.White:
-                                            mem[dst_addr] = 0xFFF;
-                                            break;
-                                    }
-                                    */
-                                }
-                            }
-
-                            endBlit:  break;
                         case Opcode.Write:
                             int w_ioAddr = mem[SP - 5] << 12 | mem[SP - 4];
                             int w_buf = mem[SP - 3] << 12 | mem[SP - 2];
@@ -1988,44 +1893,6 @@ namespace VM12
                             SP -= 6;
                             PC++;
                             break;
-#region Complex_io
-                            IOMode ioMode = (IOMode) mem[PC + 1];
-                            
-                            if ((w_ioAddr - STORAGE_START_ADDR) < 0/*STORAGE.Length*/)
-                            {
-                                //const int wordSize = 8;
-                                
-                                switch (ioMode)
-                                {
-                                    case IOMode.Compact:
-                                        for (int i = 0; i < w_len; i++)
-                                        {
-
-                                        }
-                                        break;
-                                    case IOMode.Fit:
-                                        break;
-                                    case IOMode.SFit:
-                                        break;
-                                    case IOMode.Cast:
-                                        break;
-                                    case IOMode.SCast:
-                                        break;
-                                    default:
-                                        break;
-                                }
-                                //FIXME: Copy data
-                                for (int i = 0; i < w_len * 3; i += 3)
-                                {
-                                    //STORAGE[i] = (byte)(mem[buf + i] >> 12);
-                                    //STORAGE[i + 1] = 0;
-                                    //STORAGE[i + 2] = 0;
-                                }
-                            }
-
-                            SP -= 7;
-                            break;
-#endregion
                         case Opcode.Read:
                             int r_ioAddr = (mem[SP - 5] << 12) | mem[SP - 4];
                             int r_buf = mem[SP - 3] << 12 | mem[SP - 2];
@@ -2039,7 +1906,6 @@ namespace VM12
                             SP -= 6;
                             PC++;
                             break;
-
                         case Opcode.Clz:
                             int clz_data = mem[SP];
                             int clz_result = 12;
@@ -2173,7 +2039,7 @@ namespace VM12
                         writer.Write(data);
 
                         Console.WriteLine($"Write chunk {addr}");
-                        Console.WriteLine(String.Join(",", data));
+                        Console.WriteLine(string.Join(",", data));
                     }
                 }
             }

@@ -433,8 +433,6 @@ namespace VM12Asm
             { "div.l", Opcode.Div_l },
             { "mod", Opcode.Mod },
             { "mod.l", Opcode.Mod_l },
-            { "blit", Opcode.Blit },
-            { "blit.mask", Opcode.Blit_mask },
             { "write", Opcode.Write },
             { "read", Opcode.Read },
 
@@ -473,8 +471,6 @@ namespace VM12Asm
             { "JM.Eq.l", (int) JumpMode.Eq_l },
             { "JM.Neq.l", (int) JumpMode.Neq_l },
             { "JM.Ro.l", (int) JumpMode.Ro_l },
-
-            { "BM.Black", (int) BlitMode.Black },
         };
 
         private static ConsoleColor conColor = Console.ForegroundColor;
@@ -1487,20 +1483,20 @@ namespace VM12Asm
                             else if ((l = str.Match(token)).Success)
                             {
                                 string str = l.Value.Trim();
-                                string lableName;
-                                if (autoStrings.TryGetValue(str, out lableName) == false)
+                                string labelName;
+                                if (autoStrings.TryGetValue(str, out labelName) == false)
                                 {
-                                    lableName = $":__str_{autoStringIndex++}__";
-                                    autoStringsFile.AppendLine(lableName);
+                                    labelName = $":__str_{autoStringIndex++}__";
+                                    autoStringsFile.AppendLine(labelName);
                                     autoStringsFile.Append('\t').AppendLine(str);
-                                    autoStrings[str] = lableName;
+                                    autoStrings[str] = labelName;
 
                                     Console.ForegroundColor = ConsoleColor.Magenta;
-                                    if (verbose) Console.WriteLine($"Created inline string '{lableName}' with value {str}");
+                                    if (verbose) Console.WriteLine($"Created inline string '{labelName}' with value {str}");
                                     Console.ForegroundColor = conColor;
                                 }
 
-                                t = Token.LabelToken(line_num, lableName, breakpoint, false);
+                                t = Token.LabelToken(line_num, labelName, breakpoint, false);
                             }
                             else
                             {
@@ -1987,33 +1983,6 @@ namespace VM12Asm
                                         else
                                         {
                                             Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a littera!");
-                                        }
-                                        break;
-                                    case Opcode.Blit:
-                                    case Opcode.Blit_mask:
-                                        // Shift breakpoints before adding instructions
-                                        ShiftBreakpoints(file.Value, proc.Key, instructions.Count, 2);
-
-                                        instructions.Add((short)current.Opcode);
-
-                                        if (peek.Type == TokenType.Argument)
-                                        {
-                                            BlitMode blt_mode = (BlitMode)arguments[peek.Value];
-                                            // TODO: Figure out 3ary boolean functions
-                                            if (Enum.IsDefined(typeof(BlitMode), blt_mode))
-                                            {
-                                                instructions.Add((short)blt_mode);
-                                                tokens.MoveNext();
-                                                peek = tokens.Current;
-                                            }
-                                            else
-                                            {
-                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by an argument of type {nameof(BlitMode)}! Got: \"{blt_mode}\"");
-                                            }
-                                        }
-                                        else
-                                        {
-                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a {nameof(BlitMode)}!");
                                         }
                                         break;
                                     default:

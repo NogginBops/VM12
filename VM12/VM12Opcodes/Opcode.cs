@@ -1,34 +1,14 @@
 ﻿namespace VM12_Opcode
 {
-    public enum IOMode
+    public enum InterruptType : int
     {
-        Compact,
-        Fit,
-        SFit,
-        Cast,
-        SCast,
+        stop,
+        h_Timer = 0xFFF_FF0,
+        v_Blank = 0xFFF_FE0,
+        keyboard = 0xFFF_FD0,
+        mouse = 0xFFF_FC0,
     }
-
-    public enum BlitMode : int
-    {
-        Black,
-        And,
-        AAndNotB,    // A And !B
-        Src,
-        NotAAndB,   // !A And B
-        Dest,
-        Xor,
-        Or,
-        Nor,
-        Xnor,
-        NotB,
-        AOrNotB,     // A Or !B
-        NotA,
-        NotAOrB,    // !A Or B
-        Nand,
-        White
-    }
-
+    
     public enum JumpMode
     {
         Jmp,
@@ -81,7 +61,6 @@
         Fc, Fc_b,
         Mul_l, Mul_2_l,
         Div_l, Mod, Mod_l,
-        Blit, Blit_mask,
         Read, Write,
 
         Clz, Ctz,

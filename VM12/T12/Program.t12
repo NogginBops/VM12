@@ -1,8 +1,10 @@
 ﻿
 use Constants.12asm;
+use Macros.12asm;
+
 use Heap.12asm;
 
-use Font.12asm;
+use StdFont.12asm;
 
 use StdGraph.12asm;
 
@@ -27,4 +29,7 @@ void start() {
 		fill_rect(400, 20, 20, 20, 20);
 	}
 }
+
+
+
 

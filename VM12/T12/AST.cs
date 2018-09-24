@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using VM12_Opcode;
 
 namespace T12
 {
@@ -51,11 +52,27 @@ namespace T12
         {
             List<ASTDirective> directives = new List<ASTDirective>();
             List<ASTFunction> functions = new List<ASTFunction>();
-            
-            while (Tokens.Count > 0 && Tokens.Peek().IsDirectiveKeyword)
+            List<ASTInterrupt> interrupts = new List<ASTInterrupt>();
+
+            while (Tokens.Count > 0)
             {
-                var directive = ASTDirective.Parse(Tokens);
-                directives.Add(directive);
+                var peek = Tokens.Peek();
+                if (peek.IsDirectiveKeyword)
+                {
+                    var directive = ASTDirective.Parse(Tokens);
+                    directives.Add(directive);
+                }
+                else if (peek.IsType)
+                {
+                    var function = ASTFunction.Parse(Tokens);
+                    functions.Add(function);
+                }
+                else if (peek.Type == TokenType.Keyword_Interrupt)
+                {
+                    var interrupt = ASTInterrupt.Parse(Tokens);
+                    interrupts.Add(interrupt);
+                }
+                
             }
             
             while (Tokens.Count > 0 && Tokens.Peek().IsType)
@@ -84,6 +101,8 @@ namespace T12
                     return ASTExternFunctionDirective.Parse(Tokens);
                 case TokenType.Keyword_Const:
                     return ASTConstDirective.Parse(Tokens);
+                case TokenType.Keyword_Global:
+                    return ASTGlobalDirective.Parse(Tokens);
                 default:
                     Fail($"Unexpected token '{peek}' expected a valid directive!");
                     return default;
@@ -221,6 +240,35 @@ namespace T12
         }
     }
 
+    public class ASTGlobalDirective : ASTDirective
+    {
+        public readonly ASTType Type;
+        public readonly string Name;
+
+        public ASTGlobalDirective(ASTType type, string name)
+        {
+            Type = type;
+            Name = name;
+        }
+
+        public static new ASTGlobalDirective Parse(Queue<Token> Tokens)
+        {
+            var global_tok = Tokens.Dequeue();
+            if (global_tok.Type != TokenType.Keyword_Global) Fail("Expected 'global'!");
+
+            var type = ASTType.Parse(Tokens);
+
+            var name_tok = Tokens.Dequeue();
+            if (name_tok.IsIdentifier == false) Fail("Expected global name!");
+            string name = name_tok.Value;
+            
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+
+            return new ASTGlobalDirective(type, name);
+        }
+    }
+
     #endregion
 
     public class ASTFunction : ASTNode
@@ -301,6 +349,75 @@ namespace T12
         }
     }
 
+    public class ASTInterrupt : ASTFunction
+    {
+        public readonly InterruptType Type;
+
+        public ASTInterrupt(InterruptType type, List<ASTBlockItem> body) : base(InterruptTypeToName(type), ASTBaseType.Void, InterruptToParameterList(type), body)
+        {
+            if (type == InterruptType.stop)
+                Fail("Cannot define a interupt procedure for the interrupt stop");
+
+            Type = type;
+        }
+
+        public static string InterruptTypeToName(InterruptType type)
+        {
+            switch (type)
+            {
+                case InterruptType.stop:
+                    return "stop";
+                case InterruptType.h_Timer:
+                    return "h_timer";
+                case InterruptType.v_Blank:
+                    return "v_blank";
+                case InterruptType.keyboard:
+                    return "keyboard";
+                case InterruptType.mouse:
+                    return "mouse";
+                default:
+                    throw new ArgumentException($"Unkonwn InterruptType {type}");
+            }
+        }
+
+        public static List<(ASTType, string)> H_TimerParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "delta") };
+        public static List<(ASTType, string)> V_BlankParamList = new List<(ASTType, string)>() { };
+        public static List<(ASTType, string)> KeyboardParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "pressed"), (ASTBaseType.Word, "scancode") };
+        public static List<(ASTType, string)> MouseParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "dx"), (ASTBaseType.Word, "dy"), (ASTBaseType.Word, "status") };
+
+        public static List<(ASTType, string)> InterruptToParameterList(InterruptType type)
+        {
+            switch (type)
+            {
+                case InterruptType.h_Timer:
+                    return H_TimerParamList;
+                case InterruptType.v_Blank:
+                    return V_BlankParamList;
+                case InterruptType.keyboard:
+                    return KeyboardParamList;
+                case InterruptType.mouse:
+                    return MouseParamList;
+                case InterruptType.stop:
+                default:
+                    throw new ArgumentException($"Invalid interrupt type {type}");
+            }
+        }
+        
+        public static new ASTInterrupt Parse(Queue<Token> Tokens)
+        {
+            var interrupt_tok = Tokens.Dequeue();
+            if (interrupt_tok.Type != TokenType.Keyword_Interrupt) Fail("Expected interrupt!");
+
+            var interrupt_type_tok = Tokens.Dequeue();
+            if (interrupt_type_tok.IsIdentifier == false) Fail("Expected interrupt type!");
+            if (Enum.TryParse(interrupt_type_tok.Value, out InterruptType type) == false) Fail($"'{interrupt_type_tok.Value}' is not a valid interrupt type!");
+
+            // FIXME!! Validate params and parse body!!!!
+
+            return new ASTInterrupt(type, null);
+        }
+    }
+
     public abstract class ASTBlockItem : ASTNode
     {
         public static ASTBlockItem Parse(Queue<Token> Tokens)
@@ -319,7 +436,7 @@ namespace T12
             }
         }
     }
-
+    
     #region Declarations
 
     public abstract class ASTDeclaration : ASTBlockItem
@@ -412,6 +529,8 @@ namespace T12
                     return ASTContinueStatement.Parse(Tokens);
                 case TokenType.Open_brace:
                     return ASTCompoundStatement.Parse(Tokens);
+                case TokenType.Keyword_Assembly:
+                    return ASTInlineAssemblyStatement.Parse(Tokens);
                 default:
                     return ASTExpressionStatement.Parse(Tokens);
             }
@@ -736,6 +855,43 @@ namespace T12
         }
     }
 
+    public class ASTInlineAssemblyStatement : ASTStatement
+    {
+        public readonly List<ASTStringLitteral> Assembly;
+
+        public ASTInlineAssemblyStatement(List<ASTStringLitteral> assembly)
+        {
+            Assembly = assembly;
+        }
+
+        public static new ASTInlineAssemblyStatement Parse(Queue<Token> Tokens)
+        {
+            var assem_tok = Tokens.Dequeue();
+            if (assem_tok.Type != TokenType.Keyword_Assembly) Fail("Expected assembly!");
+
+            var open_parenthesis = Tokens.Dequeue();
+            if (open_parenthesis.Type != TokenType.Open_parenthesis) Fail("Expected '('");
+
+            List<ASTStringLitteral> assembly = new List<ASTStringLitteral>();
+            while (Tokens.Peek().Type != TokenType.Close_parenthesis)
+            {
+                if (Tokens.Peek().Type != TokenType.String_Litteral)
+                    Fail($"Assembly statements can only contain assembly strings! Got {Tokens.Peek()}");
+
+                var string_lit = ASTStringLitteral.Parse(Tokens);
+                assembly.Add(string_lit);
+            }
+
+            var close_parenthesis = Tokens.Dequeue();
+            if (close_parenthesis.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+
+            return new ASTInlineAssemblyStatement(assembly);
+        }
+    }
+
     #endregion
 
     #region Expressions
@@ -1014,12 +1170,18 @@ namespace T12
             {
                 case TokenType.Word_Litteral:
                     return ASTWordLitteral.Parse(Tokens);
+                case TokenType.Double_Word_Litteral:
+                    return ASTDoubleWordLitteral.Parse(Tokens);
                 case TokenType.Keyword_True:
                     Tokens.Dequeue();
                     return ASTBoolLitteral.True;
                 case TokenType.Keyword_False:
                     Tokens.Dequeue();
                     return ASTBoolLitteral.False;
+                case TokenType.Char_Litteral:
+                    return ASTCharLitteral.Parse(Tokens);
+                case TokenType.String_Litteral:
+                    return ASTStringLitteral.Parse(Tokens);
                 default:
                     Fail($"Expected litteral, got '{peek}'");
                     return default;
@@ -1047,12 +1209,73 @@ namespace T12
         }
     }
 
+    public class ASTDoubleWordLitteral : ASTLitteral
+    {
+        public readonly int IntValue;
+
+        public ASTDoubleWordLitteral(string value, int intValue) : base(ASTBaseType.DoubleWord, value)
+        {
+            IntValue = intValue;
+        }
+
+        public static new ASTDoubleWordLitteral Parse(Queue<Token> Tokens)
+        {
+            var tok = Tokens.Dequeue();
+            if (tok.Type != TokenType.Double_Word_Litteral) Fail("Expected dword litteral!");
+
+            // Parse without the end letter!
+            if (int.TryParse(tok.Value.Substring(0, tok.Value.Length - 1), out int value) == false) Fail($"Could not parse int '{tok.Value}'");
+
+            return new ASTDoubleWordLitteral(tok.Value, value);
+        }
+    }
+
     public class ASTBoolLitteral : ASTLitteral
     {
         public static readonly ASTBoolLitteral True = new ASTBoolLitteral("true");
         public static readonly ASTBoolLitteral False = new ASTBoolLitteral("false");
         
         private ASTBoolLitteral(string value) : base(ASTBaseType.Bool, value) { }
+    }
+
+    public class ASTCharLitteral : ASTLitteral
+    {
+        public readonly char CharValue;
+
+        public ASTCharLitteral(string value, char charValue) : base(ASTBaseType.Char, value)
+        {
+            CharValue = charValue;
+        }
+
+        public static new ASTCharLitteral Parse(Queue<Token> Tokens)
+        {
+            var tok = Tokens.Dequeue();
+            if (tok.Type != TokenType.Char_Litteral) Fail("Expected char litteral!");
+
+            // FIXME: This does not handle escapes!
+            // Get the second character of the string
+            char value = tok.Value[1];
+
+            return new ASTCharLitteral(tok.Value, value);
+        }
+    }
+
+    public class ASTStringLitteral : ASTLitteral
+    {
+        public readonly string Contents;
+
+        public ASTStringLitteral(string value) : base(ASTBaseType.String, value)
+        {
+            Contents = value.Substring(1, value.Length - 2);
+        }
+
+        public static new ASTStringLitteral Parse(Queue<Token> Tokens)
+        {
+            var string_tok = Tokens.Dequeue();
+            if (string_tok.Type != TokenType.String_Litteral) Fail("Expected string litteral!");
+
+            return new ASTStringLitteral(string_tok.Value);
+        }
     }
 
     public class ASTVariableExpression : ASTExpression
@@ -1488,14 +1711,21 @@ namespace T12
     {
         public static readonly Dictionary<string, ASTBaseType> BaseTypeMap = new Dictionary<string, ASTBaseType>()
         {
+            { "void", new ASTBaseType("void", 0) },
             { "word", new ASTBaseType("word", 1) },
             { "dword", new ASTBaseType("dword", 2) },
             { "bool", new ASTBaseType("bool", 1) },
+            { "char", new ASTBaseType("char", 1) },
+            // TODO? Move over to the 4 word strings with length and data pointer?
+            { "string", new ASTBaseType("string", 2) },
         };
 
+        public static ASTBaseType Void => BaseTypeMap["void"];
         public static ASTBaseType Word => BaseTypeMap["word"];
         public static ASTBaseType DoubleWord => BaseTypeMap["dword"];
         public static ASTBaseType Bool => BaseTypeMap["bool"];
+        public static ASTBaseType Char => BaseTypeMap["char"];
+        public static ASTBaseType String => BaseTypeMap["string"];
 
         public readonly int Size;
 
@@ -1504,7 +1734,7 @@ namespace T12
             Size = size;
         }
     }
-
+    
     public class ASTPointerType : ASTType
     {
         public readonly ASTType BaseType;

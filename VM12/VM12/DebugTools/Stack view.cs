@@ -69,11 +69,13 @@ namespace Debugging
 
                 using (debugDefinitions.Create())
                 {
-
+                    // There is no need to load anything because we just created the file
                 }
             }
             else
             {
+                localsDict.Clear();
+
                 // Open and parse file
                 ParseDebugData(File.ReadAllLines(debugDefinitions.FullName));
             }
@@ -130,6 +132,7 @@ namespace Debugging
         internal void SetVM(VM12 vm12)
         {
             this.vm12 = vm12;
+            LoadData();
         }
 
         public void ClearStack()

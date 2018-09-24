@@ -58,18 +58,16 @@ namespace Profiler
         {
             switch (op)
             {
-                case Opcode.Load_lit:
-                case Opcode.Load_local:
-                case Opcode.Load_local_l:
                 case Opcode.Store_local:
                 case Opcode.Store_local_l:
+                case Opcode.Load_local:
+                case Opcode.Load_local_l:
+                case Opcode.Load_lit:
                 case Opcode.Ret_v:
                 case Opcode.Inc_local:
                 case Opcode.Inc_local_l:
                 case Opcode.Dec_local:
                 case Opcode.Dec_local_l:
-                case Opcode.Blit:
-                case Opcode.Blit_mask:
                     return 2;
                 case Opcode.Load_lit_l:
                 case Opcode.Call:

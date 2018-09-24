@@ -15,6 +15,7 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using Debugging;
 using Profiler;
+using VM12_Opcode;
 
 namespace VM12
 {
@@ -118,12 +119,11 @@ namespace VM12
                 
                 Task.Run(() =>
                 {
-
                     if (inf.Extension == ".12asm")
                     {
                         VM12Asm.VM12Asm.Main("-src", inf.FullName, "-dst", Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
 
-                        inf = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12exe"));
+                        inf = new FileInfo(Path.ChangeExtension(inf.FullName, "12exe"));
 
                         VM12Asm.VM12Asm.Reset();
                     }
@@ -135,7 +135,7 @@ namespace VM12
 
                         VM12Asm.VM12Asm.Main("-src", asmFile.FullName, "-dst", Path.GetFileNameWithoutExtension(asmFile.Name), "-e", "-o");
 
-                        inf = new FileInfo(Path.Combine(asmFile.DirectoryName, Path.GetFileNameWithoutExtension(asmFile.FullName) + ".12exe"));
+                        inf = new FileInfo(Path.ChangeExtension(asmFile.FullName, "12exe"));
 
                         VM12Asm.VM12Asm.Reset();
                     }

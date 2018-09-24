@@ -8,9 +8,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyTitle("T12")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("Caperio AB")]
+[assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("T12")]
-[assembly: AssemblyCopyright("Copyright © Caperio AB 2018")]
+[assembly: AssemblyCopyright("Copyright © Juilus Häger AB 2018")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

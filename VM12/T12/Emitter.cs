@@ -8,7 +8,10 @@ namespace T12
 {
     using ConstMap = Dictionary<string, ASTConstDirective>;
 
+    using GlobalMap = Dictionary<string, ASTGlobalDirective>;
+
     using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
+    using VarList = List<(string Name, int Offset, ASTType Type)>;
 
     using TypeMap = Dictionary<string, ASTType>;
 
@@ -82,7 +85,7 @@ namespace T12
             }
         }
 
-        private static ASTType CalcReturnType(ASTExpression expression, VarMap scope, FunctionMap functionMap, ConstMap constMap)
+        private static ASTType CalcReturnType(ASTExpression expression, VarMap scope, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (expression)
             {
@@ -94,24 +97,25 @@ namespace T12
                             return varType.Type;
                         else if (constMap.TryGetValue(variableExpression.Name, out var constDirective))
                             return constDirective.Type;
-                        
+                        else if (globalMap.TryGetValue(variableExpression.Name, out var globalDirective))
+                            return globalDirective.Type;
                         Fail($"Could not find variable called '{variableExpression.Name}'!");
                         break;
                     }
                 case ASTUnaryOp unaryOp:
-                    return CalcReturnType(unaryOp.Expr, scope, functionMap, constMap);
+                    return CalcReturnType(unaryOp.Expr, scope, functionMap, constMap, globalMap);
                 case ASTBinaryOp binaryOp:
                     {
-                        ASTType left = CalcReturnType(binaryOp.Left, scope, functionMap, constMap);
-                        ASTType right = CalcReturnType(binaryOp.Right, scope, functionMap, constMap);
+                        ASTType left = CalcReturnType(binaryOp.Left, scope, functionMap, constMap, globalMap);
+                        ASTType right = CalcReturnType(binaryOp.Right, scope, functionMap, constMap, globalMap);
 
                         // TODO!! Merge types!
                         return left;
                     }
                 case ASTConditionalExpression conditional:
                     {
-                        ASTType left = CalcReturnType(conditional.IfTrue, scope, functionMap, constMap);
-                        ASTType right = CalcReturnType(conditional.IfFalse, scope, functionMap, constMap);
+                        ASTType left = CalcReturnType(conditional.IfTrue, scope, functionMap, constMap, globalMap);
+                        ASTType right = CalcReturnType(conditional.IfFalse, scope, functionMap, constMap, globalMap);
 
                         if (left != right) Fail("Differing return types!");
 
@@ -132,6 +136,42 @@ namespace T12
             return default;
         }
 
+        private static void AppendTypedLoad(StringBuilder builder, string load_content, ASTType type, TypeMap typeMap)
+        {
+            int size = SizeOfType(type, typeMap);
+
+            if (size == 1)
+            {
+                builder.AppendLine($"\tload {load_content}");
+            }
+            else if (size == 2)
+            {
+                builder.AppendLine($"\tloadl {load_content}");
+            }
+            else
+            {
+                Fail($"We don't support structs larger than 2 words! Got '{type}' with size {size}");
+            }
+        }
+
+        private static void AppendTypedStore(StringBuilder builder, string load_content, ASTType type, TypeMap typeMap)
+        {
+            int size = SizeOfType(type, typeMap);
+
+            if (size == 1)
+            {
+                builder.AppendLine($"\tstore {load_content}");
+            }
+            else if (size == 2)
+            {
+                builder.AppendLine($"\tstorel {load_content}");
+            }
+            else
+            {
+                Fail($"We don't support structs larger than 2 words! Got '{type}' with size {size}");
+            }
+        }
+
         public static string EmitAsem(AST ast)
         {
             StringBuilder builder = new StringBuilder();
@@ -139,26 +179,32 @@ namespace T12
             TypeMap typeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType) kvp.Value);
 
             ConstMap constMap = new ConstMap();
+            
+            // NOTE: This might not be the best solution
+            // because when you look for variables you might forget to check the globals
+            // This might be fixed with a function to do this.
+            // But that might not be desirable either.
+            GlobalMap globalMap = new GlobalMap();
 
             FunctionMap functionMap = ast.Program.Functions.ToDictionary(func => func.Name, func => func);
             
             foreach (var directive in ast.Program.Directives)
             {
-                EmitDirective(builder, directive, functionMap, constMap);
+                EmitDirective(builder, directive, typeMap, functionMap, constMap, globalMap);
             }
 
             builder.AppendLine();
 
             foreach (var func in ast.Program.Functions)
             {
-                EmitFunction(builder, func, typeMap, functionMap, constMap);
+                EmitFunction(builder, func, typeMap, functionMap, constMap, globalMap);
                 builder.AppendLine();
             }
 
             return builder.ToString();
         }
         
-        private static void EmitDirective(StringBuilder builder, ASTDirective directive, FunctionMap functionMap, ConstMap constMap)
+        private static void EmitDirective(StringBuilder builder, ASTDirective directive, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (directive)
             {
@@ -177,11 +223,26 @@ namespace T12
                     }
                 case ASTConstDirective constDirective:
                     {
+                        // TODO: Is constant value?
                         // TODO: Resolve constant value
                         // TODO: Resolve conflicts
                         constMap[constDirective.Name] = constDirective;
-                        // FIXME: Proper constant folding!!!!!!!
-                        builder.AppendLine($"<{constDirective.Name} = {(constDirective.Value as ASTLitteral).Value}>");
+
+                        if (constDirective.Value is ASTStringLitteral)
+                        {
+                            // We do nothing as we handle the case when we need the constant
+                        }
+                        else
+                        {
+                            // FIXME: Proper constant folding!!!!!!!
+                            builder.AppendLine($"<{constDirective.Name} = {(constDirective.Value as ASTLitteral).Value}>");
+                        }
+                        break;
+                    }
+                case ASTGlobalDirective globalDirective:
+                    {
+                        globalMap[globalDirective.Name] = globalDirective;
+                        builder.AppendLine($"<{globalDirective.Name} = auto({SizeOfType(globalDirective.Type, typeMap)})>");
                         break;
                     }
                 default:
@@ -190,9 +251,9 @@ namespace T12
             }
         }
 
-        private static void EmitFunction(StringBuilder builder, ASTFunction func, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap)
+        private static void EmitFunction(StringBuilder builder, ASTFunction func, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
-            VarMap VariableMap = new VarMap();
+            VarList VariableList = new VarList();
             FunctionConext functionConext = new FunctionConext(func.Name, func.ReturnType);
             int local_index = 0;
 
@@ -207,22 +268,22 @@ namespace T12
 
             foreach (var param in func.Parameters)
             {
-                VariableMap.Add(param.Name, (local_index, param.Type));
+                VariableList.Add((param.Name, local_index, param.Type));
                 local_index += SizeOfType(param.Type, typeMap);
             }
 
-            VarMap Scope = new VarMap(VariableMap);
+            VarMap Scope = VariableList.ToDictionary(var => var.Name, var => (var.Offset, var.Type));
 
             foreach (var blockItem in func.Body)
             {
-                EmitBlockItem(builder, blockItem, Scope, VariableMap, ref local_index, typeMap, functionConext, LoopContext.Empty, functionMap, constMap);
+                EmitBlockItem(builder, blockItem, Scope, VariableList, ref local_index, typeMap, functionConext, LoopContext.Empty, functionMap, constMap, globalMap);
             }
 
             int locals = local_index;
 
             string params_string = string.Join(", ", func.Parameters.Select(param => $"/{param.Name} {param.Type.TypeName}"));
 
-            string locals_string = string.Join(", ", VariableMap.Select(kvp => ((ASTType Type, string Name))(kvp.Value.Type, kvp.Key)).Except(func.Parameters).Select(local => $"/{local.Name} {local.Type.TypeName}"));
+            string locals_string = string.Join(", ", VariableList.Skip(func.Parameters.Count).Select(var => (var.Type, var.Name)).Select(local => $"/{local.Name} {local.Type.TypeName}"));
             
             // Create the proc comment. FIXME: This could probably be done better.
             string combined_string = "";
@@ -248,18 +309,18 @@ namespace T12
             builder.Insert(param_index, $"\t{@params} {locals}\t; {combined_string}\n");
         }
 
-        private static void EmitBlockItem(StringBuilder builder, ASTBlockItem blockItem, VarMap scope, VarMap varMap, ref int local_index, TypeMap typeMap, FunctionConext functionConext, LoopContext loopContext, FunctionMap functionMap, ConstMap constMap)
+        private static void EmitBlockItem(StringBuilder builder, ASTBlockItem blockItem, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, FunctionConext functionConext, LoopContext loopContext, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (blockItem)
             {
                 case ASTDeclaration declaration:
-                    EmitDeclaration(builder, declaration, scope, varMap, ref local_index, typeMap, functionMap, constMap);
+                    EmitDeclaration(builder, declaration, scope, varList, ref local_index, typeMap, functionMap, constMap, globalMap);
                     break;
                 case ASTStatement statement:
                     // @TODO: Make this cleaner, like using an imutable map or other datastructure for handling scopes
                     // Make a copy of the scope so that the statement does not modify the current scope
                     var new_scope = new VarMap(scope);
-                    EmitStatement(builder, statement, new_scope, varMap, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap);
+                    EmitStatement(builder, statement, new_scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                     break;
                 default:
                     Fail($"Unknown block item {blockItem}, this is a compiler bug!");
@@ -267,7 +328,7 @@ namespace T12
             }
         }
 
-        private static void EmitDeclaration(StringBuilder builder, ASTDeclaration declaration, VarMap scope, VarMap varMap, ref int local_index, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap)
+        private static void EmitDeclaration(StringBuilder builder, ASTDeclaration declaration, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (declaration)
             {
@@ -276,19 +337,20 @@ namespace T12
                         string varName = variableDeclaration.VariableName;
                         if (scope.ContainsKey(varName)) Fail($"Cannot declare the variable '{varName}' more than once!");
 
-                        scope.Add(varName, (local_index, variableDeclaration.Type));
-                        varMap.Add(varName, (local_index, variableDeclaration.Type));
+                        int var_offset = local_index;
+                        scope.Add(varName, (var_offset, variableDeclaration.Type));
+                        varList.Add((varName, var_offset, variableDeclaration.Type));
                         local_index += SizeOfType(variableDeclaration.Type, typeMap);
 
                         if (variableDeclaration.Initializer != null)
                         {
                             var initExpr = variableDeclaration.Initializer;
-                            var initType = CalcReturnType(initExpr, scope, functionMap, constMap);
+                            var initType = CalcReturnType(initExpr, scope, functionMap, constMap, globalMap);
                             if (initType != variableDeclaration.Type) Fail($"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{variableDeclaration.Type}'");
 
-                            EmitExpression(builder, initExpr, scope, varMap, typeMap, functionMap, constMap);
-                            
-                            builder.AppendLine($"\tstore {varMap[varName].Offset}\t; [{varName}]");
+                            EmitExpression(builder, initExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                            AppendTypedStore(builder, $"{var_offset}\t; [{varName}]", variableDeclaration.Type, typeMap);
                         }
                         break;
                     }
@@ -298,7 +360,7 @@ namespace T12
             }
         }
 
-        private static void EmitStatement(StringBuilder builder, ASTStatement statement, VarMap scope, VarMap varMap, ref int local_index, TypeMap typeMap, FunctionConext functionConext, LoopContext loopContext, FunctionMap functionMap, ConstMap constMap)
+        private static void EmitStatement(StringBuilder builder, ASTStatement statement, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, FunctionConext functionConext, LoopContext loopContext, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (statement)
             {
@@ -309,11 +371,11 @@ namespace T12
                     {
                         if (returnStatement.ReturnValueExpression != null)
                         {
-                            var ret_type = CalcReturnType(returnStatement.ReturnValueExpression, scope, functionMap, constMap);
+                            var ret_type = CalcReturnType(returnStatement.ReturnValueExpression, scope, functionMap, constMap, globalMap);
 
                             if (ret_type != functionConext.ReturnType) Fail($"Cannot return expression of type '{ret_type}' in a function that returns type '{functionConext.ReturnType}'");
 
-                            EmitExpression(builder, returnStatement.ReturnValueExpression, scope, varMap, typeMap, functionMap, constMap);
+                            EmitExpression(builder, returnStatement.ReturnValueExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                             // FIXME: Handle the size of the return type!
                             builder.AppendLine("\tret1");
                         }
@@ -327,13 +389,13 @@ namespace T12
                     {
                         // This is not used!
                         string varName = assignment.VariableNames[0];
-                        EmitExpression(builder, assignment.AssignmentExpression, scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, assignment.AssignmentExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tstore {scope[varName].Offset}\t; [{varName}]");
                         break;
                     }
                 case ASTIfStatement ifStatement:
                     {
-                        EmitExpression(builder, ifStatement.Condition, scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         // FIXME: There could be hash collisions!
                         
                         int hash = ifStatement.GetHashCode();
@@ -341,17 +403,17 @@ namespace T12
                         {
                             // If-statement without else
                             builder.AppendLine($"\tjz :post_{hash}");
-                            EmitStatement(builder, ifStatement.IfTrue, scope, varMap, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap);
+                            EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                             builder.AppendLine($"\t:post_{hash}");
                         }
                         else
                         {
                             // If-statement with else
                             builder.AppendLine($"\tjz :else_{hash}");
-                            EmitStatement(builder, ifStatement.IfTrue, scope, varMap, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap);
+                            EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                             builder.AppendLine($"\tjmp :post_{hash}");
                             builder.AppendLine($"\t:else_{hash}");
-                            EmitStatement(builder, ifStatement.IfFalse, scope, varMap, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap);
+                            EmitStatement(builder, ifStatement.IfFalse, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                             builder.AppendLine($"\t:post_{hash}");
                         }
 
@@ -360,11 +422,11 @@ namespace T12
                 case ASTCompoundStatement compoundStatement:
                     foreach (var blockItem in compoundStatement.Block)
                     {
-                        EmitBlockItem(builder, blockItem, scope, varMap, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap);
+                        EmitBlockItem(builder, blockItem, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                     }
                     break;
                 case ASTExpressionStatement expression:
-                    EmitExpression(builder, expression.Expr, scope, varMap, typeMap, functionMap, constMap);
+                    EmitExpression(builder, expression.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, false);
                     break;
                 case ASTForWithDeclStatement forWithDecl:
                     {
@@ -374,16 +436,151 @@ namespace T12
                         builder.AppendLine($"\t; For loop {forWithDecl.Condition} {hash}");
                         
                         VarMap new_scope = new VarMap(scope);
-                        EmitDeclaration(builder, forWithDecl.Declaration, new_scope, varMap, ref local_index, typeMap, functionMap, constMap);
+                        EmitDeclaration(builder, forWithDecl.Declaration, new_scope, varList, ref local_index, typeMap, functionMap, constMap, globalMap);
+                        
+                        // We are now in the new scope.
+                        scope = new_scope;
 
                         builder.AppendLine($"\t:for_cond_{hash}");
-                        EmitExpression(builder, forWithDecl.Condition, new_scope, varMap, typeMap, functionMap, constMap);
-                        builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
 
-                        EmitStatement(builder, forWithDecl.Body, new_scope, varMap, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap);
+                        var cond = forWithDecl.Condition;
+                        if (cond is ASTBinaryOp)
+                        {
+                            ASTBinaryOp binOp = cond as ASTBinaryOp;
+                            var left_type = CalcReturnType(binOp.Left, scope, functionMap, constMap, globalMap);
+                            var right_type = CalcReturnType(binOp.Right, scope, functionMap, constMap, globalMap);
+                            if (left_type != right_type) Fail($"Cannot apply binary operation '{binOp.OperatorType}' on differing types '{left_type}' and '{right_type}'!");
+                            int type_size = SizeOfType(left_type, typeMap);
+                            
+                            switch (binOp.OperatorType)
+                            {
+                                case ASTBinaryOp.BinaryOperatorType.Equal:
+                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                                    if (type_size == 1)
+                                    {
+                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
+                                    }
+                                    else if (type_size == 2)
+                                    {
+                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
+                                    }
+                                    else
+                                    {
+                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
+                                    }
+                                    break;
+                                case ASTBinaryOp.BinaryOperatorType.Not_equal:
+                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                                    if (type_size == 1)
+                                    {
+                                        builder.AppendLine($"\tjneq {newLoopContext.EndLabel}");
+                                    }
+                                    else if (type_size == 2)
+                                    {
+                                        builder.AppendLine($"\tjneql {newLoopContext.EndLabel}");
+                                    }
+                                    else
+                                    {
+                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
+                                    }
+                                    break;
+                                case ASTBinaryOp.BinaryOperatorType.Less_than:
+                                    // left < right
+                                    // We do:
+                                    // right - left > 0
+                                    // If the result is positive left was strictly less than right
+
+                                    // right
+                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    // left
+                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    
+                                    if (type_size == 1)
+                                    {
+                                        builder.AppendLine($"\tsub");
+                                        builder.AppendLine($"\tjgz {newLoopContext.EndLabel}");
+                                    }
+                                    else if (type_size == 2)
+                                    {
+                                        builder.AppendLine($"\tlsub");
+                                        builder.AppendLine($"\tjgzl {newLoopContext.EndLabel}");
+                                    }
+                                    else
+                                    {
+                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
+                                    }
+                                    break;
+                                case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
+                                    throw new NotImplementedException();
+
+                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                                    if (type_size == 1)
+                                    {
+                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
+                                    }
+                                    else if (type_size == 2)
+                                    {
+                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
+                                    }
+                                    else
+                                    {
+                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
+                                    }
+                                    break;
+                                case ASTBinaryOp.BinaryOperatorType.Greater_than:
+                                    throw new NotImplementedException();
+                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                                    if (type_size == 1)
+                                    {
+                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
+                                    }
+                                    else if (type_size == 2)
+                                    {
+                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
+                                    }
+                                    else
+                                    {
+                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
+                                    }
+                                    break;
+                                case ASTBinaryOp.BinaryOperatorType.Greater_than_or_equal:
+                                    throw new NotImplementedException();
+                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                                    if (type_size == 1)
+                                    {
+                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
+                                    }
+                                    else if (type_size == 2)
+                                    {
+                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
+                                    }
+                                    else
+                                    {
+                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
+                                    }
+                                    break;
+                                default:
+                                    // We cant do something smart here :(
+                                    EmitExpression(builder, forWithDecl.Condition, new_scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
+                                    break;
+                            }
+                        }
+                        
+                        EmitStatement(builder, forWithDecl.Body, new_scope, varList, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
-                        EmitExpression(builder, forWithDecl.PostExpression, new_scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, forWithDecl.PostExpression, new_scope, varList, typeMap, functionMap, constMap, globalMap, false);
 
                         builder.AppendLine($"\tjmp :for_cond_{hash}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
@@ -398,10 +595,10 @@ namespace T12
                         builder.AppendLine($"\t; While loop {whileStatement.Condition} {hash}");
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
 
-                        EmitExpression(builder, whileStatement.Condition, scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, whileStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
 
-                        EmitStatement(builder, whileStatement.Body, scope, varMap, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap);
+                        EmitStatement(builder, whileStatement.Body, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\tjmp {newLoopContext.ContinueLabel}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
@@ -415,10 +612,10 @@ namespace T12
                         builder.AppendLine($"\t; Do while loop {doWhile.Condition} {hash}");
                         builder.AppendLine($"\t:do_while_{hash}");
 
-                        EmitStatement(builder, doWhile.Body, scope, varMap, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap);
+                        EmitStatement(builder, doWhile.Body, scope, varList, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
-                        EmitExpression(builder, doWhile.Condition, scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, doWhile.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tjnz :do_while_{hash}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
 
@@ -430,13 +627,19 @@ namespace T12
                 case ASTBreakStatement breakStatement:
                     builder.AppendLine($"\tjmp {loopContext.EndLabel}");
                     break;
+                case ASTInlineAssemblyStatement assemblyStatement:
+                    foreach (var line in assemblyStatement.Assembly)
+                    {
+                        builder.AppendLine($"\t{line.Contents}");
+                    }
+                    break;
                 default:
                     Fail($"Could not emit code for statement {statement}, this is a compiler bug!");
                     break;
             }
         }
 
-        private static void EmitExpression(StringBuilder builder, ASTExpression expression, VarMap scope, VarMap varMap, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap)
+        private static void EmitExpression(StringBuilder builder, ASTExpression expression, VarMap scope, VarList varList, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, bool produceResult)
         {
             switch (expression)
             {
@@ -446,21 +649,22 @@ namespace T12
                 case ASTVariableExpression variable:
                     if (scope.TryGetValue(variable.Name, out var var))
                     {
+                        var var_type = TypeOfVariable(variable.Name, scope);
+                        int type_size = SizeOfType(var_type, typeMap);
+
                         if (variable.AssignmentExpression != null)
                         {
-                            var var_type = TypeOfVariable(variable.Name, scope);
-                            var expr_type = CalcReturnType(variable.AssignmentExpression, scope, functionMap, constMap);
+                            var expr_type = CalcReturnType(variable.AssignmentExpression, scope, functionMap, constMap, globalMap);
                             if (var_type != expr_type) Fail($"Cannot assign expression of type '{expr_type}' to variable ('{variable.Name}') of type '{var_type}'");
 
-                            EmitExpression(builder, variable.AssignmentExpression, scope, varMap, typeMap, functionMap, constMap);
-                            builder.AppendLine($"\tstore {var.Offset}\t; [{variable.Name}]");
+                            EmitExpression(builder, variable.AssignmentExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                            // FIXME: Don't do this if not nessesary
-                            builder.AppendLine($"\tload {var.Offset}\t; [{variable.Name}]");
+                            AppendTypedStore(builder, $"{var.Offset}\t; [{variable.Name}]", var_type, typeMap);
                         }
-                        else
+
+                        if (produceResult)
                         {
-                            builder.AppendLine($"\tload {var.Offset}\t; [{variable.Name}]");
+                            AppendTypedLoad(builder, $"{var.Offset}\t; [{variable.Name}]", var_type, typeMap);
                         }
                     }
                     else if (constMap.TryGetValue(variable.Name, out var constDirective))
@@ -468,7 +672,41 @@ namespace T12
                         if (variable.AssignmentExpression != null)
                             Fail($"Cannot assign to const '{variable.Name}'!");
 
-                        builder.AppendLine($"\tload #{variable.Name}");
+                        if (produceResult)
+                        {
+                            // FIXME: This does not feel good
+                            // We are comparing the type of the constant against strign
+                            // So we can load a label instead of a litteral
+                            if (constDirective.Value is ASTStringLitteral)
+                            {
+                                builder.AppendLine($"\tload {(constDirective.Value as ASTStringLitteral).Value}");
+                            }
+                            else
+                            {
+                                builder.AppendLine($"\tload #{variable.Name}");
+                            }
+                        }
+                    }
+                    else if (globalMap.TryGetValue(variable.Name, out var globalDirective))
+                    {
+                        if (variable.AssignmentExpression != null)
+                        {
+                            var var_type = globalDirective.Type;
+                            var expr_type = CalcReturnType(variable.AssignmentExpression, scope, functionMap, constMap, globalMap);
+                            if (var_type != expr_type) Fail($"Cannot assign expression of type '{expr_type}' to variable ('{variable.Name}') of type '{var_type}'");
+
+                            builder.AppendLine($"\tloadl #{globalDirective.Name}");
+
+                            EmitExpression(builder, variable.AssignmentExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                            builder.AppendLine($"\tstore [SP]");
+                        }
+
+                        if (produceResult)
+                        {
+                            builder.AppendLine($"\tloadl #{globalDirective.Name}");
+                            builder.AppendLine($"\tload [SP]\t; [{variable.Name}]");
+                        }
                     }
                     else
                     {
@@ -476,102 +714,283 @@ namespace T12
                     }
                     break;
                 case ASTUnaryOp unaryOp:
-                    EmitExpression(builder, unaryOp.Expr, scope, varMap, typeMap, functionMap, constMap);
-                    switch (unaryOp.OperatorType)
                     {
-                        case ASTUnaryOp.UnaryOperationType.Identity:
-                            // Do nothing
-                            break;
-                        case ASTUnaryOp.UnaryOperationType.Negation:
-                            // FIXME: Consider the size of the result of the expression
-                            builder.AppendLine("\tneg");
-                            break;
-                        case ASTUnaryOp.UnaryOperationType.Compliment:
-                            builder.AppendLine("\tnot");
-                            break;
-                        case ASTUnaryOp.UnaryOperationType.Logical_negation:
-                            // FIXME: Make this better, we can probably avoid the swaps
-                            builder.AppendLine("\tload #0");
-                            builder.AppendLine("\tswap");
-                            builder.AppendLine("\tload #1");
-                            builder.AppendLine("\tswap");
-                            builder.AppendLine("\tselz");
-                            break;
-                        default:
-                            Fail($"Unknown unary operator type {unaryOp.OperatorType}, this is a compiler bug!");
-                            break;
+                        var type = CalcReturnType(unaryOp.Expr, scope, functionMap, constMap, globalMap);
+                        int type_size = SizeOfType(type, typeMap);
+
+                        // TODO: Check to see if this expression has side-effects. This way we can avoid poping at the end
+                        EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                        switch (unaryOp.OperatorType)
+                        {
+                            case ASTUnaryOp.UnaryOperationType.Identity:
+                                // Do nothing
+                                break;
+                            case ASTUnaryOp.UnaryOperationType.Negation:
+                                // FIXME: Consider the size of the result of the expression
+                                builder.AppendLine("\tneg");
+                                break;
+                            case ASTUnaryOp.UnaryOperationType.Compliment:
+                                builder.AppendLine("\tnot");
+                                break;
+                            case ASTUnaryOp.UnaryOperationType.Logical_negation:
+                                // FIXME: Make this better, we can probably avoid the swaps
+                                builder.AppendLine("\tload #0");
+                                builder.AppendLine("\tswap");
+                                builder.AppendLine("\tload #1");
+                                builder.AppendLine("\tswap");
+                                builder.AppendLine("\tselz");
+                                break;
+                            default:
+                                Fail($"Unknown unary operator type {unaryOp.OperatorType}, this is a compiler bug!");
+                                break;
+                        }
+
+                        if (produceResult == false)
+                        {
+                            builder.AppendLine("\tpop");
+                        }
+                        break;
                     }
-                    break;
                 case ASTBinaryOp binaryOp:
-                    EmitExpression(builder, binaryOp.Left, scope, varMap, typeMap, functionMap, constMap);
-                    EmitExpression(builder, binaryOp.Right, scope, varMap, typeMap, functionMap, constMap);
-                    // FIXME: Consider the size of the result of the expression
-                    switch (binaryOp.OperatorType)
                     {
-                        case ASTBinaryOp.BinaryOperatorType.Addition:
-                            builder.AppendLine("\tadd");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Subtraction:
-                            builder.AppendLine("\tsub");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Multiplication:
-                            builder.AppendLine("\tmul");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Division:
-                            builder.AppendLine("\tdiv");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Modulo:
-                            builder.AppendLine("\tmod");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Bitwise_And:
-                            builder.AppendLine("\tand");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Bitwise_Or:
-                            builder.AppendLine("\tor");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Bitwise_Xor:
-                            builder.AppendLine("\txor");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Equal:
-                            // TODO: Better handling?
-                            builder.AppendLine("\txor ; Equals");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Less_than:
-                            // FIXME: This is really inefficient
-                            builder.AppendLine("\tswap ; Less than");
-                            builder.AppendLine("\tsub");
-                            builder.AppendLine("\tload #0");
-                            builder.AppendLine("\tswap");
-                            builder.AppendLine("\tload #1");
-                            builder.AppendLine("\tswap");
-                            builder.AppendLine("\tselgz ; If b - a > 0 signed");
-                            break;
-                        case ASTBinaryOp.BinaryOperatorType.Greater_than:
-                            // FIXME: This is really inefficient
-                            builder.AppendLine("\tsub ; Greater than");
-                            builder.AppendLine("\tload #0");
-                            builder.AppendLine("\tswap");
-                            builder.AppendLine("\tload #1");
-                            builder.AppendLine("\tswap");
-                            builder.AppendLine("\tselgz ; If b - a > 0 signed");
-                            break;
-                        default:
-                            Fail($"Unknown binary operator type {binaryOp.OperatorType}, this is a compiler bug!");
-                            break;
+                        var left_type = CalcReturnType(binaryOp.Left, scope, functionMap, constMap, globalMap);
+                        var right_type = CalcReturnType(binaryOp.Right, scope, functionMap, constMap, globalMap);
+                        if (left_type != right_type) Fail($"Cannot apply binary operation '{binaryOp.OperatorType}' on differing types '{left_type}' and '{right_type}'!");
+                        int type_size = SizeOfType(left_type, typeMap);
+
+                        EmitExpression(builder, binaryOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, binaryOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        // FIXME: Consider the size of the result of the expression
+                        switch (binaryOp.OperatorType)
+                        {
+                            case ASTBinaryOp.BinaryOperatorType.Addition:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tadd");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    builder.AppendLine("\tladd");
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Subtraction:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tsub");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    builder.AppendLine("\tlsub");
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Multiplication:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tmul");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    builder.AppendLine("\tlmul");
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Division:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tdiv");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    builder.AppendLine("\tldiv");
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Modulo:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tmod");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    builder.AppendLine("\tlmod");
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Bitwise_And:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tand");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Bitwise_Or:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tor");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Bitwise_Xor:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\txor");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Equal:
+                                if (type_size == 1)
+                                {
+                                    // TODO: Better handling?
+                                    builder.AppendLine("\txor ; Equals");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Less_than:
+                                if (type_size == 1)
+                                {
+                                    // FIXME: This is really inefficient
+                                    builder.AppendLine("\tswap ; Less than");
+                                    builder.AppendLine("\tsub");
+                                    builder.AppendLine("\tload #0");
+                                    builder.AppendLine("\tswap");
+                                    builder.AppendLine("\tload #1");
+                                    builder.AppendLine("\tswap");
+                                    builder.AppendLine("\tselgz ; If b - a > 0 signed");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Greater_than:
+                                if (type_size == 1)
+                                {
+                                    // FIXME: This is really inefficient
+                                    builder.AppendLine("\tsub ; Greater than");
+                                    builder.AppendLine("\tload #0");
+                                    builder.AppendLine("\tswap");
+                                    builder.AppendLine("\tload #1");
+                                    builder.AppendLine("\tswap");
+                                    builder.AppendLine("\tselgz ; If b - a > 0 signed");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Logical_And:
+                                if (type_size == 1)
+                                {
+                                    // TODO: Fix this!!
+                                    builder.AppendLine("\tand");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Logical_Or:
+                                if (type_size == 1)
+                                {
+                                    // TODO: Fix this!!
+                                    builder.AppendLine("\tor");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                }
+                                break;
+                            default:
+                                Fail($"Unknown binary operator type {binaryOp.OperatorType}, this is a compiler bug!");
+                                break;
+                        }
+
+                        if (produceResult == false)
+                        {
+                            builder.AppendLine("\tpop");
+                        }
+                        break;
                     }
-                    break;
                 case ASTConditionalExpression conditional:
                     {
                         int hash = conditional.GetHashCode();
                         // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({hash})");
-                        EmitExpression(builder, conditional.Condition, scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, conditional.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tjz :else_cond_{hash}");
                         builder.AppendLine($"\t:if_cond_{hash}");
-                        EmitExpression(builder, conditional.IfTrue, scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, conditional.IfTrue, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tjmp :post_cond_{hash}");
                         builder.AppendLine($"\t:else_cond_{hash}");
-                        EmitExpression(builder, conditional.IfFalse, scope, varMap, typeMap, functionMap, constMap);
+                        EmitExpression(builder, conditional.IfFalse, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\t:post_cond_{hash}");
+
+                        // We could have checked for side-effects in the above procedures
+                        if (produceResult == false)
+                        {
+                            builder.AppendLine("\tpop");
+                        }
                         break;
                     }
                 case ASTFunctionCall functionCall:
@@ -590,7 +1009,7 @@ namespace T12
                         // FIXME!! Implement implicit casting!!
                         for (int i = 0; i < function.Parameters.Count; i++)
                         {
-                            var argType = CalcReturnType(functionCall.Arguments[i], scope, functionMap, constMap);
+                            var argType = CalcReturnType(functionCall.Arguments[i], scope, functionMap, constMap, globalMap);
                             if (argType != function.Parameters[i].Type)
                                 Fail($"Missmatching types on parameter {function.Parameters[i].Name} ({i}), expected '{function.Parameters[i].Type}' got '{argType}'!");
                         }
@@ -601,11 +1020,26 @@ namespace T12
                         // This means adding a result type to expressions
                         foreach (var arg in functionCall.Arguments)
                         {
-                            EmitExpression(builder, arg, scope, varMap, typeMap, functionMap, constMap);
+                            EmitExpression(builder, arg, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         }
 
                         builder.AppendLine($"\t::{function.Name}");
-                        
+
+                        if (produceResult == false)
+                        {
+                            int retSize = SizeOfType(function.ReturnType, typeMap);
+
+                            if (retSize > 0)
+                            {
+                                // TODO: This can be done in a more optimized way
+                                builder.Append("\t");
+                                for (int i = 0; i < retSize; i++)
+                                {
+                                    builder.Append("pop ");
+                                }
+                                builder.AppendLine();
+                            }
+                        }
                         break;
                     }
                 case ASTPointerExpression pointerExpression:
@@ -616,17 +1050,17 @@ namespace T12
                         if ((variable.Type is ASTPointerType) == false)
                             Fail("Cannot dereference a non-pointer type!");
                         
-                        builder.AppendLine($"\tloadl {variable.Offset}\t; [{pointerExpression.Name}]");
-
                         int baseTypeSize = SizeOfType((variable.Type as ASTPointerType).BaseType, typeMap);
-                        
                         // FIXME!!! Try to cast to dword
-                        var offset_type = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap);
+                        var offset_type = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap, globalMap);
                         if (offset_type != ASTBaseType.Word)
                             Fail($"Can only index pointer with type {ASTBaseType.DoubleWord}");
-
-                        EmitExpression(builder, pointerExpression.Offset, scope, varMap, typeMap, functionMap, constMap);
                         
+                        builder.AppendLine($"\tloadl {variable.Offset}\t; [{pointerExpression.Name}]");
+                        
+                        EmitExpression(builder, pointerExpression.Offset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        
+                        // Multiply by pointer base type size!
                         if (baseTypeSize > 1)
                         {
                             builder.AppendLine($"\tloadl #{baseTypeSize}\t; {variable.Type} pointer size ({baseTypeSize})");
@@ -638,22 +1072,27 @@ namespace T12
 
                         if (pointerExpression.Assignment != null)
                         {
-                            var assign_type = CalcReturnType(pointerExpression.Assignment, scope, functionMap, constMap);
+                            var assign_type = CalcReturnType(pointerExpression.Assignment, scope, functionMap, constMap, globalMap);
 
                             if (assign_type != (variable.Type as ASTPointerType).BaseType)
                                 Fail($"Cannot assign expression of type '{assign_type}' to pointer of type '{variable.Type}'!");
 
-                            // Copy the pointer address
-                            builder.AppendLine($"\tldup");
+                            if (produceResult)
+                            {
+                                // Copy the pointer address
+                                builder.AppendLine($"\tldup");
+                            }
 
-                            EmitExpression(builder, pointerExpression.Assignment, scope, varMap, typeMap, functionMap, constMap);
+                            EmitExpression(builder, pointerExpression.Assignment, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
                             builder.AppendLine($"\tstore [SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]");
                         }
 
-                        // TODO: We only support word pointer atm..
-                        builder.AppendLine($"\tload [SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]");
-
+                        if (produceResult)
+                        {
+                            // TODO: We only support word pointer atm..
+                            builder.AppendLine($"\tload [SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]");
+                        }
                         break;
                     }
                 default:
@@ -669,12 +1108,22 @@ namespace T12
                 case ASTWordLitteral wordLitteral:
                     builder.AppendLine($"\tload #{wordLitteral.Value}");
                     break;
+                case ASTDoubleWordLitteral dwordLitteral:
+                    builder.AppendLine($"\tloadl #{dwordLitteral.Value.Substring(0, dwordLitteral.Value.Length - 1)}");
+                    break;
                 case ASTBoolLitteral boolLitteral:
                     // NOTE: Should we load the constants instead?
                     builder.AppendLine($"\tload #{(boolLitteral == ASTBoolLitteral.True ? 1 : 0)}\t; {(boolLitteral == ASTBoolLitteral.True ? "true" : "false")}");
                     break;
+                case ASTCharLitteral charLitteral:
+                    builder.AppendLine($"\tload {charLitteral.Value}");
+                    break;
+                case ASTStringLitteral stringLitteral:
+                    // FIXME: Figure out how to do string constants and string structs!
+                    builder.AppendLine($"\tload {stringLitteral.Value}");
+                    break;
                 default:
-                    Fail($"Unknown litteral type {litteral}, this is a compiler bug!");
+                    Fail($"Unknown litteral type {litteral.GetType()}, this is a compiler bug!");
                     break;
             }
         }

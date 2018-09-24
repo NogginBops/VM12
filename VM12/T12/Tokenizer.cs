@@ -22,6 +22,7 @@ namespace T12
         Period,
         Comma,
         Colon,
+        Numbersign,
 
         DoubleAnd,
         DoublePipe,
@@ -62,6 +63,8 @@ namespace T12
         Keyword_Word,
         Keyword_DWord,
         Keyword_Bool,
+        Keyword_Char,
+        Keyword_String,
         Keyword_Return,
         Keyword_If,
         Keyword_Else,
@@ -79,8 +82,14 @@ namespace T12
         Keyword_True,
         Keyword_False,
 
+        Keyword_Assembly,
+        Keyword_Interrupt,
+
         Identifier,
         Word_Litteral,
+        Double_Word_Litteral,
+        Char_Litteral,
+        String_Litteral,
 
         // DWord_Litteral,
         // Bool_Litteral,
@@ -99,13 +108,17 @@ namespace T12
             Type == TokenType.Keyword_Word ||
             Type == TokenType.Keyword_DWord ||
             Type == TokenType.Keyword_Bool ||
+            Type == TokenType.Keyword_Char ||
+            Type == TokenType.Keyword_String ||
             Type == TokenType.Identifier;
 
         public bool IsBaseType =>
             Type == TokenType.Keyword_Void ||
             Type == TokenType.Keyword_Word ||
             Type == TokenType.Keyword_DWord ||
-            Type == TokenType.Keyword_Bool;
+            Type == TokenType.Keyword_Bool ||
+            Type == TokenType.Keyword_Char ||
+            Type == TokenType.Keyword_String;
 
         public bool IsUnaryOp =>
             Type == TokenType.Minus ||
@@ -143,8 +156,11 @@ namespace T12
 
         public bool IsLitteral => 
             Type == TokenType.Word_Litteral ||
+            Type == TokenType.Double_Word_Litteral ||
             Type == TokenType.Keyword_True ||
-            Type == TokenType.Keyword_False;
+            Type == TokenType.Keyword_False ||
+            Type == TokenType.Char_Litteral ||
+            Type == TokenType.String_Litteral;
 
         public bool IsIdentifier => 
             Type == TokenType.Identifier;
@@ -186,6 +202,7 @@ namespace T12
             ( TokenType.Period, new Regex("^\\.") ),
             ( TokenType.Comma, new Regex("^,") ),
             ( TokenType.Colon, new Regex("^:") ),
+            ( TokenType.Colon, new Regex("^#") ),
 
             ( TokenType.DoubleAnd, new Regex("^&&") ),
             ( TokenType.DoublePipe, new Regex("^\\|\\|") ),
@@ -225,6 +242,8 @@ namespace T12
             ( TokenType.Keyword_Word, new Regex("^word\\b") ),
             ( TokenType.Keyword_DWord, new Regex("^dword\\b") ),
             ( TokenType.Keyword_Bool, new Regex("^bool\\b") ),
+            ( TokenType.Keyword_Char, new Regex("^char\\b") ),
+            ( TokenType.Keyword_String, new Regex("^string\\b") ),
             ( TokenType.Keyword_Return, new Regex("^return\\b") ),
             ( TokenType.Keyword_If, new Regex("^if\\b") ),
             ( TokenType.Keyword_Else, new Regex("^else\\b") ),
@@ -242,8 +261,15 @@ namespace T12
             ( TokenType.Keyword_True, new Regex("^true\\b") ),
             ( TokenType.Keyword_False, new Regex("^false\\b") ),
 
+            ( TokenType.Keyword_Assembly, new Regex("^assembly\\b") ),
+            ( TokenType.Keyword_Interrupt, new Regex("^interrupt\\b") ),
+
             ( TokenType.Identifier, new Regex("^[a-zA-Z]\\w*") ),
-            ( TokenType.Word_Litteral, new Regex("^[0-9]+") ),
+            // TODO: We can do better dword litterals
+            ( TokenType.Double_Word_Litteral, new Regex("^[0-9]+(D|d)") ),
+            ( TokenType.Word_Litteral, new Regex("^[0-9]+(W|w)?") ),
+            ( TokenType.Char_Litteral, new Regex("^'.'") ),
+            ( TokenType.String_Litteral, new Regex("^\\\"(?:\\\\.|[^\"\\\\])*\\\"") ),
         };
 
         public static Queue<Token> Tokenize(string code)

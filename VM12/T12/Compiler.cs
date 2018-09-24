@@ -29,18 +29,8 @@ namespace T12
                     // But at the moment we wont do that
                 }
             }
-
-            string fileData = File.ReadAllText(inFile);
-
-            var tokens = Tokenizer.Tokenize(fileData);
             
-            AST ast = AST.Parse(tokens);
-
-            // TODO: Do validaton on the AST
-
-            string result = Emitter.EmitAsem(ast);
-
-            File.WriteAllText(outFile, result);
+            string result = Compile(inFile);
 
             Console.WriteLine();
             Console.WriteLine(result);
@@ -54,16 +44,25 @@ namespace T12
             {
                 outFile = new FileInfo(Path.ChangeExtension(inFile.FullName, "12asm"));
             }
+            
+            string result = Compile(inFile.FullName);
+            
+            File.WriteAllText(outFile.FullName, result);
+        }
 
-            string fileData = File.ReadAllText(inFile.FullName);
+        public static string Compile(string infile)
+        {
+            string fileData = File.ReadAllText(infile);
 
             var tokens = Tokenizer.Tokenize(fileData);
 
             AST ast = AST.Parse(tokens);
 
-            string result = Emitter.EmitAsem(ast);
+            // TODO: Do validaton on the AST
 
-            File.WriteAllText(outFile.FullName, result);
+            string result = Emitter.EmitAsem(ast);
+            
+            return result;
         }
 
         string TestCode = @"
