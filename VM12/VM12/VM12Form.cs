@@ -129,14 +129,8 @@ namespace VM12
                     }
                     else if (inf.Extension == ".t12")
                     {
-                        Process t12 = Process.Start("dotnet.exe", $"T12.dll \"{inf.FullName}\"");
+                        T12.Compiler.Compile(inf);
                         
-                        t12.WaitForExit();
-                        if (t12.ExitCode != 0)
-                        {
-                            throw new Exception($"Cound not compile file '{inf.Name}'!");
-                        }
-
                         FileInfo asmFile = new FileInfo(Path.ChangeExtension(inf.FullName, ".12asm"));
 
                         VM12Asm.VM12Asm.Main("-src", asmFile.FullName, "-dst", Path.GetFileNameWithoutExtension(asmFile.Name), "-e", "-o");

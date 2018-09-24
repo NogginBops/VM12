@@ -15,6 +15,9 @@ namespace T12
         Open_parenthesis,
         Close_parenthesis,
 
+        Open_square_bracket,
+        Close_squre_bracket,
+
         Semicolon,
         Period,
         Comma,
@@ -70,7 +73,9 @@ namespace T12
 
         Keyword_Use,
         Keyword_Extern,
-
+        Keyword_Const,
+        Keyword_Global,
+        
         Keyword_True,
         Keyword_False,
 
@@ -146,7 +151,9 @@ namespace T12
 
         public bool IsDirectiveKeyword => 
             Type == TokenType.Keyword_Use ||
-            Type == TokenType.Keyword_Extern;
+            Type == TokenType.Keyword_Extern || 
+            Type == TokenType.Keyword_Const ||
+            Type == TokenType.Keyword_Global;
 
         public Token(TokenType Type, string Value)
         {
@@ -171,6 +178,9 @@ namespace T12
 
             ( TokenType.Open_parenthesis, new Regex("^\\(") ),
             ( TokenType.Close_parenthesis, new Regex("^\\)") ),
+
+            ( TokenType.Open_square_bracket, new Regex("^\\[") ),
+            ( TokenType.Close_squre_bracket, new Regex("^\\]") ),
 
             ( TokenType.Semicolon, new Regex("^;") ),
             ( TokenType.Period, new Regex("^\\.") ),
@@ -226,6 +236,8 @@ namespace T12
 
             ( TokenType.Keyword_Use, new Regex("^use\\b") ),
             ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),
+            ( TokenType.Keyword_Const, new Regex("^const\\b") ),
+            ( TokenType.Keyword_Global, new Regex("^global\\b") ),
 
             ( TokenType.Keyword_True, new Regex("^true\\b") ),
             ( TokenType.Keyword_False, new Regex("^false\\b") ),

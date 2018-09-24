@@ -5,10 +5,10 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{2AD1940D-2DF4-45BB-982F-EBDDEF80104B}</ProjectGuid>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <RootNamespace>VM12</RootNamespace>
     <AssemblyName>VM12</AssemblyName>
-    <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFrameworkProfile />
@@ -205,6 +205,10 @@
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\T12\T12.csproj">
+      <Project>{f4e41638-2df1-412b-af94-a7a311c66ef2}</Project>
+      <Name>T12</Name>
+    </ProjectReference>
     <ProjectReference Include="..\VM12Asm\VM12Asm.csproj">
       <Project>{0bda1018-a90e-4429-86e4-fadd2d141260}</Project>
       <Name>VM12Asm</Name>
@@ -243,11 +247,11 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PreBuildEvent>echo "Building T12 pre build"
-"$(DevEnvDir)\devenv" "$(SolutionDir)\VM12.sln" /Build $(configuration) /project "$(SolutionDir)\T12\T12.csproj"
-</PreBuildEvent>
+    <PreBuildEvent>
+    </PreBuildEvent>
   </PropertyGroup>
   <PropertyGroup>
-    <PostBuildEvent>copy $(SolutionDir)\T12\\bin\$(ConfigurationName)\netcoreapp2.1\* $(TargetDir)</PostBuildEvent>
+    <PostBuildEvent>
+    </PostBuildEvent>
   </PropertyGroup>
 </Project>

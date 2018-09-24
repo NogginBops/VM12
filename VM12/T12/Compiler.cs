@@ -9,8 +9,6 @@ namespace T12
     {
         public static void Main(params string[] args)
         {
-            Debugger.Launch();
-
             string inFile;
             string outFile;
 
@@ -48,6 +46,24 @@ namespace T12
             Console.WriteLine(result);
             
             Console.ReadKey();
+        }
+
+        public static void Compile(FileInfo inFile, FileInfo outFile = null)
+        {
+            if (outFile == null)
+            {
+                outFile = new FileInfo(Path.ChangeExtension(inFile.FullName, "12asm"));
+            }
+
+            string fileData = File.ReadAllText(inFile.FullName);
+
+            var tokens = Tokenizer.Tokenize(fileData);
+
+            AST ast = AST.Parse(tokens);
+
+            string result = Emitter.EmitAsem(ast);
+
+            File.WriteAllText(outFile.FullName, result);
         }
 
         string TestCode = @"

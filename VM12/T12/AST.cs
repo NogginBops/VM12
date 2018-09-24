@@ -5,8 +5,6 @@ using System.Linq;
 
 namespace T12
 {
-    using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
-
     public class AST
     {
         public readonly ASTProgram Program;
@@ -53,14 +51,11 @@ namespace T12
         {
             List<ASTDirective> directives = new List<ASTDirective>();
             List<ASTFunction> functions = new List<ASTFunction>();
-
-            var peek = Tokens.Peek();
-            while (peek.IsDirectiveKeyword)
+            
+            while (Tokens.Count > 0 && Tokens.Peek().IsDirectiveKeyword)
             {
                 var directive = ASTDirective.Parse(Tokens);
                 directives.Add(directive);
-
-                peek = Tokens.Peek();
             }
             
             while (Tokens.Count > 0 && Tokens.Peek().IsType)
@@ -87,6 +82,8 @@ namespace T12
                     return ASTUseDirective.Parse(Tokens);
                 case TokenType.Keyword_Extern:
                     return ASTExternFunctionDirective.Parse(Tokens);
+                case TokenType.Keyword_Const:
+                    return ASTConstDirective.Parse(Tokens);
                 default:
                     Fail($"Unexpected token '{peek}' expected a valid directive!");
                     return default;
@@ -186,6 +183,44 @@ namespace T12
         }
     }
 
+    public class ASTConstDirective : ASTDirective
+    {
+        // There is only constants of base types
+        public readonly ASTBaseType Type;
+        public readonly string Name;
+        public readonly ASTExpression Value;
+
+        public ASTConstDirective(ASTBaseType type, string name, ASTExpression value)
+        {
+            Type = type;
+            Name = name;
+            Value = value;
+        }
+
+        public static new ASTConstDirective Parse(Queue<Token> Tokens)
+        {
+            var const_tok = Tokens.Dequeue();
+            if (const_tok.Type != TokenType.Keyword_Const) Fail("Expected 'const'!");
+
+            var type = ASTType.Parse(Tokens);
+            if ((type is ASTBaseType) == false) Fail($"Cannot use a non-base type for a constant variable! Got '{type}'");
+
+            var name_tok = Tokens.Dequeue();
+            if (name_tok.Type != TokenType.Identifier) Fail($"Expected constant name!");
+            string name = name_tok.Value;
+
+            var equals_tok = Tokens.Dequeue();
+            if (equals_tok.Type != TokenType.Equal) Fail($"Expected equals!");
+
+            var value = ASTExpression.Parse(Tokens);
+
+            var semicolon_tok = Tokens.Dequeue();
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+
+            return new ASTConstDirective(type as ASTBaseType, name, value);
+        }
+    }
+
     #endregion
 
     public class ASTFunction : ASTNode
@@ -253,7 +288,9 @@ namespace T12
             while (peek.Type != TokenType.Close_brace)
             {
                 body.Add(ASTBlockItem.Parse(Tokens));
-                if (!Tokens.TryPeek(out peek)) Fail("Expected a closing brace!");
+                peek = Tokens.Peek();
+                // This is a .net core 2+ only feature
+                //if (!Tokens.TryPeek(out peek)) Fail("Expected a closing brace!");
             }
 
             // Dequeue the closing brace
@@ -935,6 +972,10 @@ namespace T12
                     // Function call
                     return ASTFunctionCall.Parse(Tokens);
                 }
+                else if (peek_action_tok.Type == TokenType.Open_square_bracket)
+                {
+                    return ASTPointerExpression.Parse(Tokens);
+                }
                 else
                 {
                     // Variable expression
@@ -948,14 +989,22 @@ namespace T12
             }
         }
     }
-
+    
     public abstract class ASTLitteral : ASTExpression
     {
         public readonly ASTBaseType Type;
 
-        public ASTLitteral(ASTBaseType type)
+        public readonly string Value;
+
+        public ASTLitteral(ASTBaseType type, string value)
         {
             Type = type;
+            Value = value;
+        }
+
+        public override string ToString()
+        {
+            return Value;
         }
 
         public static new ASTLitteral Parse(Queue<Token> Tokens)
@@ -980,15 +1029,13 @@ namespace T12
 
     public class ASTWordLitteral : ASTLitteral
     {
-        public readonly string Value;
         public readonly int IntValue;
 
-        public ASTWordLitteral(string Value, int IntValue) : base(ASTBaseType.Word)
+        public ASTWordLitteral(string value, int intValue) : base(ASTBaseType.Word, value)
         {
-            this.Value = Value;
-            this.IntValue = IntValue;
+            IntValue = intValue;
         }
-
+        
         public static new ASTWordLitteral Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
@@ -1002,10 +1049,10 @@ namespace T12
 
     public class ASTBoolLitteral : ASTLitteral
     {
-        public static readonly ASTBoolLitteral True = new ASTBoolLitteral();
-        public static readonly ASTBoolLitteral False = new ASTBoolLitteral();
-
-        private ASTBoolLitteral() : base(ASTBaseType.Bool) { }
+        public static readonly ASTBoolLitteral True = new ASTBoolLitteral("true");
+        public static readonly ASTBoolLitteral False = new ASTBoolLitteral("false");
+        
+        private ASTBoolLitteral(string value) : base(ASTBaseType.Bool, value) { }
     }
 
     public class ASTVariableExpression : ASTExpression
@@ -1024,15 +1071,20 @@ namespace T12
             Botwise_Xor,
         }
 
-        public readonly string VariableName;
+        public readonly string Name;
         public readonly ASTExpression AssignmentExpression;
 
         public ASTVariableExpression(string VariableName, ASTExpression AssignmentExpression)
         {
-            this.VariableName = VariableName;
+            this.Name = VariableName;
             this.AssignmentExpression = AssignmentExpression;
         }
-        
+
+        public override string ToString()
+        {
+            return Name;
+        }
+
         public static new ASTVariableExpression Parse(Queue<Token> Tokens)
         {
             var ident_tok = Tokens.Dequeue();
@@ -1089,7 +1141,51 @@ namespace T12
 
     public class ASTPointerExpression : ASTExpression
     {
+        public readonly string Name;
+        public readonly ASTExpression Offset;
+        public readonly ASTExpression Assignment;
 
+        public ASTPointerExpression(string name, ASTExpression offset, ASTExpression assignment)
+        {
+            Name = name;
+            Offset = offset;
+            Assignment = assignment;
+        }
+
+        public static new ASTPointerExpression Parse(Queue<Token> Tokens)
+        {
+            var name_tok = Tokens.Dequeue();
+            if (name_tok.IsIdentifier == false) Fail("Expected identifier!");
+            string name = name_tok.Value;
+            
+            var open_square_tok = Tokens.Dequeue();
+            if (open_square_tok.Type != TokenType.Open_square_bracket) Fail("Expected '['!");
+
+            var offset = ASTExpression.Parse(Tokens);
+
+            var closed_square_tok = Tokens.Dequeue();
+            if (closed_square_tok.Type != TokenType.Close_squre_bracket) Fail("Expected ']'!");
+
+            ASTExpression assignment = null;
+
+            var peek = Tokens.Peek();
+            if (peek.IsAssignmentOp)
+            {
+                var op_tok = Tokens.Dequeue();
+
+                assignment = ASTExpression.Parse(Tokens);
+
+                if (op_tok.Type != TokenType.Equal)
+                {
+                    // Replace expr with the appropriate bin op
+                    var op_type = ASTVariableExpression.TokenToOperatorType(op_tok);
+
+                    assignment = new ASTBinaryOp(op_type, new ASTVariableExpression(name, null), assignment);
+                }
+            }
+
+            return new ASTPointerExpression(name, offset, assignment);
+        }
     }
 
     public class ASTUnaryOp : ASTExpression
@@ -1350,9 +1446,11 @@ namespace T12
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(TypeName);
+            return -448171650 + EqualityComparer<string>.Default.GetHashCode(TypeName);
+            // This is a .net core 2+ only feature
+            //return HashCode.Combine(TypeName);
         }
-
+        
         public static ASTType Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
@@ -1427,7 +1525,12 @@ namespace T12
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(BaseType);
+            var hashCode = 1774614950;
+            hashCode = hashCode * -1521134295 + base.GetHashCode();
+            hashCode = hashCode * -1521134295 + EqualityComparer<ASTType>.Default.GetHashCode(BaseType);
+            return hashCode;
+            // This is a .net core 2+ only feature
+            // return HashCode.Combine(BaseType);
         }
     }
 

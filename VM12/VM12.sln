@@ -11,7 +11,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12Opcodes", "VM12Opcodes\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12ImageConverter", "VM12ImageConverter\VM12ImageConverter.csproj", "{45CE9C6C-F562-4D72-8637-F84FD4D85E92}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "T12", "T12\T12.csproj", "{576D3174-699D-4A8D-9669-CF53722297C1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "T12", "T12\T12.csproj", "{F4E41638-2DF1-412B-AF94-A7A311C66EF2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -35,10 +35,10 @@ Global
 		{45CE9C6C-F562-4D72-8637-F84FD4D85E92}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{45CE9C6C-F562-4D72-8637-F84FD4D85E92}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{45CE9C6C-F562-4D72-8637-F84FD4D85E92}.Release|Any CPU.Build.0 = Release|Any CPU
-		{576D3174-699D-4A8D-9669-CF53722297C1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{576D3174-699D-4A8D-9669-CF53722297C1}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{576D3174-699D-4A8D-9669-CF53722297C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{576D3174-699D-4A8D-9669-CF53722297C1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F4E41638-2DF1-412B-AF94-A7A311C66EF2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F4E41638-2DF1-412B-AF94-A7A311C66EF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F4E41638-2DF1-412B-AF94-A7A311C66EF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F4E41638-2DF1-412B-AF94-A7A311C66EF2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
