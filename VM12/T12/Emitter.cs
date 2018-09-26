@@ -128,6 +128,9 @@ namespace T12
 
                         return function.ReturnType;
                     }
+                case ASTCastExpression cast:
+                    // We assume all casts will work. Because if they are in the AST they shuold work!
+                    return cast.To;
                 default:
                     Fail($"Unknown expression type {expression}, this is a compiler bug!");
                     break;
@@ -136,6 +139,69 @@ namespace T12
             return default;
         }
 
+        private static bool TryGenerateCast(ASTExpression expression, ASTType targetType, VarMap scope, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
+        {
+            ASTType exprType = CalcReturnType(expression, scope, functionMap, constMap, globalMap);
+
+            if (exprType == targetType)
+            {
+                result = expression;
+                error = default;
+                return true;
+            }
+            else if (expression is ASTWordLitteral && targetType == ASTBaseType.DoubleWord)
+            {
+                // Here there is a special case where we can optimize the loading of words and dwords
+                ASTWordLitteral litteral = expression as ASTWordLitteral;
+                result = new ASTDoubleWordLitteral(litteral.Value, litteral.IntValue);
+                error = default;
+                return true;
+            }
+            else if (exprType is ASTPointerType && targetType == ASTPointerType.Of(ASTBaseType.Void))
+            {
+                result = new ASTPointerToVoidPointerCast(expression, exprType as ASTPointerType);
+                error = default;
+                return true;
+            }
+            else if (exprType == ASTBaseType.String && targetType == ASTPointerType.Of(ASTBaseType.Void))
+            {
+                // FIXME!!! This is a ugly hack!! When we go over to struct strings this will have to change
+                // So we just say that we can conver this. We rely on the fact that we never actually check
+                // to see if the expression results in a pointer when generating the cast
+                result = new ASTPointerToVoidPointerCast(expression, ASTPointerType.Of(ASTBaseType.Word));
+                error = default;
+                return true;
+            }
+            else
+            {
+                if (exprType is ASTBaseType && targetType is ASTBaseType)
+                {
+                    int exprSize = (exprType as ASTBaseType).Size;
+                    int targetSize = (targetType as ASTBaseType).Size;
+
+                    if (exprSize < targetSize)
+                    {
+                        result = new ASTImplicitCast(expression, exprType as ASTBaseType, targetType as ASTBaseType);
+                        error = default;
+                        return true;
+                    }
+                    else
+                    {
+                        //
+                        result = default;
+                        error = "This cast would lead to loss of information, do an explicit cast!";
+                        return false;
+                    }
+                }
+                else
+                {
+                    result = default;
+                    error = "Can only cast base types atm!";
+                    return false;
+                }
+            }
+        }
+        
         private static void AppendTypedLoad(StringBuilder builder, string load_content, ASTType type, TypeMap typeMap)
         {
             int size = SizeOfType(type, typeMap);
@@ -1009,9 +1075,17 @@ namespace T12
                         // FIXME!! Implement implicit casting!!
                         for (int i = 0; i < function.Parameters.Count; i++)
                         {
-                            var argType = CalcReturnType(functionCall.Arguments[i], scope, functionMap, constMap, globalMap);
-                            if (argType != function.Parameters[i].Type)
-                                Fail($"Missmatching types on parameter {function.Parameters[i].Name} ({i}), expected '{function.Parameters[i].Type}' got '{argType}'!");
+                            ASTType targetType = function.Parameters[i].Type;
+                            ASTType argumentType = CalcReturnType(functionCall.Arguments[i], scope, functionMap, constMap, globalMap);
+
+                            // Try and cast the arguemnt
+                            if (TryGenerateCast(functionCall.Arguments[i], targetType, scope, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
+                                Fail($"Missmatching types on parameter '{function.Parameters[i].Name}' ({i}), expected '{function.Parameters[i].Type}' got '{argumentType}'! (Cast error: '{error}')");
+
+                            // We don't need to check the result as it will have the desired type.
+
+                            // Switch the old argument for the new casted one
+                            functionCall.Arguments[i] = typedArg;
                         }
 
                         if (functionCall.Arguments.Count > 0)
@@ -1049,16 +1123,27 @@ namespace T12
 
                         if ((variable.Type is ASTPointerType) == false)
                             Fail("Cannot dereference a non-pointer type!");
-                        
-                        int baseTypeSize = SizeOfType((variable.Type as ASTPointerType).BaseType, typeMap);
+
+                        ASTPointerType pointerType = variable.Type as ASTPointerType;
+
+                        if (pointerType.BaseType == ASTBaseType.Void)
+                            Fail("Cannot deference void pointer! Cast to a valid pointer type!");
+
+                        int baseTypeSize = SizeOfType(pointerType.BaseType, typeMap);
                         // FIXME!!! Try to cast to dword
                         var offset_type = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap, globalMap);
                         if (offset_type != ASTBaseType.Word)
                             Fail($"Can only index pointer with type {ASTBaseType.DoubleWord}");
                         
+                        // Here we are loading a pointer, so we know we should loadl
                         builder.AppendLine($"\tloadl {variable.Offset}\t; [{pointerExpression.Name}]");
+
+                        // Try to cast the offset to a dword
+                        if (TryGenerateCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
+                            Fail($"Could not generate cast for pointer offset to {ASTBaseType.DoubleWord}: {error}");
                         
-                        EmitExpression(builder, pointerExpression.Offset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        // Emit the casted offfset
+                        EmitExpression(builder, dwordOffset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         
                         // Multiply by pointer base type size!
                         if (baseTypeSize > 1)
@@ -1068,30 +1153,47 @@ namespace T12
                             builder.AppendLine($"\tlmul");
                         }
 
+                        // Add the offset to the pointer
                         builder.AppendLine($"\tladd");
 
                         if (pointerExpression.Assignment != null)
                         {
                             var assign_type = CalcReturnType(pointerExpression.Assignment, scope, functionMap, constMap, globalMap);
 
-                            if (assign_type != (variable.Type as ASTPointerType).BaseType)
-                                Fail($"Cannot assign expression of type '{assign_type}' to pointer of type '{variable.Type}'!");
-
+                            if (TryGenerateCast(pointerExpression.Assignment, pointerType.BaseType, scope, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
+                                Fail($"Cannot assign expression of type '{assign_type}' to pointer to type '{pointerType.BaseType}'! (Implicit cast error: '{error}')");
+                            
                             if (produceResult)
                             {
                                 // Copy the pointer address
                                 builder.AppendLine($"\tldup");
                             }
 
-                            EmitExpression(builder, pointerExpression.Assignment, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, typedAssign, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                            builder.AppendLine($"\tstore [SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]");
+                            AppendTypedStore(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", pointerType, typeMap);
                         }
 
                         if (produceResult)
                         {
-                            // TODO: We only support word pointer atm..
-                            builder.AppendLine($"\tload [SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]");
+                            AppendTypedLoad(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", pointerType, typeMap);
+                        }
+                        break;
+                    }
+                case ASTPointerToVoidPointerCast cast:
+                    // We really don't need to do anything as the cast is just for type-safety
+                    EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    break;
+                case ASTImplicitCast cast:
+                    {
+                        if (cast.FromType.Size + 1 == cast.ToType.Size)
+                        {
+                            builder.AppendLine("\tload #0");
+                            EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        }
+                        else
+                        {
+                            Fail($"We don't know how to cast {cast.FromType} to {cast.ToType} right now!");
                         }
                         break;
                     }

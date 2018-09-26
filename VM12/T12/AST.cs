@@ -1641,6 +1641,46 @@ namespace T12
         }
     }
 
+    public abstract class ASTCastExpression : ASTExpression
+    {
+        public readonly ASTExpression From;
+        public readonly ASTType To;
+
+        public ASTCastExpression(ASTExpression from, ASTType to)
+        {
+            From = from;
+            To = to;
+        }
+    }
+
+    public class ASTImplicitCast : ASTCastExpression
+    {
+        public readonly ASTBaseType FromType;
+        public ASTBaseType ToType => To as ASTBaseType;
+
+        // There will be no way for the parser to generate implicit casts
+        // They will only be created when generating assembly
+        public ASTImplicitCast(ASTExpression from, ASTBaseType fromType, ASTBaseType to) : base(from, to)
+        {
+            FromType = fromType;
+        }
+    }
+
+    public class ASTExplicitCast : ASTCastExpression
+    {
+        public ASTExplicitCast(ASTExpression from, ASTType to) : base(from, to) { }
+    }
+
+    public class ASTPointerToVoidPointerCast : ASTCastExpression
+    {
+        public readonly ASTPointerType FromType;
+
+        public ASTPointerToVoidPointerCast(ASTExpression from, ASTPointerType fromType) : base(from, ASTPointerType.Of(ASTBaseType.Void))
+        {
+            FromType = fromType;
+        }
+    }
+
     #endregion
 
     public abstract class ASTType : ASTNode
@@ -1728,7 +1768,7 @@ namespace T12
         public static ASTBaseType String => BaseTypeMap["string"];
 
         public readonly int Size;
-
+        
         private ASTBaseType(string name, int size) : base(name)
         {
             Size = size;
@@ -1740,6 +1780,8 @@ namespace T12
         public readonly ASTType BaseType;
 
         public const int Size = 2;
+
+        public static ASTPointerType Of(ASTType type) => new ASTPointerType(type);
 
         public ASTPointerType(ASTType baseType) : base($"{baseType.TypeName}*")
         {
