@@ -73,6 +73,7 @@ namespace T12
         Keyword_Do,
         Keyword_Break,
         Keyword_Continue,
+        Keyword_Cast,
 
         Keyword_Use,
         Keyword_Extern,
@@ -252,6 +253,7 @@ namespace T12
             ( TokenType.Keyword_Do, new Regex("^do\\b") ),
             ( TokenType.Keyword_Break, new Regex("^break\\b") ),
             ( TokenType.Keyword_Continue, new Regex("^continue\\b") ),
+            ( TokenType.Keyword_Cast, new Regex("^cast\\b") ),
 
             ( TokenType.Keyword_Use, new Regex("^use\\b") ),
             ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),

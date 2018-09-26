@@ -1197,6 +1197,45 @@ namespace T12
                         }
                         break;
                     }
+                case ASTExplicitCast cast:
+                    {
+                        ASTType fromType = CalcReturnType(cast.From, scope, functionMap, constMap, globalMap);
+                        ASTType toType = cast.To;
+
+                        if (TryGenerateCast(cast.From, cast.To, scope, functionMap, constMap, globalMap, out ASTExpression implicitCast, out string _))
+                        {
+                            // There existed an implicit cast! Use that!
+                            EmitExpression(builder, implicitCast, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        }
+                        else if (cast.From is ASTDoubleWordLitteral && toType == ASTBaseType.Word)
+                        {
+                            // This is an optimization for dword litterals casted to words. We can just compile time truncate the litteral to 12-bits.
+                            ASTDoubleWordLitteral dwordLit = cast.From as ASTDoubleWordLitteral;
+                            int truncatedValue = dwordLit.IntValue & 0xFFF;
+                            ASTWordLitteral wordLit = new ASTWordLitteral(truncatedValue.ToString(), truncatedValue);
+                            EmitExpression(builder, wordLit, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        }
+                        else
+                        {
+                            // There was no implicit way to do it.
+                            // How do we cast structs?
+
+                            // TODO: Should we hardcode these casts?
+                            // Atm we have them hardcoded
+                            if (fromType == ASTBaseType.DoubleWord && toType == ASTBaseType.Word)
+                            {
+                                // This cast is easy
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tswap pop\t; cast({toType})");
+                            }
+                            else
+                            {
+                                Fail($"There is no explicit cast from {fromType} to {toType}!");
+                            }
+                        }
+
+                        break;
+                    }
                 default:
                     Fail($"Unknown expression type {expression}, this is a compiler bug!");
                     break;

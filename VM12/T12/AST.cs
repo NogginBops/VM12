@@ -1138,6 +1138,10 @@ namespace T12
                     return ASTVariableExpression.Parse(Tokens);
                 }
             }
+            else if (peek.Type == TokenType.Keyword_Cast)
+            {
+                return ASTExplicitCast.Parse(Tokens);
+            }
             else
             {
                 Fail($"Could not parse factor. Didn't know what to do with token '{peek}'");
@@ -1669,6 +1673,24 @@ namespace T12
     public class ASTExplicitCast : ASTCastExpression
     {
         public ASTExplicitCast(ASTExpression from, ASTType to) : base(from, to) { }
+
+        public static new ASTExplicitCast Parse(Queue<Token> Tokens)
+        {
+            var cast_tok = Tokens.Dequeue();
+            if (cast_tok.Type != TokenType.Keyword_Cast) Fail("Expected cast!");
+
+            var open_parenthesis = Tokens.Dequeue();
+            if (open_parenthesis.Type != TokenType.Open_parenthesis) Fail("Expected '('!");
+
+            var castType = ASTType.Parse(Tokens);
+
+            var close_parenthesis = Tokens.Dequeue();
+            if (close_parenthesis.Type != TokenType.Close_parenthesis) Fail("Expected ')'!");
+
+            var expression = ASTExpression.Parse(Tokens);
+
+            return new ASTExplicitCast(expression, castType);
+        }
     }
 
     public class ASTPointerToVoidPointerCast : ASTCastExpression
