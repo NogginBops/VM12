@@ -139,7 +139,7 @@ namespace T12
             return default;
         }
 
-        private static bool TryGenerateCast(ASTExpression expression, ASTType targetType, VarMap scope, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
+        private static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
         {
             ASTType exprType = CalcReturnType(expression, scope, functionMap, constMap, globalMap);
 
@@ -153,7 +153,8 @@ namespace T12
             {
                 // Here there is a special case where we can optimize the loading of words and dwords
                 ASTWordLitteral litteral = expression as ASTWordLitteral;
-                result = new ASTDoubleWordLitteral(litteral.Value, litteral.IntValue);
+                // NOTE: Is adding the 'd' to the litteral the right thing to do?
+                result = new ASTDoubleWordLitteral(litteral.Value + "d", litteral.IntValue);
                 error = default;
                 return true;
             }
@@ -202,6 +203,150 @@ namespace T12
             }
         }
         
+        /// <summary>
+        /// This method will generate the most optimized jump based on the type of the binary operation condition.
+        /// </summary>
+        private static void GenerateOptimizedBinaryOpJump(StringBuilder builder, ASTBinaryOp condition, string jmpLabel, VarMap scope, VarList varList, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        {
+            var leftType = CalcReturnType(condition.Left, scope, functionMap, constMap, globalMap);
+            var rightType = CalcReturnType(condition.Right, scope, functionMap, constMap, globalMap);
+            // Try and cast the right type to the left type so we can apply the binary operation.
+            if (TryGenerateImplicitCast(condition.Right, leftType, scope, functionMap, constMap, globalMap, out ASTExpression typedRight, out string error) == false)
+                Fail($"Cannot apply binary operation '{condition.OperatorType}' on differing types '{leftType}' and '{rightType}'!");
+
+            int typeSize = SizeOfType(leftType, typeMap);
+            
+            switch (condition.OperatorType)
+            {
+                case ASTBinaryOp.BinaryOperatorType.Equal:
+                    EmitExpression(builder, condition.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                    // We use jneq and jneql here because we want to not jump and execute the body if they are equal.
+
+                    if (typeSize == 1)
+                    {
+                        builder.AppendLine($"\tjneq {jmpLabel}");
+                    }
+                    else if (typeSize == 2)
+                    {
+                        builder.AppendLine($"\tjneql {jmpLabel}");
+                    }
+                    else
+                    {
+                        Fail($"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                    }
+                    break;
+                case ASTBinaryOp.BinaryOperatorType.Not_equal:
+                    EmitExpression(builder, condition.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                    // We use jeq and jeql here because we want to not jump and execute the body if they are not equal.
+
+                    if (typeSize == 1)
+                    {
+                        builder.AppendLine($"\tjeq {jmpLabel}");
+                    }
+                    else if (typeSize == 2)
+                    {
+                        builder.AppendLine($"\tjeql {jmpLabel}");
+                    }
+                    else
+                    {
+                        Fail($"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                    }
+                    break;
+                case ASTBinaryOp.BinaryOperatorType.Less_than:
+                    // left < right
+                    // We do:
+                    // right - left > 0
+                    // If the result is positive left was strictly less than right
+                    
+                    EmitExpression(builder, condition.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                    // We want to jump past the body if left >= right and not jump if left < right
+                    // -> left - right >= 0
+                    // This is why we use jge and jgel
+                    
+                    if (typeSize == 1)
+                    {
+                        builder.AppendLine($"\tsub");
+                        builder.AppendLine($"\tjge {jmpLabel}");
+                    }
+                    else if (typeSize == 2)
+                    {
+                        builder.AppendLine($"\tlsub");
+                        builder.AppendLine($"\tjgel {jmpLabel}");
+                    }
+                    else
+                    {
+                        Fail($"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                    }
+                    break;
+                case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
+                    throw new NotImplementedException();
+
+                    EmitExpression(builder, condition.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                    if (typeSize == 1)
+                    {
+                        builder.AppendLine($"\tjeq {jmpLabel}");
+                    }
+                    else if (typeSize == 2)
+                    {
+                        builder.AppendLine($"\tjeql {jmpLabel}");
+                    }
+                    else
+                    {
+                        Fail($"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                    }
+                    break;
+                case ASTBinaryOp.BinaryOperatorType.Greater_than:
+                    throw new NotImplementedException();
+                    EmitExpression(builder, condition.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                    if (typeSize == 1)
+                    {
+                        builder.AppendLine($"\tjeq {jmpLabel}");
+                    }
+                    else if (typeSize == 2)
+                    {
+                        builder.AppendLine($"\tjeql {jmpLabel}");
+                    }
+                    else
+                    {
+                        Fail($"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                    }
+                    break;
+                case ASTBinaryOp.BinaryOperatorType.Greater_than_or_equal:
+                    throw new NotImplementedException();
+                    EmitExpression(builder, condition.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                    if (typeSize == 1)
+                    {
+                        builder.AppendLine($"\tjeq {jmpLabel}");
+                    }
+                    else if (typeSize == 2)
+                    {
+                        builder.AppendLine($"\tjeql {jmpLabel}");
+                    }
+                    else
+                    {
+                        Fail($"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                    }
+                    break;
+                default:
+                    // We cant do something smart here :(
+                    EmitExpression(builder, condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    builder.AppendLine($"\tjz {jmpLabel}");
+                    break;
+            }
+        }
+
         private static void AppendTypedLoad(StringBuilder builder, string load_content, ASTType type, TypeMap typeMap)
         {
             int size = SizeOfType(type, typeMap);
@@ -319,6 +464,8 @@ namespace T12
 
         private static void EmitFunction(StringBuilder builder, ASTFunction func, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
+            // FIXME: Do control flow analysis to check that the function returns!
+
             VarList VariableList = new VarList();
             FunctionConext functionConext = new FunctionConext(func.Name, func.ReturnType);
             int local_index = 0;
@@ -412,9 +559,11 @@ namespace T12
                         {
                             var initExpr = variableDeclaration.Initializer;
                             var initType = CalcReturnType(initExpr, scope, functionMap, constMap, globalMap);
-                            if (initType != variableDeclaration.Type) Fail($"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{variableDeclaration.Type}'");
 
-                            EmitExpression(builder, initExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            if (TryGenerateImplicitCast(initExpr, variableDeclaration.Type, scope, functionMap, constMap, globalMap, out ASTExpression typedExpression, out string error) == false)
+                                Fail($"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{variableDeclaration.Type}'");
+                            
+                            EmitExpression(builder, typedExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
                             AppendTypedStore(builder, $"{var_offset}\t; [{varName}]", variableDeclaration.Type, typeMap);
                         }
@@ -437,13 +586,26 @@ namespace T12
                     {
                         if (returnStatement.ReturnValueExpression != null)
                         {
-                            var ret_type = CalcReturnType(returnStatement.ReturnValueExpression, scope, functionMap, constMap, globalMap);
+                            var retType = CalcReturnType(returnStatement.ReturnValueExpression, scope, functionMap, constMap, globalMap);
 
-                            if (ret_type != functionConext.ReturnType) Fail($"Cannot return expression of type '{ret_type}' in a function that returns type '{functionConext.ReturnType}'");
+                            if (retType != functionConext.ReturnType) Fail($"Cannot return expression of type '{retType}' in a function that returns type '{functionConext.ReturnType}'");
 
                             EmitExpression(builder, returnStatement.ReturnValueExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                             // FIXME: Handle the size of the return type!
-                            builder.AppendLine("\tret1");
+
+                            int retSize = SizeOfType(retType, typeMap);
+                            if (retSize == 1)
+                            {
+                                builder.AppendLine("\tret1");
+                            }
+                            else if (retSize == 2)
+                            {
+                                builder.AppendLine("\tret2");
+                            }
+                            else
+                            {
+                                builder.AppendLine($"\tretv {retSize}");
+                            }
                         }
                         else
                         {
@@ -454,6 +616,7 @@ namespace T12
                 case ASTAssignmentStatement assignment:
                     {
                         // This is not used!
+                        Fail($"We don't use this AST node type! {assignment}");
                         string varName = assignment.VariableNames[0];
                         EmitExpression(builder, assignment.AssignmentExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tstore {scope[varName].Offset}\t; [{varName}]");
@@ -461,28 +624,48 @@ namespace T12
                     }
                 case ASTIfStatement ifStatement:
                     {
-                        EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         // FIXME: There could be hash collisions!
-                        
                         int hash = ifStatement.GetHashCode();
                         if (ifStatement.IfFalse == null)
                         {
                             // If-statement without else
-                            builder.AppendLine($"\tjz :post_{hash}");
+                            if (ifStatement.Condition is ASTBinaryOp)
+                            {
+                                // Here we can optimize the jump.
+                                GenerateOptimizedBinaryOpJump(builder, ifStatement.Condition as ASTBinaryOp, $":post_{hash}", scope, varList, typeMap, functionMap, constMap, globalMap);
+                            }
+                            else
+                            {
+                                // FIXME: We do not handle return types with a size > 1
+                                // We don't know how to optimize this so we eval the whole expression
+                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tjz :post_{hash}");
+                            }
+
+                            // Generate the if true block.
                             EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                             builder.AppendLine($"\t:post_{hash}");
                         }
                         else
                         {
-                            // If-statement with else
-                            builder.AppendLine($"\tjz :else_{hash}");
+                            if (ifStatement.Condition is ASTBinaryOp)
+                            {
+                                // Here we can optimize the jump.
+                                GenerateOptimizedBinaryOpJump(builder, ifStatement.Condition as ASTBinaryOp, $":else_{hash}", scope, varList, typeMap, functionMap, constMap, globalMap);
+                            }
+                            else
+                            {
+                                // We don't know how to optimize this so we eval the whole expression
+                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tjz :else_{hash}");
+                            }
+
                             EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                             builder.AppendLine($"\tjmp :post_{hash}");
                             builder.AppendLine($"\t:else_{hash}");
                             EmitStatement(builder, ifStatement.IfFalse, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
                             builder.AppendLine($"\t:post_{hash}");
                         }
-
                         break;
                     }
                 case ASTCompoundStatement compoundStatement:
@@ -512,135 +695,14 @@ namespace T12
                         var cond = forWithDecl.Condition;
                         if (cond is ASTBinaryOp)
                         {
-                            ASTBinaryOp binOp = cond as ASTBinaryOp;
-                            var left_type = CalcReturnType(binOp.Left, scope, functionMap, constMap, globalMap);
-                            var right_type = CalcReturnType(binOp.Right, scope, functionMap, constMap, globalMap);
-                            if (left_type != right_type) Fail($"Cannot apply binary operation '{binOp.OperatorType}' on differing types '{left_type}' and '{right_type}'!");
-                            int type_size = SizeOfType(left_type, typeMap);
-                            
-                            switch (binOp.OperatorType)
-                            {
-                                case ASTBinaryOp.BinaryOperatorType.Equal:
-                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-
-                                    if (type_size == 1)
-                                    {
-                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
-                                    }
-                                    else if (type_size == 2)
-                                    {
-                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
-                                    }
-                                    else
-                                    {
-                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
-                                    }
-                                    break;
-                                case ASTBinaryOp.BinaryOperatorType.Not_equal:
-                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-
-                                    if (type_size == 1)
-                                    {
-                                        builder.AppendLine($"\tjneq {newLoopContext.EndLabel}");
-                                    }
-                                    else if (type_size == 2)
-                                    {
-                                        builder.AppendLine($"\tjneql {newLoopContext.EndLabel}");
-                                    }
-                                    else
-                                    {
-                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
-                                    }
-                                    break;
-                                case ASTBinaryOp.BinaryOperatorType.Less_than:
-                                    // left < right
-                                    // We do:
-                                    // right - left > 0
-                                    // If the result is positive left was strictly less than right
-
-                                    // right
-                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    // left
-                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    
-                                    if (type_size == 1)
-                                    {
-                                        builder.AppendLine($"\tsub");
-                                        builder.AppendLine($"\tjgz {newLoopContext.EndLabel}");
-                                    }
-                                    else if (type_size == 2)
-                                    {
-                                        builder.AppendLine($"\tlsub");
-                                        builder.AppendLine($"\tjgzl {newLoopContext.EndLabel}");
-                                    }
-                                    else
-                                    {
-                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
-                                    }
-                                    break;
-                                case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
-                                    throw new NotImplementedException();
-
-                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-
-                                    if (type_size == 1)
-                                    {
-                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
-                                    }
-                                    else if (type_size == 2)
-                                    {
-                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
-                                    }
-                                    else
-                                    {
-                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
-                                    }
-                                    break;
-                                case ASTBinaryOp.BinaryOperatorType.Greater_than:
-                                    throw new NotImplementedException();
-                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-
-                                    if (type_size == 1)
-                                    {
-                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
-                                    }
-                                    else if (type_size == 2)
-                                    {
-                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
-                                    }
-                                    else
-                                    {
-                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
-                                    }
-                                    break;
-                                case ASTBinaryOp.BinaryOperatorType.Greater_than_or_equal:
-                                    throw new NotImplementedException();
-                                    EmitExpression(builder, binOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    EmitExpression(builder, binOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-
-                                    if (type_size == 1)
-                                    {
-                                        builder.AppendLine($"\tjeq {newLoopContext.EndLabel}");
-                                    }
-                                    else if (type_size == 2)
-                                    {
-                                        builder.AppendLine($"\tjeql {newLoopContext.EndLabel}");
-                                    }
-                                    else
-                                    {
-                                        Fail($"We only support types with a max size of 2 right now! Got type {left_type} size {type_size}");
-                                    }
-                                    break;
-                                default:
-                                    // We cant do something smart here :(
-                                    EmitExpression(builder, forWithDecl.Condition, new_scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
-                                    break;
-                            }
+                            // This will generate a jump depending on the type of binary op
+                            GenerateOptimizedBinaryOpJump(builder, cond as ASTBinaryOp, newLoopContext.EndLabel, scope, varList, typeMap, functionMap, constMap, globalMap);
+                        }
+                        else
+                        {
+                            // Here we can't really optimize.
+                            EmitExpression(builder, cond, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
                         }
                         
                         EmitStatement(builder, forWithDecl.Body, new_scope, varList, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap, globalMap);
@@ -820,13 +882,16 @@ namespace T12
                     }
                 case ASTBinaryOp binaryOp:
                     {
-                        var left_type = CalcReturnType(binaryOp.Left, scope, functionMap, constMap, globalMap);
-                        var right_type = CalcReturnType(binaryOp.Right, scope, functionMap, constMap, globalMap);
-                        if (left_type != right_type) Fail($"Cannot apply binary operation '{binaryOp.OperatorType}' on differing types '{left_type}' and '{right_type}'!");
-                        int type_size = SizeOfType(left_type, typeMap);
+                        var leftType = CalcReturnType(binaryOp.Left, scope, functionMap, constMap, globalMap);
+                        var rightType = CalcReturnType(binaryOp.Right, scope, functionMap, constMap, globalMap);
+                        // Try and cast the right type to the left type so we can apply the binary operation.
+                        if (TryGenerateImplicitCast(binaryOp.Right, leftType, scope, functionMap, constMap, globalMap, out ASTExpression typedRight, out string error) == false)
+                            Fail($"Cannot apply binary operation '{binaryOp.OperatorType}' on differing types '{leftType}' and '{rightType}'!");
+
+                        int type_size = SizeOfType(leftType, typeMap);
 
                         EmitExpression(builder, binaryOp.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                        EmitExpression(builder, binaryOp.Right, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         // FIXME: Consider the size of the result of the expression
                         switch (binaryOp.OperatorType)
                         {
@@ -841,7 +906,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Subtraction:
@@ -855,7 +920,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Multiplication:
@@ -869,7 +934,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Division:
@@ -883,7 +948,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Modulo:
@@ -897,7 +962,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_And:
@@ -911,7 +976,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_Or:
@@ -925,7 +990,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_Xor:
@@ -939,7 +1004,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Equal:
@@ -954,7 +1019,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Less_than:
@@ -975,7 +1040,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Greater_than:
@@ -995,7 +1060,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Logical_And:
@@ -1010,7 +1075,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Logical_Or:
@@ -1025,7 +1090,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail($"We only support types with size up to 2 right now! Got type {left_type} with size {type_size}");
+                                    Fail($"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             default:
@@ -1043,20 +1108,31 @@ namespace T12
                     {
                         int hash = conditional.GetHashCode();
                         // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({hash})");
-                        EmitExpression(builder, conditional.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                        builder.AppendLine($"\tjz :else_cond_{hash}");
+
+                        var ifTrueType = CalcReturnType(conditional.IfTrue, scope, functionMap, constMap, globalMap);
+                        var ifFalseType = CalcReturnType(conditional.IfFalse, scope, functionMap, constMap, globalMap);
+
+                        if (TryGenerateImplicitCast(conditional.IfFalse, ifTrueType, scope, functionMap, constMap, globalMap, out ASTExpression typedIfFalse, out string error) == false)
+                            Fail($"Cannot return two different types {ifTrueType} and {ifFalseType} from a conditional operator!");
+
+                        if (conditional.Condition is ASTBinaryOp)
+                        {
+                            // Optimize jump for binary operations
+                            GenerateOptimizedBinaryOpJump(builder, conditional.Condition as ASTBinaryOp, $":else_cond_{hash}", scope, varList, typeMap, functionMap, constMap, globalMap);
+                        }
+                        else
+                        {
+                            EmitExpression(builder, conditional.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            builder.AppendLine($"\tjz :else_cond_{hash}");
+                        }
+                        
+                        // We propagate the produce results to the ifTrue and ifFalse emits.
                         builder.AppendLine($"\t:if_cond_{hash}");
-                        EmitExpression(builder, conditional.IfTrue, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, conditional.IfTrue, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                         builder.AppendLine($"\tjmp :post_cond_{hash}");
                         builder.AppendLine($"\t:else_cond_{hash}");
-                        EmitExpression(builder, conditional.IfFalse, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, conditional.IfFalse, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                         builder.AppendLine($"\t:post_cond_{hash}");
-
-                        // We could have checked for side-effects in the above procedures
-                        if (produceResult == false)
-                        {
-                            builder.AppendLine("\tpop");
-                        }
                         break;
                     }
                 case ASTFunctionCall functionCall:
@@ -1079,7 +1155,7 @@ namespace T12
                             ASTType argumentType = CalcReturnType(functionCall.Arguments[i], scope, functionMap, constMap, globalMap);
 
                             // Try and cast the arguemnt
-                            if (TryGenerateCast(functionCall.Arguments[i], targetType, scope, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
+                            if (TryGenerateImplicitCast(functionCall.Arguments[i], targetType, scope, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
                                 Fail($"Missmatching types on parameter '{function.Parameters[i].Name}' ({i}), expected '{function.Parameters[i].Type}' got '{argumentType}'! (Cast error: '{error}')");
 
                             // We don't need to check the result as it will have the desired type.
@@ -1128,23 +1204,19 @@ namespace T12
 
                         if (pointerType.BaseType == ASTBaseType.Void)
                             Fail("Cannot deference void pointer! Cast to a valid pointer type!");
-
-                        int baseTypeSize = SizeOfType(pointerType.BaseType, typeMap);
-                        // FIXME!!! Try to cast to dword
-                        var offset_type = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap, globalMap);
-                        if (offset_type != ASTBaseType.Word)
-                            Fail($"Can only index pointer with type {ASTBaseType.DoubleWord}");
                         
-                        // Here we are loading a pointer, so we know we should loadl
+                        // Load the local variable. Here we are loading a pointer, so we know we should loadl
                         builder.AppendLine($"\tloadl {variable.Offset}\t; [{pointerExpression.Name}]");
 
+                        var offsetType = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap, globalMap);
                         // Try to cast the offset to a dword
-                        if (TryGenerateCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
-                            Fail($"Could not generate cast for pointer offset to {ASTBaseType.DoubleWord}: {error}");
-                        
-                        // Emit the casted offfset
+                        if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
+                            Fail($"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
+
+                        // Emit the casted offset
                         EmitExpression(builder, dwordOffset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         
+                        int baseTypeSize = SizeOfType(pointerType.BaseType, typeMap);
                         // Multiply by pointer base type size!
                         if (baseTypeSize > 1)
                         {
@@ -1160,7 +1232,7 @@ namespace T12
                         {
                             var assign_type = CalcReturnType(pointerExpression.Assignment, scope, functionMap, constMap, globalMap);
 
-                            if (TryGenerateCast(pointerExpression.Assignment, pointerType.BaseType, scope, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
+                            if (TryGenerateImplicitCast(pointerExpression.Assignment, pointerType.BaseType, scope, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
                                 Fail($"Cannot assign expression of type '{assign_type}' to pointer to type '{pointerType.BaseType}'! (Implicit cast error: '{error}')");
                             
                             if (produceResult)
@@ -1202,7 +1274,7 @@ namespace T12
                         ASTType fromType = CalcReturnType(cast.From, scope, functionMap, constMap, globalMap);
                         ASTType toType = cast.To;
 
-                        if (TryGenerateCast(cast.From, cast.To, scope, functionMap, constMap, globalMap, out ASTExpression implicitCast, out string _))
+                        if (TryGenerateImplicitCast(cast.From, cast.To, scope, functionMap, constMap, globalMap, out ASTExpression implicitCast, out string _))
                         {
                             // There existed an implicit cast! Use that!
                             EmitExpression(builder, implicitCast, scope, varList, typeMap, functionMap, constMap, globalMap, true);

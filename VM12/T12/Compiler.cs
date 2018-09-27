@@ -57,8 +57,10 @@ namespace T12
             var tokens = Tokenizer.Tokenize(fileData);
 
             AST ast = AST.Parse(tokens);
-
+            
             // TODO: Do validaton on the AST
+
+            // TODO: We can generate a debug file with the name of all locals!
 
             string result = Emitter.EmitAsem(ast);
             
