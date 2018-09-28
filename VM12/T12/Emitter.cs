@@ -411,7 +411,7 @@ namespace T12
                 EmitFunction(builder, func, typeMap, functionMap, constMap, globalMap);
                 builder.AppendLine();
             }
-
+            
             return builder.ToString();
         }
         
@@ -470,8 +470,15 @@ namespace T12
             FunctionConext functionConext = new FunctionConext(func.Name, func.ReturnType);
             int local_index = 0;
 
-            builder.AppendLine($":{func.Name}");
-
+            if (func is ASTInterrupt)
+            {
+                builder.AppendLine($":{func.Name}\t@{(int)(func as ASTInterrupt).Type}");
+            }
+            else
+            {
+                builder.AppendLine($":{func.Name}");
+            }
+            
             int param_index = builder.Length;
 
             // FIXME!

@@ -52,7 +52,6 @@ namespace T12
         {
             List<ASTDirective> directives = new List<ASTDirective>();
             List<ASTFunction> functions = new List<ASTFunction>();
-            List<ASTInterrupt> interrupts = new List<ASTInterrupt>();
 
             while (Tokens.Count > 0)
             {
@@ -70,9 +69,8 @@ namespace T12
                 else if (peek.Type == TokenType.Keyword_Interrupt)
                 {
                     var interrupt = ASTInterrupt.Parse(Tokens);
-                    interrupts.Add(interrupt);
+                    functions.Add(interrupt);
                 }
-                
             }
             
             while (Tokens.Count > 0 && Tokens.Peek().IsType)
@@ -81,7 +79,7 @@ namespace T12
             }
 
             if (Tokens.Count > 0) Fail($"There was '{Tokens.Count}' tokens left that couldn't be parsed. Next token: '{Tokens.Peek()}'");
-
+            
             return new ASTProgram(directives, functions);
         }
     }
@@ -352,8 +350,8 @@ namespace T12
     public class ASTInterrupt : ASTFunction
     {
         public readonly InterruptType Type;
-
-        public ASTInterrupt(InterruptType type, List<ASTBlockItem> body) : base(InterruptTypeToName(type), ASTBaseType.Void, InterruptToParameterList(type), body)
+        
+        public ASTInterrupt(InterruptType type, List<(ASTType Type, string Name)> parameters, List<ASTBlockItem> body) : base(InterruptTypeToName(type), ASTBaseType.Void, parameters, body)
         {
             if (type == InterruptType.stop)
                 Fail("Cannot define a interupt procedure for the interrupt stop");
@@ -385,7 +383,7 @@ namespace T12
         public static List<(ASTType, string)> KeyboardParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "pressed"), (ASTBaseType.Word, "scancode") };
         public static List<(ASTType, string)> MouseParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "dx"), (ASTBaseType.Word, "dy"), (ASTBaseType.Word, "status") };
 
-        public static List<(ASTType, string)> InterruptToParameterList(InterruptType type)
+        public static List<(ASTType Type, string Name)> InterruptToParameterList(InterruptType type)
         {
             switch (type)
             {
@@ -410,11 +408,68 @@ namespace T12
 
             var interrupt_type_tok = Tokens.Dequeue();
             if (interrupt_type_tok.IsIdentifier == false) Fail("Expected interrupt type!");
-            if (Enum.TryParse(interrupt_type_tok.Value, out InterruptType type) == false) Fail($"'{interrupt_type_tok.Value}' is not a valid interrupt type!");
+            if (Enum.TryParse(interrupt_type_tok.Value, out InterruptType interruptType) == false) Fail($"'{interrupt_type_tok.Value}' is not a valid interrupt type!");
 
             // FIXME!! Validate params and parse body!!!!
+            var open_parenthesis = Tokens.Dequeue();
+            if (open_parenthesis.Type != TokenType.Open_parenthesis) Fail("Expected '('!");
 
-            return new ASTInterrupt(type, null);
+            List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
+
+            // We peeked so we can handle this loop more uniform by always dequeueing at the start
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_parenthesis)
+            {
+                ASTType type = ASTType.Parse(Tokens);
+
+                var param_ident_tok = Tokens.Dequeue();
+                if (param_ident_tok.IsIdentifier == false) Fail("Expected identifier!");
+                string param_name = param_ident_tok.Value;
+
+                parameters.Add((type, param_name));
+
+                var cont_token = Tokens.Peek();
+                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
+                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
+                // Dequeue the comma
+                Tokens.Dequeue();
+
+                peek = Tokens.Peek();
+            }
+
+            var close_paren_tok = Tokens.Dequeue();
+            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+
+            var interruptParams = InterruptToParameterList(interruptType);
+
+            if (interruptParams.Count != parameters.Count)
+                Fail($"Missmatching parameter count for interrupt {interruptType}, expected {interruptParams.Count} params, got {parameters.Count}");
+
+            for (int i = 0; i < interruptParams.Count; i++)
+            {
+                if (interruptParams[i].Type != parameters[i].Type)
+                    Fail($"Non matching type for interrupt {interruptType}! Parameter {parameters[i].Name} ({i}) expected '{interruptParams[i].Type}' got '{parameters[i].Type}'");
+            }
+
+            var open_brace_tok = Tokens.Dequeue();
+            if (open_brace_tok.Type != TokenType.Open_brace) Fail("Expected '{'");
+
+            List<ASTBlockItem> body = new List<ASTBlockItem>();
+
+            peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_brace)
+            {
+                body.Add(ASTBlockItem.Parse(Tokens));
+                peek = Tokens.Peek();
+                // This is a .net core 2+ only feature
+                //if (!Tokens.TryPeek(out peek)) Fail("Expected a closing brace!");
+            }
+
+            // Dequeue the closing brace
+            var close_brace_tok = Tokens.Dequeue();
+            if (close_brace_tok.Type != TokenType.Close_brace) Fail("Expected closing brace");
+
+            return new ASTInterrupt(interruptType, parameters, body);
         }
     }
 
