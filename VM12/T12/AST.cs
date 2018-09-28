@@ -1248,14 +1248,34 @@ namespace T12
         }
     }
 
-    public class ASTWordLitteral : ASTLitteral
+    public abstract class ASTNumericLitteral : ASTLitteral
     {
         public readonly int IntValue;
 
-        public ASTWordLitteral(string value, int intValue) : base(ASTBaseType.Word, value)
+        public ASTNumericLitteral(ASTBaseType type, string value, int intValue) : base(type, value)
         {
             IntValue = intValue;
         }
+
+        public static new ASTNumericLitteral Parse(Queue<Token> Tokens)
+        {
+            var peek = Tokens.Peek();
+            switch (peek.Type)
+            {
+                case TokenType.Word_Litteral:
+                    return ASTWordLitteral.Parse(Tokens);
+                case TokenType.Double_Word_Litteral:
+                    return ASTDoubleWordLitteral.Parse(Tokens);
+                default:
+                    Fail($"Expected numeric litteral! Got {peek}");
+                    return default;
+            }
+        }
+    }
+
+    public class ASTWordLitteral : ASTNumericLitteral
+    {
+        public ASTWordLitteral(string value, int intValue) : base(ASTBaseType.Word, value, intValue) { }
         
         public static new ASTWordLitteral Parse(Queue<Token> Tokens)
         {
@@ -1268,14 +1288,9 @@ namespace T12
         }
     }
 
-    public class ASTDoubleWordLitteral : ASTLitteral
+    public class ASTDoubleWordLitteral : ASTNumericLitteral
     {
-        public readonly int IntValue;
-
-        public ASTDoubleWordLitteral(string value, int intValue) : base(ASTBaseType.DoubleWord, value)
-        {
-            IntValue = intValue;
-        }
+        public ASTDoubleWordLitteral(string value, int intValue) : base(ASTBaseType.DoubleWord, value, intValue) { }
 
         public static new ASTDoubleWordLitteral Parse(Queue<Token> Tokens)
         {
@@ -1699,7 +1714,7 @@ namespace T12
             return new ASTFunctionCall(funcName, arguments);
         }
     }
-
+    
     public abstract class ASTCastExpression : ASTExpression
     {
         public readonly ASTExpression From;
@@ -1758,6 +1773,17 @@ namespace T12
         }
     }
 
+    public class ASTFixedArrayToArrayCast : ASTCastExpression
+    {
+        public readonly ASTFixedArrayType FromType;
+        public new readonly ASTArrayType To;
+
+        public ASTFixedArrayToArrayCast(ASTExpression from, ASTFixedArrayType fromType, ASTArrayType to) : base(from, to)
+        {
+            FromType = fromType;
+        }
+    }
+
     #endregion
 
     public abstract class ASTType : ASTNode
@@ -1808,13 +1834,47 @@ namespace T12
             {
                 type = new ASTStructType(tok.Value);
             }
-            
+
             // If there is a following asterisk we make a pointer out of the type
-            while (Tokens.Peek().Type == TokenType.Asterisk)
+            var peek = Tokens.Peek();
+            while (peek.Type == TokenType.Asterisk || peek.Type == TokenType.Open_square_bracket)
             {
                 Tokens.Dequeue();
 
-                type = new ASTPointerType(type);
+                if (peek.Type == TokenType.Asterisk)
+                {
+                    // Make a pointer type out of current type
+                    type = new ASTPointerType(type);
+                }
+                else if (peek.Type == TokenType.Open_square_bracket)
+                {
+                    // Parse and make the current type the base for an array
+                    peek = Tokens.Peek();
+                    if (peek.Type == TokenType.Word_Litteral || peek.Type == TokenType.Double_Word_Litteral)
+                    {
+                        var numLit = ASTNumericLitteral.Parse(Tokens);
+                        
+                        if (Tokens.Dequeue().Type != TokenType.Close_squre_bracket)
+                            Fail("Expected ']'!");
+
+                        type = new ASTFixedArrayType(type, numLit);
+                    }
+                    else if (peek.Type == TokenType.Close_squre_bracket)
+                    {
+                        // This is an array with a runtime size
+
+                        // Dequeue the closing square bracket
+                        Tokens.Dequeue();
+                        
+                        type = new ASTArrayType(type);
+                    }
+                    else
+                    {
+                        Fail($"Undexpected token while parsing array type '{peek}'! Current type: {type}");
+                    }
+                }
+                
+                peek = Tokens.Peek();
             }
 
             // Temporary
@@ -1880,6 +1940,30 @@ namespace T12
             return hashCode;
             // This is a .net core 2+ only feature
             // return HashCode.Combine(BaseType);
+        }
+    }
+
+    public class ASTArrayType : ASTType
+    {
+        public const int Size = 4;
+
+        public readonly ASTType BaseType;
+
+        public ASTArrayType(ASTType baseType) : this(baseType, $"{baseType.TypeName}[]") { }
+
+        protected ASTArrayType(ASTType baseType, string name) : base(name)
+        {
+            BaseType = baseType;
+        }
+    }
+    
+    public class ASTFixedArrayType : ASTArrayType
+    {
+        public new readonly ASTNumericLitteral Size;
+
+        public ASTFixedArrayType(ASTType baseType, ASTNumericLitteral size) : base(baseType, $"{baseType.TypeName}[{size}]")
+        {
+            Size = size;
         }
     }
 

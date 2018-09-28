@@ -1,22 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Linq;
 using System.IO;
+using System.Linq;
+using System.Text;
 
 namespace T12
 {
     using ConstMap = Dictionary<string, ASTConstDirective>;
-
-    using GlobalMap = Dictionary<string, ASTGlobalDirective>;
-
-    using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
-    using VarList = List<(string Name, int Offset, ASTType Type)>;
-
-    using TypeMap = Dictionary<string, ASTType>;
-
     using FunctionMap = Dictionary<string, ASTFunction>;
-    
+    using GlobalMap = Dictionary<string, ASTGlobalDirective>;
+    using TypeMap = Dictionary<string, ASTType>;
+    using VarList = List<(string Name, int Offset, ASTType Type)>;
+    using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
+
     public struct FunctionConext
     {
         public readonly string FunctionName;
@@ -52,9 +48,9 @@ namespace T12
             throw new InvalidOperationException(error);
         }
 
-        private static ASTType TypeOfVariable(string variableName, VarMap varMap)
+        private static ASTType TypeOfVariable(string variableName, VarMap scope)
         {
-            if (varMap.TryGetValue(variableName, out var varType) == false)
+            if (scope.TryGetValue(variableName, out var varType) == false)
                 Fail($"No variable called '{variableName}'!");
 
             return varType.Type;
@@ -65,6 +61,15 @@ namespace T12
             if (type is ASTPointerType)
             {
                 return ASTPointerType.Size;
+            }
+            else if (type is ASTFixedArrayType)
+            {
+                ASTFixedArrayType array = type as ASTFixedArrayType;
+                return array.Size.IntValue * SizeOfType(array.BaseType, map);
+            }
+            else if (type is ASTArrayType)
+            {
+                return ASTArrayType.Size;
             }
             else if (map.TryGetValue(type.TypeName, out ASTType outType))
             {
@@ -147,6 +152,13 @@ namespace T12
             {
                 result = expression;
                 error = default;
+                return true;
+            }
+            else if (exprType is ASTFixedArrayType && targetType is ASTArrayType)
+            {
+                // We can always cast a fixed size array to a non-fixed array.
+                result = new ASTFixedArrayToArrayCast(expression, exprType as ASTFixedArrayType, targetType as ASTArrayType);
+                error = null;
                 return true;
             }
             else if (expression is ASTWordLitteral && targetType == ASTBaseType.DoubleWord)
@@ -466,13 +478,38 @@ namespace T12
         {
             // FIXME: Do control flow analysis to check that the function returns!
 
-            VarList VariableList = new VarList();
+            VarList variableList = new VarList();
             FunctionConext functionConext = new FunctionConext(func.Name, func.ReturnType);
             int local_index = 0;
 
+            foreach (var param in func.Parameters)
+            {
+                variableList.Add((param.Name, local_index, param.Type));
+                local_index += SizeOfType(param.Type, typeMap);
+            }
+
+            VarMap scope = variableList.ToDictionary(var => var.Name, var => (var.Offset, var.Type));
+
             if (func is ASTInterrupt)
             {
-                builder.AppendLine($":{func.Name}\t@{(int)(func as ASTInterrupt).Type}");
+                // NOTE: We might want to use constants here...
+                VM12_Opcode.InterruptType type = (func as ASTInterrupt).Type;
+                builder.AppendLine($":{func.Name}_interrupt\t@0x{(int)type:X6}\t; {type} interrupt");
+
+                // Load all variables so we can send executrion over to delegate.
+                int index = 0;
+                foreach (var param in ASTInterrupt.InterruptToParameterList(type))
+                {
+                    ASTType paramType = TypeOfVariable(param.Name, scope);
+                    AppendTypedLoad(builder, $"{index}", paramType, typeMap);
+                }
+
+                builder.AppendLine($"\t::{func.Name}");
+                builder.AppendLine($"\tret");
+                builder.AppendLine();
+                // We could make factor this last statement out of the if-statement, 
+                // but then it would be harder to implement the comment
+                builder.AppendLine($":{func.Name}\t; {type} interrupt implementation");
             }
             else
             {
@@ -486,24 +523,25 @@ namespace T12
 
             int @params = func.Parameters.Sum(param => SizeOfType(param.Type, typeMap));
 
-            foreach (var param in func.Parameters)
+            // We add a return statement if the function returns void and there is not a return statement at the end
+            // FIXME: We do not yet validate that a function acutally returns the said value!
+            // NOTE: This should be done better
+            if (functionConext.ReturnType == ASTBaseType.Void && (func.Body.Count <= 0 || func.Body.Last() is ASTReturnStatement == false))
             {
-                VariableList.Add((param.Name, local_index, param.Type));
-                local_index += SizeOfType(param.Type, typeMap);
+                var returnStatement = new ASTReturnStatement(null);
+                func.Body.Add(returnStatement);
             }
-
-            VarMap Scope = VariableList.ToDictionary(var => var.Name, var => (var.Offset, var.Type));
 
             foreach (var blockItem in func.Body)
             {
-                EmitBlockItem(builder, blockItem, Scope, VariableList, ref local_index, typeMap, functionConext, LoopContext.Empty, functionMap, constMap, globalMap);
+                EmitBlockItem(builder, blockItem, scope, variableList, ref local_index, typeMap, functionConext, LoopContext.Empty, functionMap, constMap, globalMap);
             }
-
+            
             int locals = local_index;
 
             string params_string = string.Join(", ", func.Parameters.Select(param => $"/{param.Name} {param.Type.TypeName}"));
 
-            string locals_string = string.Join(", ", VariableList.Skip(func.Parameters.Count).Select(var => (var.Type, var.Name)).Select(local => $"/{local.Name} {local.Type.TypeName}"));
+            string locals_string = string.Join(", ", variableList.Skip(func.Parameters.Count).Select(var => (var.Type, var.Name)).Select(local => $"/{local.Name} {local.Type.TypeName}"));
             
             // Create the proc comment. FIXME: This could probably be done better.
             string combined_string = "";
@@ -523,7 +561,7 @@ namespace T12
             {
                 combined_string = $"({params_string}), {locals_string}";
             }
-
+            
             // FIXME: We can probably precompute this value. 
             // So we already know these values before emitting any code
             builder.Insert(param_index, $"\t{@params} {locals}\t; {combined_string}\n");
@@ -1201,61 +1239,105 @@ namespace T12
                     }
                 case ASTPointerExpression pointerExpression:
                     {
-                        if (scope.TryGetValue(pointerExpression.Name, out var variable) == false)
-                            Fail($"No variable called '{pointerExpression.Name}'");
-
-                        if ((variable.Type is ASTPointerType) == false)
-                            Fail("Cannot dereference a non-pointer type!");
-
-                        ASTPointerType pointerType = variable.Type as ASTPointerType;
-
-                        if (pointerType.BaseType == ASTBaseType.Void)
-                            Fail("Cannot deference void pointer! Cast to a valid pointer type!");
-                        
-                        // Load the local variable. Here we are loading a pointer, so we know we should loadl
-                        builder.AppendLine($"\tloadl {variable.Offset}\t; [{pointerExpression.Name}]");
-
-                        var offsetType = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap, globalMap);
-                        // Try to cast the offset to a dword
-                        if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
-                            Fail($"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
-
-                        // Emit the casted offset
-                        EmitExpression(builder, dwordOffset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                        
-                        int baseTypeSize = SizeOfType(pointerType.BaseType, typeMap);
-                        // Multiply by pointer base type size!
-                        if (baseTypeSize > 1)
+                        // We use this to deref a pointer that is loaded to the stack
+                        void DerefPointer(ASTType pointerType, ASTType baseType)
                         {
-                            builder.AppendLine($"\tloadl #{baseTypeSize}\t; {variable.Type} pointer size ({baseTypeSize})");
+                            var offsetType = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap, globalMap);
+                            // Try to cast the offset to a dword
+                            if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
+                                Fail($"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
-                            builder.AppendLine($"\tlmul");
-                        }
+                            // Emit the casted offset
+                            EmitExpression(builder, dwordOffset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                        // Add the offset to the pointer
-                        builder.AppendLine($"\tladd");
-
-                        if (pointerExpression.Assignment != null)
-                        {
-                            var assign_type = CalcReturnType(pointerExpression.Assignment, scope, functionMap, constMap, globalMap);
-
-                            if (TryGenerateImplicitCast(pointerExpression.Assignment, pointerType.BaseType, scope, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
-                                Fail($"Cannot assign expression of type '{assign_type}' to pointer to type '{pointerType.BaseType}'! (Implicit cast error: '{error}')");
-                            
-                            if (produceResult)
+                            int baseTypeSize = SizeOfType(baseType, typeMap);
+                            // Multiply by pointer base type size!
+                            if (baseTypeSize > 1)
                             {
-                                // Copy the pointer address
-                                builder.AppendLine($"\tldup");
+                                builder.AppendLine($"\tloadl #{baseTypeSize}\t; {pointerType} base type size ({baseTypeSize})");
+
+                                builder.AppendLine($"\tlmul");
                             }
 
-                            EmitExpression(builder, typedAssign, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            // Add the offset to the pointer
+                            builder.AppendLine($"\tladd");
 
-                            AppendTypedStore(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", pointerType, typeMap);
+                            if (pointerExpression.Assignment != null)
+                            {
+                                var assign_type = CalcReturnType(pointerExpression.Assignment, scope, functionMap, constMap, globalMap);
+
+                                if (TryGenerateImplicitCast(pointerExpression.Assignment, baseType, scope, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
+                                    Fail($"Cannot assign expression of type '{assign_type}' to pointer to type '{baseType}'! (Implicit cast error: '{error}')");
+
+                                if (produceResult)
+                                {
+                                    // Copy the pointer address
+                                    builder.AppendLine($"\tldup");
+                                }
+
+                                EmitExpression(builder, typedAssign, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                                AppendTypedStore(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", baseType, typeMap);
+                            }
+
+                            if (produceResult)
+                            {
+                                AppendTypedLoad(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", baseType, typeMap);
+                            }
                         }
 
-                        if (produceResult)
+                        if (scope.TryGetValue(pointerExpression.Name, out var variable))
                         {
-                            AppendTypedLoad(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", pointerType, typeMap);
+                            if ((variable.Type is ASTPointerType) == false)
+                                Fail("Cannot dereference a non-pointer type!");
+
+                            ASTType baseType = (variable.Type as ASTPointerType).BaseType;
+
+                            if (baseType == ASTBaseType.Void)
+                                Fail("Cannot deference void pointer! Cast to a valid pointer type!");
+
+                            // Load the local variable. Here we are loading a pointer, so we know we should loadl
+                            builder.AppendLine($"\tloadl {variable.Offset}\t; [{pointerExpression.Name}]");
+
+                            // This does the rest!
+                            DerefPointer(variable.Type, baseType);
+                        }
+                        else if (globalMap.TryGetValue(pointerExpression.Name, out var global))
+                        {
+                            if (global.Type is ASTPointerType)
+                            {
+                                ASTType baseType = (global.Type as ASTPointerType).BaseType;
+
+                                if (baseType == ASTBaseType.Void)
+                                    Fail("Cannot deference void pointer! Cast to a valid pointer type!");
+                                
+                                // Load the global variable, because we are loading it as a pointer we are using loadl
+                                builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
+
+                                // This does the rest!
+                                DerefPointer(global.Type, baseType);
+                            }
+                            else if (global.Type is ASTArrayType)
+                            {
+                                ASTArrayType arrayType = global.Type as ASTArrayType;
+
+                                ASTType baseType = arrayType.BaseType;
+
+                                // FIXME: Do bounds check!
+                                // TODO: Handle FixedArray!
+                                builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
+
+                                // This does the rest!
+                                DerefPointer(global.Type, baseType);
+                            }
+                            else
+                            {
+                                Fail($"Cannot dereference a non-pointer global '{global.Name}'!");
+                            }
+                        }
+                        else
+                        {
+                            Fail($"No variable called '{pointerExpression.Name}'");
                         }
                         break;
                     }
@@ -1263,11 +1345,26 @@ namespace T12
                     // We really don't need to do anything as the cast is just for type-safety
                     EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                     break;
+                case ASTFixedArrayToArrayCast cast:
+                    {
+                        Fail("We don't have fixed array to array type of cast yet!!");
+
+                        if (cast.From is ASTVariableExpression)
+                        {
+
+                        }
+
+                        builder.AppendLine($"\tloadl #{cast.FromType.Size}\t; Size of {cast.FromType} in elements");
+                        // We want a pointer to the value
+                        // NOTE: We might not want to create AST nodes while emitting assembly because debugging might become harder
+                        EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        break;
+                    }
                 case ASTImplicitCast cast:
                     {
                         if (cast.FromType.Size + 1 == cast.ToType.Size)
                         {
-                            builder.AppendLine("\tload #0");
+                            builder.AppendLine($"\tload #0\t; Cast from '{cast.FromType}' to '{cast.To}'");
                             EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         }
                         else
@@ -1306,6 +1403,11 @@ namespace T12
                                 // This cast is easy
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                                 builder.AppendLine($"\tswap pop\t; cast({toType})");
+                            }
+                            else if (fromType is ASTPointerType && toType is ASTPointerType)
+                            {
+                                // We don't have to do anything to swap base type for pointer types!
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                             }
                             else
                             {
