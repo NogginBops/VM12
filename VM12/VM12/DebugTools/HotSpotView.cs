@@ -104,13 +104,28 @@ namespace Profiler
         };
 
 #if DEBUG
+        private bool IsInterrupt(int location)
+        {
+            switch (location)
+            {
+                case 0xFFF_FF0:
+                case 0xFFF_FE0:
+                case 0xFFF_FD0:
+                case 0xFFF_FC0:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private void UpdateHotSpots(VM12.ProcMetadata metadata)
         {
             dgvHotSpot.Rows.Clear();
             if (metadata != null)
             {
                 Opcode op = Opcode.Nop;
-                for (int i = 2; i < metadata.size; i += InstructionLength(op))
+                bool isInterrupt = IsInterrupt(metadata.location);
+                for (int i = isInterrupt ? 0 : 2; i < metadata.size; i += InstructionLength(op))
                 {
                     int index = metadata.location + i;
                     op = (Opcode)vm12.MEM[index];
@@ -148,7 +163,8 @@ namespace Profiler
             {
                 int row = 0;
                 Opcode op = Opcode.Nop;
-                for (int i = 2; i < metadata.size; i += InstructionLength(op))
+                bool isInterrupt = IsInterrupt(metadata.location);
+                for (int i = isInterrupt ? 0 : 2; i < metadata.size; i += InstructionLength(op))
                 {
                     int index = metadata.location + i;
                     op = (Opcode)vm12.MEM[index];
