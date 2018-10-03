@@ -32,15 +32,17 @@ namespace VM12
 
     unsafe class VM12
     {
-        public const int RAM_SIZE = 10_485_760;
+        public const int RAM_SIZE = 10_483_712; // before gram: 10_485_760
+        public const int GRAM_SIZE = 2048;
         public const int VRAM_SIZE = 307_200;
         public const int ROM_SIZE = 5_984_256;
 
         public const int RAM_START = 0;
-        public const int VRAM_START = RAM_SIZE;
-        public const int ROM_START = RAM_SIZE + VRAM_SIZE;
+        public const int GRAM_START = RAM_SIZE;
+        public const int VRAM_START = RAM_SIZE + GRAM_SIZE;
+        public const int ROM_START = RAM_SIZE + GRAM_SIZE + VRAM_SIZE;
 
-        public const int MEM_SIZE = RAM_SIZE + VRAM_SIZE + ROM_SIZE;
+        public const int MEM_SIZE = RAM_SIZE + GRAM_SIZE + VRAM_SIZE + ROM_SIZE;
 
         public const int SCREEN_WIDTH = 640;
         public const int SCREEN_HEIGHT = 480;
@@ -55,6 +57,11 @@ namespace VM12
         private FileInfo storageFile;
         //public byte[] STORAGE = new byte[STORAGE_SIZE * 2];
 
+        private ThreadStart StartCoProssess => StartGraphicsCoProssessor;
+        private Thread CoProssessor;
+        private readonly ManualResetEventSlim CoProcessHaltSignal = new ManualResetEventSlim();
+        private readonly ManualResetEventSlim CoProcessInterrupt = new ManualResetEventSlim();
+        
         private static byte[][,] AllocateStorageMemory(int addresses, int chunkChunks, int chunkSize)
         {
             byte[][,] array = new byte[addresses / chunkChunks][,];
@@ -255,6 +262,10 @@ namespace VM12
         int FP = -1;
         int locals = 0;
 
+        // Graphics instruction pointer
+        int GP = -1;
+        long graphicsTime = 0;
+
         long programTime = 0;
 
         public bool Started { get; set; } = false;
@@ -265,6 +276,7 @@ namespace VM12
         public int FramePointer => FP;
         public bool InterruptsEnabled => interruptsEnabled;
         public long Ticks => programTime;
+        public long GraphicsTicks => graphicsTime;
 
 #if DEBUG
         public Opcode Opcode { get; private set; }
@@ -1698,74 +1710,6 @@ namespace VM12
                             {
                                 Debugger.Break();
                             }
-
-                            /*
-                            bool[,] data;
-
-                            bool cached = char_addr >= ROM_START ? fontCache.TryGetValue(char_addr, out data) : false;
-
-                            // Check if there is data cached
-                            if (cached == false)
-                            {
-                                data = new bool[12, 8];
-                                // If not, generate the data
-                                bool not_zero = false;
-                                for (int i = 0; i < 8; i++)
-                                {
-                                    char_data[i] = mem[char_addr + i];
-                                    not_zero |= char_data[i] != 0;
-                                }
-
-                                if (not_zero)
-                                {
-                                    int mask = 0x800;
-                                    for (int i = 0; i < 12; i++)
-                                    {
-                                        if ((char_data[0] & mask) != 0) data[i, 0] = true;
-                                        if ((char_data[1] & mask) != 0) data[i, 1] = true;
-                                        if ((char_data[2] & mask) != 0) data[i, 2] = true;
-                                        if ((char_data[3] & mask) != 0) data[i, 3] = true;
-                                        if ((char_data[4] & mask) != 0) data[i, 4] = true;
-                                        if ((char_data[5] & mask) != 0) data[i, 5] = true;
-                                        if ((char_data[6] & mask) != 0) data[i, 6] = true;
-                                        if ((char_data[7] & mask) != 0) data[i, 7] = true;
-                                        
-                                        mask >>= 1;
-                                    }
-                                }
-                            }
-
-                            // Draw the data
-                            fixed (bool* font_data = data)
-                            {
-                                for (int y = 0; y < 12; y++)
-                                {
-                                    int offset = y * 8;
-                                    
-                                    // Copy the 8 ints.
-                                    if (font_data[offset + 0]) mem[vram_addr + 0] = color;
-                                    if (font_data[offset + 1]) mem[vram_addr + 1] = color;
-                                    if (font_data[offset + 2]) mem[vram_addr + 2] = color;
-                                    if (font_data[offset + 3]) mem[vram_addr + 3] = color;
-                                    if (font_data[offset + 4]) mem[vram_addr + 4] = color;
-                                    if (font_data[offset + 5]) mem[vram_addr + 5] = color;
-                                    if (font_data[offset + 6]) mem[vram_addr + 6] = color;
-                                    if (font_data[offset + 7]) mem[vram_addr + 7] = color;
-
-                                    vram_addr += SCREEN_WIDTH;
-                                }
-                            }
-
-                            // Check if we should cache the data
-                            if (!cached && char_addr >= ROM_START)
-                            {
-                                fontCache[char_addr] = data;
-                            }
-
-                            SP -= 5;
-                            PC++;
-                            break;
-                            */
                             
                             bool not_zero = false;
                             for (int i = 0; i < 8; i++)
@@ -1796,60 +1740,6 @@ namespace VM12
                             SP -= 5;
                             PC++;
                             break;
-
-                            int start_vram = vram_addr;
-                            for (int x = 0; x < 8; x++)
-                            {
-                                int char_data2 = mem[char_addr];
-                                if (char_data2 != 0)
-                                {
-                                    /*
-                                    if ((char_data & 0x800) != 0) mem[vram_addr + 0 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x400) != 0) mem[vram_addr + 1 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x200) != 0) mem[vram_addr + 2 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x100) != 0) mem[vram_addr + 3 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x080) != 0) mem[vram_addr + 4 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x040) != 0) mem[vram_addr + 5 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x020) != 0) mem[vram_addr + 6 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x010) != 0) mem[vram_addr + 7 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x008) != 0) mem[vram_addr + 8 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x004) != 0) mem[vram_addr + 9 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x002) != 0) mem[vram_addr + 10 * SCREEN_WIDTH] = color;
-                                    if ((char_data & 0x001) != 0) mem[vram_addr + 11 * SCREEN_WIDTH] = color;
-                                    */
-                                    /*
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x800) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x400) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x200) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x100) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x080) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x040) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x020) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x010) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x008) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x004) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x002) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    mem[vram_addr += SCREEN_WIDTH] = (char_data & 0x001) != 0 ? color : mem[vram_addr + SCREEN_WIDTH];
-                                    */
-                                    
-                                    vram_addr = start_vram + x;
-                                    for (int y = 0; y < 12; y++)
-                                    {
-                                        if ((char_data2 & 0x800) != 0)
-                                        {
-                                            mem[vram_addr] = color;
-                                        }
-                                        vram_addr += SCREEN_WIDTH;
-                                        char_data2 <<= 1;
-                                    }
-                                    
-                                }
-                                vram_addr++;
-                                char_addr += 1;
-                            }
-                            SP -= 5;
-                            PC++;
-                            break;
                         case Opcode.Mul_l:
                             int mul_l_value = ((mem[SP - 3] << 12 | mem[SP - 2]) * (mem[SP - 1] << 12 | mem[SP]));
                             carry = mul_l_value > 0xFFF_FFF ? true : false;
@@ -1859,8 +1749,8 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Mul_2_l:
-
-                            break;
+                            // TODO!
+                            throw new InvalidOperationException();
                         case Opcode.Div_l:
                             int div_l_value = (mem[SP - 3] << 12 | mem[SP - 2]) / (mem[SP - 1] << 12 | mem[SP]);
                             mem[SP - 2] = div_l_value & 0xFFF;
@@ -1966,6 +1856,25 @@ namespace VM12
                             Utils.MemSet(mem + VRAM_START, clear_color, VRAM_SIZE);
                             PC++;
                             break;
+                        case Opcode.Start_coproc:
+                            if (CoProssessor == null)
+                            {
+                                CoProssessor = new Thread(StartCoProssess);
+                                CoProssessor.IsBackground = true;
+                                CoProssessor.Start();
+                            }
+                            PC++;
+                            break;
+                        case Opcode.Hlt_coproc:
+                            CoProcessHaltSignal.Set();
+                            while (CoProssessor?.IsAlive ?? false);
+                            CoProssessor = null;
+                            PC++;
+                            break;
+                        case Opcode.Int_coproc:
+                            CoProcessInterrupt.Set();
+                            PC++;
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }
@@ -2010,6 +1919,11 @@ namespace VM12
             this.FP = 0;
             this.PC = ROM_START;
 
+            CoProcessHaltSignal.Set();
+            CoProcessInterrupt.Set();
+            while (CoProssessor != null && CoProssessor.IsAlive);
+            CoProssessor = null;
+
 #if DEBUG
             DebugBreakEvent.Set();
 #endif
@@ -2053,6 +1967,113 @@ namespace VM12
             interrupt_event.Set();
             halt = true;
             interruptsEnabled = true;
+        }
+        
+        public void StartGraphicsCoProssessor()
+        {
+            // We start executing instructions
+            GP = GRAM_START;
+
+            fixed (int* mem = MEM)
+            {
+                while (true)
+                {
+                    if (CoProcessHaltSignal.IsSet)
+                    {
+                        CoProcessHaltSignal.Reset();
+                        break;
+                    }
+
+                    GrapicOps gOp = (GrapicOps) mem[GP];
+                    
+                    switch (gOp)
+                    {
+                        case GrapicOps.Nop:
+                            GP++;
+                            break;
+                        case GrapicOps.Hlt:
+                            CoProcessInterrupt.Wait();
+                            CoProcessInterrupt.Reset();
+                            GP++;
+                            break;
+                        case GrapicOps.Hlt_reset:
+                            CoProcessInterrupt.Wait();
+                            CoProcessInterrupt.Reset();
+                            GP = GRAM_START;
+                            break;
+                        case GrapicOps.Jmp:
+                            int offset = mem[GP + 1];
+                            GP = VRAM_START + offset;
+                            break;
+                        case GrapicOps.Line:
+                            GP++;
+                            break;
+                        case GrapicOps.Rectangle:
+                            {
+                                int color = mem[GP + 1];
+                                int x = mem[GP + 2];
+                                int y = mem[GP + 3];
+                                int width = mem[GP + 4];
+                                int height = mem[GP + 5];
+                                
+                                int vram_address = VRAM_START + x + (y * SCREEN_WIDTH);
+
+                                int line_pad = SCREEN_WIDTH - width;
+
+                                for (int j = 0; j < height; j++)
+                                {
+                                    for (int i = 0; i < width; i++)
+                                    {
+                                        if (vram_address > (VRAM_START + VRAM_SIZE - 1))
+                                        {
+                                            Debugger.Break();
+                                        }
+                                        mem[vram_address++] = color;
+                                    }
+
+                                    vram_address += line_pad;
+                                }
+
+                                GP += 6;
+                                break;
+                            }
+                        case GrapicOps.Ellipse:
+                            GP++;
+                            break;
+                        case GrapicOps.Fontchar:
+                            GP++;
+                            break;
+                        case GrapicOps.TrueColorSprite:
+                            GP++;
+                            break;
+                        case GrapicOps.PalettedSprite:
+                            GP++;
+                            break;
+                        case GrapicOps.Fontchar_Mask:
+                            GP++;
+                            break;
+                        case GrapicOps.TrueColorSprite_Mask:
+                            GP++;
+                            break;
+                        case GrapicOps.PalettedSprite_Mask:
+                            GP++;
+                            break;
+                        case GrapicOps.Fontchar_mask:
+                            GP++;
+                            break;
+                        default:
+                            throw new InvalidOperationException();
+                    }
+
+                    graphicsTime++;
+
+                    // If we are at the end loop back
+                    if (GP > (GRAM_START + GRAM_SIZE))
+                    {
+                        GP = GRAM_START;
+                    }
+                }
+            }
         }
     }
 }

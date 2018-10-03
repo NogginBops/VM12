@@ -9,7 +9,7 @@
         mouse = 0xFFF_FC0,
     }
     
-    public enum JumpMode
+    public enum JumpMode : int
     {
         Jmp,
         Z, Nz,
@@ -26,7 +26,27 @@
         Ro_l
     }
     
-    public enum Opcode
+    public enum GrapicOps : int
+    {
+        Nop = 0,
+        // Halts execution until next frame.
+        Hlt = 1,
+        Hlt_reset = 2,
+        Jmp = 3,
+
+        Line = 10,
+        Rectangle = 11,
+        Ellipse = 12,
+        Fontchar = 13,
+        TrueColorSprite = 14,
+        PalettedSprite = 15,
+        Fontchar_Mask = 16,
+        TrueColorSprite_Mask = 17,
+        PalettedSprite_Mask = 18,
+        Fontchar_mask = 19,
+    }
+
+    public enum Opcode : int
     {
         Nop,
         Pop,
@@ -66,6 +86,7 @@
         Clz, Ctz,
         Selz, Selgz, Selge, Selc,
 
+        Start_coproc, Hlt_coproc, Int_coproc,
         Graf_clear, Graf_fill,
     }
 

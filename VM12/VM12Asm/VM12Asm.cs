@@ -324,6 +324,10 @@ namespace VM12Asm
             { new Regex(sname("graf_clear")), "graf.clear" },
             { new Regex(sname("graf_fill")), "graf.fill" },
 
+            { new Regex(sname("strt_coproc")), "coproc.start" },
+            { new Regex(sname("hlt_coproc")), "coproc.hlt" },
+            { new Regex(sname("int_coproc")), "coproc.int" },
+
             { new Regex("\\[FP\\]"), "fp" },
             { new Regex("\\[PC\\]"), "pc" },
             { new Regex("\\[PT\\]"), "pt" },
@@ -445,6 +449,10 @@ namespace VM12Asm
 
             { "graf.clear", Opcode.Graf_clear },
             { "graf.fill", Opcode.Graf_fill },
+
+            { "coproc.start", Opcode.Start_coproc },
+            { "coproc.hlt", Opcode.Hlt_coproc },
+            { "coproc.int", Opcode.Int_coproc },
         };
 
         static Dictionary<string, int> arguments = new Dictionary<string, int>()

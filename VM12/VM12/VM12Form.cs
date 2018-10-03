@@ -279,7 +279,7 @@ namespace VM12
                     timer = 0;
 
                     Text = vm12.Stopped ? "Stopped" : "Running";
-                    Text += $" Inst executed: {vm12.Ticks / 1000000}m, Inst/sec: {utilization}/s, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, SP: {vm12.SPWatermark}, FP: {vm12.FPWatermark}, ";
+                    Text += $" Inst executed: {vm12.Ticks / 1_000_000}m/{vm12.GraphicsTicks}, Inst/sec: {utilization}/s, Interrupts: {vm12.InterruptCount}, Missed: {vm12.MissedInterrupts}, SP: {vm12.SPWatermark}, FP: {vm12.FPWatermark}, ";
                 }
             }
             else
