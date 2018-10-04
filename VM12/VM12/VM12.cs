@@ -1976,6 +1976,8 @@ namespace VM12
 
             fixed (int* mem = MEM)
             {
+                int* char_data = stackalloc int[8];
+
                 while (true)
                 {
                     if (CoProcessHaltSignal.IsSet)
@@ -2041,8 +2043,45 @@ namespace VM12
                             GP++;
                             break;
                         case GrapicOps.Fontchar:
-                            GP++;
-                            break;
+                            {
+                                int color = mem[GP + 1];
+                                int char_addr = mem[GP + 2] << 12 | mem[GP + 3];
+                                int vram_addr = mem[GP + 4] << 12 | mem[GP + 5];
+
+                                if (vram_addr < VRAM_START || vram_addr >= ROM_START)
+                                {
+                                    Debugger.Break();
+                                }
+
+                                bool not_zero = false;
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    char_data[i] = mem[char_addr + i];
+                                    not_zero |= char_data[i] != 0;
+                                }
+
+                                if (not_zero)
+                                {
+                                    int mask = 0x800;
+                                    for (int i = 0; i < 12; i++)
+                                    {
+                                        if ((char_data[0] & mask) != 0) mem[vram_addr + 0] = color;
+                                        if ((char_data[1] & mask) != 0) mem[vram_addr + 1] = color;
+                                        if ((char_data[2] & mask) != 0) mem[vram_addr + 2] = color;
+                                        if ((char_data[3] & mask) != 0) mem[vram_addr + 3] = color;
+                                        if ((char_data[4] & mask) != 0) mem[vram_addr + 4] = color;
+                                        if ((char_data[5] & mask) != 0) mem[vram_addr + 5] = color;
+                                        if ((char_data[6] & mask) != 0) mem[vram_addr + 6] = color;
+                                        if ((char_data[7] & mask) != 0) mem[vram_addr + 7] = color;
+
+                                        vram_addr += SCREEN_WIDTH;
+                                        mask >>= 1;
+                                    }
+                                }
+
+                                GP += 6;
+                                break;
+                            }
                         case GrapicOps.TrueColorSprite:
                             GP++;
                             break;

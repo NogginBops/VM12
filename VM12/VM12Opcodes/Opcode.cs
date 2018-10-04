@@ -43,7 +43,6 @@
         Fontchar_Mask = 16,
         TrueColorSprite_Mask = 17,
         PalettedSprite_Mask = 18,
-        Fontchar_mask = 19,
     }
 
     public enum Opcode : int
