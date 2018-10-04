@@ -2097,9 +2097,6 @@ namespace VM12
                         case GrapicOps.PalettedSprite_Mask:
                             GP++;
                             break;
-                        case GrapicOps.Fontchar_mask:
-                            GP++;
-                            break;
                         default:
                             throw new InvalidOperationException();
                     }

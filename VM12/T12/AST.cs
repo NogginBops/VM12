@@ -71,6 +71,10 @@ namespace T12
                     var interrupt = ASTInterrupt.Parse(Tokens);
                     functions.Add(interrupt);
                 }
+                else
+                {
+                    Fail($"Unknown token {peek} in program!");
+                }
             }
             
             while (Tokens.Count > 0 && Tokens.Peek().IsType)
@@ -101,6 +105,8 @@ namespace T12
                     return ASTConstDirective.Parse(Tokens);
                 case TokenType.Keyword_Global:
                     return ASTGlobalDirective.Parse(Tokens);
+                case TokenType.Keyword_Struct:
+                    return ASTStructDeclarationDirective.Parse(Tokens);
                 default:
                     Fail($"Unexpected token '{peek}' expected a valid directive!");
                     return default;
@@ -264,6 +270,59 @@ namespace T12
             if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
 
             return new ASTGlobalDirective(type, name);
+        }
+    }
+
+    // NOTE: This should really be a ASTDeclaration and not really a ASTDirective
+    // But that is somewhat hard to implement
+    public class ASTStructDeclarationDirective : ASTDirective
+    {
+        // NOTE: Is this really needed. There is probably a way to make this a lot cleaner!
+
+        public readonly ASTStructType DeclaredType;
+
+        public ASTStructDeclarationDirective(ASTStructType type)
+        {
+            DeclaredType = type;
+        }
+
+        public static new ASTStructDeclarationDirective Parse(Queue<Token> Tokens)
+        {
+            var structTok = Tokens.Dequeue();
+            if (structTok.Type != TokenType.Keyword_Struct) Fail("Expected struct!");
+
+            var nameTok = Tokens.Dequeue();
+            if (nameTok.IsIdentifier == false) Fail($"Expected struct name! Got '{nameTok}'!");
+            string name = nameTok.Value;
+
+            var openBraceTok = Tokens.Dequeue();
+            if (openBraceTok.Type != TokenType.Open_brace) Fail("Expected '{'!");
+
+            List<(ASTType Type, string Name)> members = new List<(ASTType Type, string Name)>();
+
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_brace)
+            {
+                var type = ASTType.Parse(Tokens);
+                var memberNameTok = Tokens.Dequeue();
+                if (memberNameTok.IsIdentifier == false) Fail($"Expected member name! Got {memberNameTok}!");
+                string memberName = memberNameTok.Value;
+
+                var semicolonTok = Tokens.Dequeue();
+                if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+
+                if (members.Select(m => m.Name).Contains(memberName))
+                    Fail($"Duplicate member name '{memberName}' in struct '{name}'!");
+
+                members.Add((type, memberName));
+
+                peek = Tokens.Peek();
+            }
+
+            var closeBrace = Tokens.Dequeue();
+            if (closeBrace.Type != TokenType.Close_brace) Fail("Expected '}'!");
+
+            return new ASTStructDeclarationDirective(new ASTStructType(name, members));
         }
     }
 
@@ -477,18 +536,25 @@ namespace T12
     {
         public static ASTBlockItem Parse(Queue<Token> Tokens)
         {
-
             var peek = Tokens.Peek();
-            // FIXME: We need to handle custom types!
-            // We could do this by looking two tokens ahead and seeing if it is a '='
+
             if (peek.IsBaseType)
             {
                 return ASTDeclaration.Parse(Tokens);
             }
-            else
+            else if (peek.IsIdentifier)
             {
-                return ASTStatement.Parse(Tokens);
+                var namePeek = Tokens.ElementAt(1);
+                var semicolonEqualsPeek = Tokens.ElementAt(2);
+                if (namePeek.IsIdentifier && 
+                    (semicolonEqualsPeek.Type == TokenType.Semicolon || semicolonEqualsPeek.Type == TokenType.Equal))
+                {
+                    //  This is a variable declaration of a complex type!
+                    return ASTDeclaration.Parse(Tokens);
+                }
             }
+
+            return ASTStatement.Parse(Tokens);
         }
     }
     
@@ -542,13 +608,7 @@ namespace T12
             return new ASTVariableDeclaration(type, name, init);
         }
     }
-
-    // Is this the right way to do this?
-    public class ASTTypeDeclaration : ASTDeclaration
-    {
-
-    }
-
+    
     #endregion
 
     #region Statements
@@ -619,7 +679,7 @@ namespace T12
             var expr = ASTExpression.Parse(Tokens);
 
             var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+            if (semicolon_tok.Type != TokenType.Semicolon) Fail($"Expected semicolon! Got '{semicolon_tok}'!");
 
             return new ASTExpressionStatement(expr);
         }
@@ -1187,6 +1247,10 @@ namespace T12
                 {
                     return ASTPointerExpression.Parse(Tokens);
                 }
+                else if (peek_action_tok.Type == TokenType.Period)
+                {
+                    return ASTMemberExpression.Parse(Tokens);
+                }
                 else
                 {
                     // Variable expression
@@ -1204,7 +1268,9 @@ namespace T12
             }
         }
     }
-    
+
+    #region Litterals
+
     public abstract class ASTLitteral : ASTExpression
     {
         public readonly ASTBaseType Type;
@@ -1351,6 +1417,8 @@ namespace T12
             return new ASTStringLitteral(string_tok.Value);
         }
     }
+
+    #endregion
 
     public class ASTVariableExpression : ASTExpression
     {
@@ -1714,7 +1782,49 @@ namespace T12
             return new ASTFunctionCall(funcName, arguments);
         }
     }
-    
+
+    public class ASTMemberExpression : ASTExpression
+    {
+        public readonly string VariableName;
+        public readonly string MemberName;
+        public readonly ASTExpression Assignment;
+
+        public ASTMemberExpression(string varName, string memberName, ASTExpression assignment)
+        {
+            VariableName = varName;
+            MemberName = memberName;
+            Assignment = assignment;
+        }
+
+        public static new ASTMemberExpression Parse(Queue<Token> Tokens)
+        {
+            var varTok = Tokens.Dequeue();
+            if (varTok.IsIdentifier == false) Fail("Expected identifier!");
+
+            var periodTok = Tokens.Dequeue();
+            if (periodTok.Type != TokenType.Period) Fail("Expected period!");
+
+            var memberTok = Tokens.Dequeue();
+            if (memberTok.IsIdentifier == false) Fail("Expected member name!");
+
+            ASTExpression assign = null;
+
+            if (Tokens.Peek().Type == TokenType.Equal)
+            {
+                Tokens.Dequeue();
+
+                assign = ASTExpression.Parse(Tokens);
+            }
+
+            string varName = varTok.Value;
+            string memberName = memberTok.Value;
+
+            return new ASTMemberExpression(varName, memberName, assign);
+        }
+    }
+
+    #region Casts
+
     public abstract class ASTCastExpression : ASTExpression
     {
         public readonly ASTExpression From;
@@ -1786,6 +1896,10 @@ namespace T12
 
     #endregion
 
+    #endregion
+
+    #region Types
+
     public abstract class ASTType : ASTNode
     {
         public readonly string TypeName;
@@ -1832,7 +1946,7 @@ namespace T12
             }
             else
             {
-                type = new ASTStructType(tok.Value);
+                type = new ASTTypeRef(tok.Value);
             }
 
             // If there is a following asterisk we make a pointer out of the type
@@ -1967,8 +2081,28 @@ namespace T12
         }
     }
 
+    /// <summary>
+    /// A named reference to a complex type with the given name.
+    /// </summary>
+    public class ASTTypeRef : ASTType
+    {
+        public readonly string Name;
+
+        public ASTTypeRef(string name) : base(name)
+        {
+            Name = name;
+        }
+    }
+
     public class ASTStructType : ASTType
     {
-        public ASTStructType(string name) : base(name) { }
+        public readonly List<(ASTType Type, string Name)> Members;
+
+        public ASTStructType(string name, List<(ASTType, string)> members) : base(name)
+        {
+            Members = members;
+        }
     }
+
+    #endregion
 }

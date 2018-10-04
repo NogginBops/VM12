@@ -77,9 +77,21 @@ namespace T12
                 {
                     return (outType as ASTBaseType).Size;
                 }
+                else if (outType is ASTStructType)
+                {
+                    ASTStructType sType = outType as ASTStructType;
+
+                    int size = 0;
+                    foreach (var member in sType.Members)
+                    {
+                        size += SizeOfType(member.Type, map);
+                    }
+
+                    return size;
+                }
                 else
                 {
-                    Fail("We don't support complex types atm!");
+                    Fail($"We don't support this type of type atm! ({outType} of type {outType.GetType()})");
                     return default;
                 }
             }
@@ -90,7 +102,7 @@ namespace T12
             }
         }
 
-        private static ASTType CalcReturnType(ASTExpression expression, VarMap scope, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        private static ASTType CalcReturnType(ASTExpression expression, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (expression)
             {
@@ -108,19 +120,19 @@ namespace T12
                         break;
                     }
                 case ASTUnaryOp unaryOp:
-                    return CalcReturnType(unaryOp.Expr, scope, functionMap, constMap, globalMap);
+                    return CalcReturnType(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
                 case ASTBinaryOp binaryOp:
                     {
-                        ASTType left = CalcReturnType(binaryOp.Left, scope, functionMap, constMap, globalMap);
-                        ASTType right = CalcReturnType(binaryOp.Right, scope, functionMap, constMap, globalMap);
+                        ASTType left = CalcReturnType(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
+                        ASTType right = CalcReturnType(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
 
                         // TODO!! Merge types!
                         return left;
                     }
                 case ASTConditionalExpression conditional:
                     {
-                        ASTType left = CalcReturnType(conditional.IfTrue, scope, functionMap, constMap, globalMap);
-                        ASTType right = CalcReturnType(conditional.IfFalse, scope, functionMap, constMap, globalMap);
+                        ASTType left = CalcReturnType(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
+                        ASTType right = CalcReturnType(conditional.IfFalse, scope, typeMap, functionMap, constMap, globalMap);
 
                         if (left != right) Fail("Differing return types!");
 
@@ -133,6 +145,32 @@ namespace T12
 
                         return function.ReturnType;
                     }
+                case ASTMemberExpression memberExpression:
+                    {
+                        if (scope.TryGetValue(memberExpression.VariableName, out var variable) == false)
+                            Fail($"No variable called '{memberExpression.VariableName}'!");
+
+                        // TODO: Resolve complex typed? Or are we allready doing that?
+
+                        var varType = variable.Type;
+
+                        if (varType is ASTTypeRef)
+                            if (typeMap.TryGetValue((varType as ASTTypeRef).Name, out var reffedType))
+                                varType = reffedType;
+                            else
+                                Fail($"There is no type called '{(varType as ASTTypeRef).Name}'!");
+                                
+
+                        if (varType is ASTStructType == false)
+                            Fail($"Type '{varType}' does not have members!");
+
+
+                        var (type, name) = (varType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
+                        if (type == null)
+                            Fail($"Type '{varType}' does not contain a member '{memberExpression.MemberName}'!");
+
+                        return type;
+                    }
                 case ASTCastExpression cast:
                     // We assume all casts will work. Because if they are in the AST they shuold work!
                     return cast.To;
@@ -144,9 +182,9 @@ namespace T12
             return default;
         }
 
-        private static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
+        private static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
         {
-            ASTType exprType = CalcReturnType(expression, scope, functionMap, constMap, globalMap);
+            ASTType exprType = CalcReturnType(expression, scope, typeMap, functionMap, constMap, globalMap);
 
             if (exprType == targetType)
             {
@@ -220,10 +258,10 @@ namespace T12
         /// </summary>
         private static void GenerateOptimizedBinaryOpJump(StringBuilder builder, ASTBinaryOp condition, string jmpLabel, VarMap scope, VarList varList, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
-            var leftType = CalcReturnType(condition.Left, scope, functionMap, constMap, globalMap);
-            var rightType = CalcReturnType(condition.Right, scope, functionMap, constMap, globalMap);
+            var leftType = CalcReturnType(condition.Left, scope, typeMap, functionMap, constMap, globalMap);
+            var rightType = CalcReturnType(condition.Right, scope, typeMap, functionMap, constMap, globalMap);
             // Try and cast the right type to the left type so we can apply the binary operation.
-            if (TryGenerateImplicitCast(condition.Right, leftType, scope, functionMap, constMap, globalMap, out ASTExpression typedRight, out string error) == false)
+            if (TryGenerateImplicitCast(condition.Right, leftType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedRight, out string error) == false)
                 Fail($"Cannot apply binary operation '{condition.OperatorType}' on differing types '{leftType}' and '{rightType}'!");
 
             int typeSize = SizeOfType(leftType, typeMap);
@@ -373,6 +411,7 @@ namespace T12
             }
             else
             {
+                // FIXME: We need to know how to increment load_content...
                 Fail($"We don't support structs larger than 2 words! Got '{type}' with size {size}");
             }
         }
@@ -466,6 +505,16 @@ namespace T12
                     {
                         globalMap[globalDirective.Name] = globalDirective;
                         builder.AppendLine($"<{globalDirective.Name} = auto({SizeOfType(globalDirective.Type, typeMap)})>");
+                        break;
+                    }
+                case ASTStructDeclarationDirective structDeclaration:
+                    {
+                        string name = structDeclaration.DeclaredType.TypeName;
+
+                        if (typeMap.ContainsKey(name))
+                            Fail($"Cannot declare struct '{name}' as there already exists a struct with that name!");
+
+                        typeMap.Add(name, structDeclaration.DeclaredType);
                         break;
                     }
                 default:
@@ -603,9 +652,9 @@ namespace T12
                         if (variableDeclaration.Initializer != null)
                         {
                             var initExpr = variableDeclaration.Initializer;
-                            var initType = CalcReturnType(initExpr, scope, functionMap, constMap, globalMap);
+                            var initType = CalcReturnType(initExpr, scope, typeMap, functionMap, constMap, globalMap);
 
-                            if (TryGenerateImplicitCast(initExpr, variableDeclaration.Type, scope, functionMap, constMap, globalMap, out ASTExpression typedExpression, out string error) == false)
+                            if (TryGenerateImplicitCast(initExpr, variableDeclaration.Type, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedExpression, out string error) == false)
                                 Fail($"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{variableDeclaration.Type}'");
                             
                             EmitExpression(builder, typedExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
@@ -631,7 +680,7 @@ namespace T12
                     {
                         if (returnStatement.ReturnValueExpression != null)
                         {
-                            var retType = CalcReturnType(returnStatement.ReturnValueExpression, scope, functionMap, constMap, globalMap);
+                            var retType = CalcReturnType(returnStatement.ReturnValueExpression, scope, typeMap, functionMap, constMap, globalMap);
 
                             if (retType != functionConext.ReturnType) Fail($"Cannot return expression of type '{retType}' in a function that returns type '{functionConext.ReturnType}'");
 
@@ -827,7 +876,7 @@ namespace T12
 
                         if (variable.AssignmentExpression != null)
                         {
-                            var expr_type = CalcReturnType(variable.AssignmentExpression, scope, functionMap, constMap, globalMap);
+                            var expr_type = CalcReturnType(variable.AssignmentExpression, scope, typeMap, functionMap, constMap, globalMap);
                             if (var_type != expr_type) Fail($"Cannot assign expression of type '{expr_type}' to variable ('{variable.Name}') of type '{var_type}'");
 
                             EmitExpression(builder, variable.AssignmentExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
@@ -865,7 +914,7 @@ namespace T12
                         if (variable.AssignmentExpression != null)
                         {
                             var var_type = globalDirective.Type;
-                            var expr_type = CalcReturnType(variable.AssignmentExpression, scope, functionMap, constMap, globalMap);
+                            var expr_type = CalcReturnType(variable.AssignmentExpression, scope, typeMap, functionMap, constMap, globalMap);
                             if (var_type != expr_type) Fail($"Cannot assign expression of type '{expr_type}' to variable ('{variable.Name}') of type '{var_type}'");
 
                             builder.AppendLine($"\tloadl #{globalDirective.Name}");
@@ -888,7 +937,7 @@ namespace T12
                     break;
                 case ASTUnaryOp unaryOp:
                     {
-                        var type = CalcReturnType(unaryOp.Expr, scope, functionMap, constMap, globalMap);
+                        var type = CalcReturnType(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
                         int type_size = SizeOfType(type, typeMap);
 
                         // TODO: Check to see if this expression has side-effects. This way we can avoid poping at the end
@@ -927,10 +976,10 @@ namespace T12
                     }
                 case ASTBinaryOp binaryOp:
                     {
-                        var leftType = CalcReturnType(binaryOp.Left, scope, functionMap, constMap, globalMap);
-                        var rightType = CalcReturnType(binaryOp.Right, scope, functionMap, constMap, globalMap);
+                        var leftType = CalcReturnType(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
+                        var rightType = CalcReturnType(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
                         // Try and cast the right type to the left type so we can apply the binary operation.
-                        if (TryGenerateImplicitCast(binaryOp.Right, leftType, scope, functionMap, constMap, globalMap, out ASTExpression typedRight, out string error) == false)
+                        if (TryGenerateImplicitCast(binaryOp.Right, leftType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedRight, out string error) == false)
                             Fail($"Cannot apply binary operation '{binaryOp.OperatorType}' on differing types '{leftType}' and '{rightType}'!");
 
                         int type_size = SizeOfType(leftType, typeMap);
@@ -1154,10 +1203,10 @@ namespace T12
                         int hash = conditional.GetHashCode();
                         // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({hash})");
 
-                        var ifTrueType = CalcReturnType(conditional.IfTrue, scope, functionMap, constMap, globalMap);
-                        var ifFalseType = CalcReturnType(conditional.IfFalse, scope, functionMap, constMap, globalMap);
+                        var ifTrueType = CalcReturnType(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
+                        var ifFalseType = CalcReturnType(conditional.IfFalse, scope, typeMap, functionMap, constMap, globalMap);
 
-                        if (TryGenerateImplicitCast(conditional.IfFalse, ifTrueType, scope, functionMap, constMap, globalMap, out ASTExpression typedIfFalse, out string error) == false)
+                        if (TryGenerateImplicitCast(conditional.IfFalse, ifTrueType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedIfFalse, out string error) == false)
                             Fail($"Cannot return two different types {ifTrueType} and {ifFalseType} from a conditional operator!");
 
                         if (conditional.Condition is ASTBinaryOp)
@@ -1197,10 +1246,10 @@ namespace T12
                         for (int i = 0; i < function.Parameters.Count; i++)
                         {
                             ASTType targetType = function.Parameters[i].Type;
-                            ASTType argumentType = CalcReturnType(functionCall.Arguments[i], scope, functionMap, constMap, globalMap);
+                            ASTType argumentType = CalcReturnType(functionCall.Arguments[i], scope, typeMap, functionMap, constMap, globalMap);
 
                             // Try and cast the arguemnt
-                            if (TryGenerateImplicitCast(functionCall.Arguments[i], targetType, scope, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
+                            if (TryGenerateImplicitCast(functionCall.Arguments[i], targetType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
                                 Fail($"Missmatching types on parameter '{function.Parameters[i].Name}' ({i}), expected '{function.Parameters[i].Type}' got '{argumentType}'! (Cast error: '{error}')");
 
                             // We don't need to check the result as it will have the desired type.
@@ -1242,9 +1291,9 @@ namespace T12
                         // We use this to deref a pointer that is loaded to the stack
                         void DerefPointer(ASTType pointerType, ASTType baseType)
                         {
-                            var offsetType = CalcReturnType(pointerExpression.Offset, scope, functionMap, constMap, globalMap);
+                            var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
                             // Try to cast the offset to a dword
-                            if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
+                            if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
                                 Fail($"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
                             // Emit the casted offset
@@ -1264,9 +1313,9 @@ namespace T12
 
                             if (pointerExpression.Assignment != null)
                             {
-                                var assign_type = CalcReturnType(pointerExpression.Assignment, scope, functionMap, constMap, globalMap);
+                                var assign_type = CalcReturnType(pointerExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
 
-                                if (TryGenerateImplicitCast(pointerExpression.Assignment, baseType, scope, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
+                                if (TryGenerateImplicitCast(pointerExpression.Assignment, baseType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
                                     Fail($"Cannot assign expression of type '{assign_type}' to pointer to type '{baseType}'! (Implicit cast error: '{error}')");
 
                                 if (produceResult)
@@ -1375,10 +1424,10 @@ namespace T12
                     }
                 case ASTExplicitCast cast:
                     {
-                        ASTType fromType = CalcReturnType(cast.From, scope, functionMap, constMap, globalMap);
+                        ASTType fromType = CalcReturnType(cast.From, scope, typeMap, functionMap, constMap, globalMap);
                         ASTType toType = cast.To;
 
-                        if (TryGenerateImplicitCast(cast.From, cast.To, scope, functionMap, constMap, globalMap, out ASTExpression implicitCast, out string _))
+                        if (TryGenerateImplicitCast(cast.From, cast.To, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression implicitCast, out string _))
                         {
                             // There existed an implicit cast! Use that!
                             EmitExpression(builder, implicitCast, scope, varList, typeMap, functionMap, constMap, globalMap, true);
@@ -1417,6 +1466,65 @@ namespace T12
 
                         break;
                     }
+                case ASTMemberExpression memberExpression:
+                    {
+                        if (scope.TryGetValue(memberExpression.VariableName, out var variable))
+                        {
+                            ASTType varType = TypeOfVariable(memberExpression.VariableName, scope);
+                            
+                            if (varType is ASTTypeRef)
+                                if (typeMap.TryGetValue((varType as ASTTypeRef).Name, out var type))
+                                    varType = type;
+                                else Fail($"Did not find type '{varType}'!");
+
+                            if (varType is ASTStructType)
+                            {
+                                var members = (varType as ASTStructType).Members;
+                                int index = members.FindIndex(m => m.Name == memberExpression.MemberName);
+                                if (index < 0) Fail($"No member called '{memberExpression.MemberName}' in struct '{varType}'");
+
+                                var memberType = members[index].Type;
+                                
+                                if (memberType is ASTTypeRef)
+                                    if (typeMap.TryGetValue((memberType as ASTTypeRef).Name, out var type))
+                                        memberType = type;
+                                    else Fail($"Did not find type '{memberType}'!");
+
+                                // Calculate the offset
+                                int offset = 0;
+                                for (int i = 0; i < index; i++)
+                                {
+                                    offset += SizeOfType(members[i].Type, typeMap);
+                                }
+
+                                if (memberExpression.Assignment != null)
+                                {
+                                    var retType = CalcReturnType(memberExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
+
+                                    if (TryGenerateImplicitCast(memberExpression.Assignment, memberType, scope, typeMap, functionMap, constMap, globalMap, out var typedExpr, out var error) == false)
+                                        Fail($"Can't generate implicit cast from type '{retType}' to type '{memberType}'! (Cast error: {error})");
+
+                                    EmitExpression(builder, typedExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    AppendTypedStore(builder, $"{variable.Offset + offset}", memberType, typeMap);
+                                }
+
+                                if (produceResult)
+                                {
+                                    AppendTypedLoad(builder, $"{variable.Offset + offset}", memberType, typeMap);
+                                }
+                            }
+                            else
+                            {
+                                Fail($"Type {varType} does not have any members!");
+                            }
+                        }
+                        else
+                        {
+                            Fail($"No variable called '{memberExpression.VariableName}'!");
+                        }
+
+                        break;
+                    }
                 default:
                     Fail($"Unknown expression type {expression}, this is a compiler bug!");
                     break;
@@ -1451,3 +1559,4 @@ namespace T12
         }
     }
 }
+ 

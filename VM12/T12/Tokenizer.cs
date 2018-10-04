@@ -79,6 +79,7 @@ namespace T12
         Keyword_Extern,
         Keyword_Const,
         Keyword_Global,
+        Keyword_Struct,
         
         Keyword_True,
         Keyword_False,
@@ -170,7 +171,8 @@ namespace T12
             Type == TokenType.Keyword_Use ||
             Type == TokenType.Keyword_Extern || 
             Type == TokenType.Keyword_Const ||
-            Type == TokenType.Keyword_Global;
+            Type == TokenType.Keyword_Global ||
+            Type == TokenType.Keyword_Struct;
 
         public Token(TokenType Type, string Value)
         {
@@ -259,6 +261,7 @@ namespace T12
             ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),
             ( TokenType.Keyword_Const, new Regex("^const\\b") ),
             ( TokenType.Keyword_Global, new Regex("^global\\b") ),
+            ( TokenType.Keyword_Struct, new Regex("^struct\\b") ),
 
             ( TokenType.Keyword_True, new Regex("^true\\b") ),
             ( TokenType.Keyword_False, new Regex("^false\\b") ),
