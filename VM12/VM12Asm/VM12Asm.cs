@@ -334,7 +334,7 @@ namespace VM12Asm
             { new Regex("\\[SP\\]"), "sp" },
         };
 
-        static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.12asm)");
+        static Regex using_statement = new Regex("&\\s*([A-Za-z][A-Za-z0-9_]*)\\s+(.*\\.(?:12asm|t12))");
 
         static Regex constant = new Regex("<([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)>");
 
@@ -676,7 +676,7 @@ namespace VM12Asm
             FileInfo fileInf = new FileInfo(file);
             DirectoryInfo dirInf = fileInf.Directory;
 
-            FileInfo[] dirFiles = dirInf.GetFiles($"*.12asm", SearchOption.AllDirectories);
+            FileInfo[] dirFiles = dirInf.GetFilesByExtensions(".12asm", ".t12").ToArray();
 
             // TODO: Files with the same name but differnet directories
             while (remainingUsings.Count > 0)
@@ -689,6 +689,14 @@ namespace VM12Asm
                 }
 
                 FileInfo fi = dirFiles.First(f => f.Name == use);
+
+                if (Path.GetExtension(fi.FullName) == ".t12")
+                {
+                    // We need to invoke the t12 compiler!
+                    T12.Compiler.Compile(fi);
+
+                    fi = new FileInfo(Path.ChangeExtension(fi.FullName, ".12asm"));
+                }
 
                 RawFile rawFile = new RawFile();
 

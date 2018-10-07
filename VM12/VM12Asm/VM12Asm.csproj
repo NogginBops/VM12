@@ -66,6 +66,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Util.cs" />
     <Compile Include="VM12Asm.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -86,6 +87,10 @@
     </BootstrapperPackage>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\T12\T12.csproj">
+      <Project>{f4e41638-2df1-412b-af94-a7a311c66ef2}</Project>
+      <Name>T12</Name>
+    </ProjectReference>
     <ProjectReference Include="..\VM12Opcodes\VM12Opcodes.csproj">
       <Project>{33a7121d-5329-4b6c-b604-7804dbb6e8ab}</Project>
       <Name>VM12Opcodes</Name>

@@ -23,6 +23,7 @@ namespace T12
         Comma,
         Colon,
         Numbersign,
+        Arrow,
 
         DoubleAnd,
         DoublePipe,
@@ -125,7 +126,8 @@ namespace T12
         public bool IsUnaryOp =>
             Type == TokenType.Minus ||
             Type == TokenType.Tilde ||
-            Type == TokenType.Exclamationmark;
+            Type == TokenType.Exclamationmark ||
+            Type == TokenType.Asterisk;
 
         public bool IsBinaryOp =>
             Type == TokenType.Plus ||
@@ -174,6 +176,12 @@ namespace T12
             Type == TokenType.Keyword_Global ||
             Type == TokenType.Keyword_Struct;
 
+        public bool IsPostfixOperator =>
+            Type == TokenType.Open_parenthesis ||
+            Type == TokenType.Open_square_bracket ||
+            Type == TokenType.Period ||
+            Type == TokenType.Arrow;
+
         public Token(TokenType Type, string Value)
         {
             this.Type = Type;
@@ -205,7 +213,8 @@ namespace T12
             ( TokenType.Period, new Regex("^\\.") ),
             ( TokenType.Comma, new Regex("^,") ),
             ( TokenType.Colon, new Regex("^:") ),
-            ( TokenType.Colon, new Regex("^#") ),
+            ( TokenType.Numbersign, new Regex("^#") ),
+            ( TokenType.Arrow, new Regex("^->") ),
 
             ( TokenType.DoubleAnd, new Regex("^&&") ),
             ( TokenType.DoublePipe, new Regex("^\\|\\|") ),

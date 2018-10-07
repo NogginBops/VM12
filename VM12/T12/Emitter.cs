@@ -48,12 +48,12 @@ namespace T12
             throw new InvalidOperationException(error);
         }
 
-        private static ASTType TypeOfVariable(string variableName, VarMap scope)
+        private static ASTType TypeOfVariable(string variableName, VarMap scope, TypeMap typeMap)
         {
             if (scope.TryGetValue(variableName, out var varType) == false)
                 Fail($"No variable called '{variableName}'!");
 
-            return varType.Type;
+            return ResolveType(varType.Type, typeMap);
         }
 
         private static int SizeOfType(ASTType type, TypeMap map)
@@ -120,7 +120,17 @@ namespace T12
                         break;
                     }
                 case ASTUnaryOp unaryOp:
-                    return CalcReturnType(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
+                    var retType = CalcReturnType(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
+
+                    if (unaryOp.OperatorType == ASTUnaryOp.UnaryOperationType.Deference)
+                    {
+                        if (retType is ASTPointerType == false)
+                            Fail($"Cannot dereference non-pointer expression of type '{retType}'!");
+
+                        retType = (retType as ASTPointerType).BaseType;
+                    }
+
+                    return retType;
                 case ASTBinaryOp binaryOp:
                     {
                         ASTType left = CalcReturnType(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
@@ -147,27 +157,22 @@ namespace T12
                     }
                 case ASTMemberExpression memberExpression:
                     {
-                        if (scope.TryGetValue(memberExpression.VariableName, out var variable) == false)
-                            Fail($"No variable called '{memberExpression.VariableName}'!");
+                        var targetType = CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap); ;
 
-                        // TODO: Resolve complex typed? Or are we allready doing that?
-
-                        var varType = variable.Type;
-
-                        if (varType is ASTTypeRef)
-                            if (typeMap.TryGetValue((varType as ASTTypeRef).Name, out var reffedType))
-                                varType = reffedType;
+                        if (targetType is ASTTypeRef)
+                            if (typeMap.TryGetValue((targetType as ASTTypeRef).Name, out var reffedType))
+                                targetType = reffedType;
                             else
-                                Fail($"There is no type called '{(varType as ASTTypeRef).Name}'!");
+                                Fail($"There is no type called '{(targetType as ASTTypeRef).Name}'!");
                                 
 
-                        if (varType is ASTStructType == false)
-                            Fail($"Type '{varType}' does not have members!");
+                        if (targetType is ASTStructType == false)
+                            Fail($"Type '{targetType}' does not have members!");
 
 
-                        var (type, name) = (varType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
+                        var (type, name) = (targetType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
                         if (type == null)
-                            Fail($"Type '{varType}' does not contain a member '{memberExpression.MemberName}'!");
+                            Fail($"Type '{targetType}' does not contain a member '{memberExpression.MemberName}'!");
 
                         return type;
                     }
@@ -397,6 +402,7 @@ namespace T12
             }
         }
 
+        /*
         private static void AppendTypedLoad(StringBuilder builder, string load_content, ASTType type, TypeMap typeMap)
         {
             int size = SizeOfType(type, typeMap);
@@ -432,6 +438,232 @@ namespace T12
             {
                 Fail($"We don't support structs larger than 2 words! Got '{type}' with size {size}");
             }
+        }
+        */
+
+        private struct VariableRef
+        {
+            public VariableType VariableType;
+            
+            /// <summary>
+            /// This member is valid of VariableType is local!
+            /// </summary>
+            public int LocalAddress;
+            // NOTE: What is this?!
+            public ASTPointerExpression Pointer;
+            public string GlobalName;
+            public string ConstantName;
+            public ASTType Type;
+            public string Comment;
+        }
+
+        // NOTE: Should we use this instead?
+        private enum VariableType
+        {
+            Local,
+            Pointer,
+            Global,
+            Constant,
+        }
+
+        private static bool TryResolveVariable(string name, VarMap scope, GlobalMap globalMap, ConstMap constMap, TypeMap typeMap, out VariableRef variable)
+        {
+            if (scope.TryGetValue(name, out var local))
+            {
+                variable = new VariableRef
+                {
+                    VariableType = VariableType.Local,
+                    LocalAddress = local.Offset,
+                    Type = ResolveType(local.Type, typeMap),
+                };
+
+                return true;
+            }
+            else if (globalMap.TryGetValue(name, out var global))
+            {
+                // FIXME!! Is there a way to convert the constant to a valid address?
+                variable = new VariableRef
+                {
+                    VariableType = VariableType.Global,
+                    GlobalName = global.Name,
+                    Type = ResolveType(global.Type, typeMap),
+
+                };
+
+                return true;
+            }
+            else if (constMap.TryGetValue(name, out var constant))
+            {
+                variable = new VariableRef
+                {
+                    VariableType = VariableType.Constant,
+                    ConstantName = constant.Name,
+                    Type = ResolveType(constant.Type, typeMap),
+                };
+
+                return true;
+            }
+            else
+            {
+                variable = default;
+                return false;
+            }
+        }
+
+        private static void LoadVariable(StringBuilder builder, VariableRef var, TypeMap typeMap)
+        {
+            int typeSize = SizeOfType(var.Type, typeMap);
+            switch (var.VariableType)
+            {
+                case VariableType.Local:
+                    switch (typeSize)
+                    {
+                        case 1:
+                            builder.AppendLine($"\tload {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        case 2:
+                            builder.AppendLine($"\tloadl {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        default:
+                            builder.AppendLine($"\t; {var.Comment} ({typeSize})");
+                            for (int i = 0; i < typeSize; i++)
+                            {
+                                builder.AppendLine($"\tload {var.LocalAddress + i}\t; {var.Comment}:{i}");
+                            }
+                            break;
+                    }
+                    break;
+                case VariableType.Pointer:
+                    // If we are loading a pointer we assume the pointer is on the stack!
+                    // We might what to change this!
+                    switch (typeSize)
+                    {
+                        case 1:
+                            builder.AppendLine($"\tload [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        case 2:
+                            builder.AppendLine($"\tloadl [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        default:
+                            builder.AppendLine($"\t; {var.Comment} ({typeSize})");
+                            for (int i = 0; i < typeSize; i++)
+                            {
+                                // TODO: This could probably be done better
+                                // Duplicate the pointer, load the one word, swap the word with the pointer underneath, increment the pointer
+                                // Only save the pointer if it is not the last value we are loading
+
+                                bool lastValue = i == typeSize - 1;
+
+                                if (lastValue == false)
+                                {
+                                    builder.AppendLine("\tldup");
+                                }
+
+                                builder.AppendLine("\tload [SP]");
+
+                                if (lastValue == false)
+                                {
+                                    builder.AppendLine("\tslswap slswap\t; Swap the loaded value with the pointer underneath");
+                                    builder.AppendLine("\tlinc\t; Increment pointer");
+                                }
+                            }
+                            break;
+                    }
+                    break;
+                case VariableType.Global:
+                    throw new NotImplementedException();
+                case VariableType.Constant:
+                    switch (typeSize)
+                    {
+                        case 1:
+                            builder.AppendLine($"\tload #{var.ConstantName}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        case 2:
+                            builder.AppendLine($"\tloadl #{var.ConstantName}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        default:
+                            throw new NotImplementedException();
+                    }
+                    break;
+                default:
+                    Fail($"Unknown variable type '{var.VariableType}'!");
+                    break;
+            }
+        }
+
+        private static void StoreVariable(StringBuilder builder, VariableRef var, TypeMap typeMap)
+        {
+            int typeSize = SizeOfType(var.Type, typeMap);
+            switch (var.VariableType)
+            {
+                case VariableType.Local:
+                    switch (typeSize)
+                    {
+                        case 1:
+                            builder.AppendLine($"\tstore {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        case 2:
+                            builder.AppendLine($"\tstorel {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        default:
+                            builder.AppendLine($"\t; {var.Comment} ({typeSize})");
+
+                            // We assume the value is on the stack
+                            // Because the stack is fifo the first value on the stack will be the last value of the type.
+                            for (int i = typeSize - 1; i >= 0; i--)
+                            {
+                                builder.AppendLine($"\tstore {var.LocalAddress + i}\t; {var.Comment}:{i}");
+                            }
+                            break;
+                    }
+                    break;
+                case VariableType.Pointer:
+                    // NOTE: Here we assume the pointer is already on the stack
+                    // It will be hard to implement storing of things larger than 2 words!
+                    switch (typeSize)
+                    {
+                        case 1:
+                            builder.AppendLine($"\tstore [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        case 2:
+                            builder.AppendLine($"\tstorel [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            break;
+                        default:
+                            throw new NotImplementedException();
+                    }
+                    break;
+                case VariableType.Global:
+                    // What do we do here!?
+                    throw new NotImplementedException();
+                case VariableType.Constant:
+                    Fail($"Cannot modify constant '{var.ConstantName}'!");
+                    break;
+                default:
+                    Fail($"Unknown variable type '{var.VariableType}'!");
+                    break;
+            }
+        }
+
+        private static ASTType ResolveType(ASTType type, TypeMap typeMap)
+        {
+            if (type is ASTTypeRef)
+                return ResolveType(type.TypeName, typeMap);
+
+            return type;
+        }
+
+        private static ASTType ResolveType(string typeName, TypeMap typeMap)
+        {
+            if (typeMap.TryGetValue(typeName, out ASTType type) == false)
+                Fail($"There is no type called '{typeName}'");
+
+            // FIXME: Detect reference loops
+            if (type is ASTTypeRef)
+            {
+                type = ResolveType(type.TypeName, typeMap);
+            }
+
+            return type;
         }
 
         public static string EmitAsem(AST ast)
@@ -549,8 +781,18 @@ namespace T12
                 int index = 0;
                 foreach (var param in ASTInterrupt.InterruptToParameterList(type))
                 {
-                    ASTType paramType = TypeOfVariable(param.Name, scope);
-                    AppendTypedLoad(builder, $"{index}", paramType, typeMap);
+                    ASTType paramType = TypeOfVariable(param.Name, scope, typeMap);
+
+                    VariableRef paramVariable = new VariableRef()
+                    {
+                        VariableType = VariableType.Local,
+                        LocalAddress = index,
+                        Type = paramType,
+                    };
+
+                    LoadVariable(builder, paramVariable, typeMap);
+
+                    index += SizeOfType(paramType, typeMap);
                 }
 
                 builder.AppendLine($"\t::{func.Name}");
@@ -644,9 +886,9 @@ namespace T12
                         string varName = variableDeclaration.VariableName;
                         if (scope.ContainsKey(varName)) Fail($"Cannot declare the variable '{varName}' more than once!");
 
-                        int var_offset = local_index;
-                        scope.Add(varName, (var_offset, variableDeclaration.Type));
-                        varList.Add((varName, var_offset, variableDeclaration.Type));
+                        int varOffset = local_index;
+                        scope.Add(varName, (varOffset, variableDeclaration.Type));
+                        varList.Add((varName, varOffset, variableDeclaration.Type));
                         local_index += SizeOfType(variableDeclaration.Type, typeMap);
 
                         if (variableDeclaration.Initializer != null)
@@ -659,7 +901,16 @@ namespace T12
                             
                             EmitExpression(builder, typedExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                            AppendTypedStore(builder, $"{var_offset}\t; [{varName}]", variableDeclaration.Type, typeMap);
+                            VariableRef var = new VariableRef
+                            {
+                                VariableType = VariableType.Local,
+                                LocalAddress = varOffset,
+                                Type = variableDeclaration.Type,
+                                Comment = $"[{varName}]",
+                            };
+
+                            StoreVariable(builder, var, typeMap);
+                            // AppendTypedStore(builder, $"{varOffset}\t; [{varName}]", variableDeclaration.Type, typeMap);
                         }
                         break;
                     }
@@ -698,7 +949,7 @@ namespace T12
                             }
                             else
                             {
-                                builder.AppendLine($"\tretv {retSize}");
+                                builder.AppendLine($"\tretv {retSize}\t; {retType}");
                             }
                         }
                         else
@@ -871,22 +1122,32 @@ namespace T12
                 case ASTVariableExpression variable:
                     if (scope.TryGetValue(variable.Name, out var var))
                     {
-                        var var_type = TypeOfVariable(variable.Name, scope);
-                        int type_size = SizeOfType(var_type, typeMap);
+                        var varType = TypeOfVariable(variable.Name, scope, typeMap);
+                        int type_size = SizeOfType(varType, typeMap);
+
+                        VariableRef varRef = new VariableRef()
+                        {
+                            VariableType = VariableType.Local,
+                            LocalAddress = var.Offset,
+                            Type = varType,
+                            Comment = $"[{variable.Name}]",
+                        };
 
                         if (variable.AssignmentExpression != null)
                         {
                             var expr_type = CalcReturnType(variable.AssignmentExpression, scope, typeMap, functionMap, constMap, globalMap);
-                            if (var_type != expr_type) Fail($"Cannot assign expression of type '{expr_type}' to variable ('{variable.Name}') of type '{var_type}'");
+                            if (varType != expr_type) Fail($"Cannot assign expression of type '{expr_type}' to variable ('{variable.Name}') of type '{varType}'");
 
                             EmitExpression(builder, variable.AssignmentExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                            AppendTypedStore(builder, $"{var.Offset}\t; [{variable.Name}]", var_type, typeMap);
+                            StoreVariable(builder, varRef, typeMap);
+                            // AppendTypedStore(builder, $"{var.Offset}\t; [{variable.Name}]", varType, typeMap);
                         }
 
                         if (produceResult)
                         {
-                            AppendTypedLoad(builder, $"{var.Offset}\t; [{variable.Name}]", var_type, typeMap);
+                            LoadVariable(builder, varRef, typeMap);
+                            // AppendTypedLoad(builder, $"{var.Offset}\t; [{variable.Name}]", varType, typeMap);
                         }
                     }
                     else if (constMap.TryGetValue(variable.Name, out var constDirective))
@@ -897,7 +1158,7 @@ namespace T12
                         if (produceResult)
                         {
                             // FIXME: This does not feel good
-                            // We are comparing the type of the constant against strign
+                            // We are comparing the type of the constant against string
                             // So we can load a label instead of a litteral
                             if (constDirective.Value is ASTStringLitteral)
                             {
@@ -943,6 +1204,8 @@ namespace T12
                         // TODO: Check to see if this expression has side-effects. This way we can avoid poping at the end
                         EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
+                        // FIXME: Handle differing type sizes!!!
+
                         switch (unaryOp.OperatorType)
                         {
                             case ASTUnaryOp.UnaryOperationType.Identity:
@@ -963,6 +1226,18 @@ namespace T12
                                 builder.AppendLine("\tswap");
                                 builder.AppendLine("\tselz");
                                 break;
+                            case ASTUnaryOp.UnaryOperationType.Deference:
+                                if (type is ASTPointerType == false) Fail($"Cannot dereference non-pointer type '{type}'!");
+                                
+                                VariableRef variable = new VariableRef
+                                {
+                                    VariableType = VariableType.Pointer,
+                                    Type = (type as ASTPointerType).BaseType,
+                                    Comment = $"*[{unaryOp.Expr}]",
+                                };
+
+                                LoadVariable(builder, variable, typeMap);
+                                break;
                             default:
                                 Fail($"Unknown unary operator type {unaryOp.OperatorType}, this is a compiler bug!");
                                 break;
@@ -970,6 +1245,7 @@ namespace T12
 
                         if (produceResult == false)
                         {
+                            // FIXME: Do this depending on the type size!!!
                             builder.AppendLine("\tpop");
                         }
                         break;
@@ -1308,9 +1584,16 @@ namespace T12
                                 builder.AppendLine($"\tlmul");
                             }
 
+                            VariableRef pointerRef = new VariableRef()
+                            {
+                                VariableType = VariableType.Pointer,
+                                Type = baseType,
+                                Comment = $"{pointerExpression.Name}[{pointerExpression.Offset}]",
+                            };
+
                             // Add the offset to the pointer
                             builder.AppendLine($"\tladd");
-
+                            
                             if (pointerExpression.Assignment != null)
                             {
                                 var assign_type = CalcReturnType(pointerExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
@@ -1326,12 +1609,14 @@ namespace T12
 
                                 EmitExpression(builder, typedAssign, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                                AppendTypedStore(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", baseType, typeMap);
+                                StoreVariable(builder, pointerRef, typeMap);
+                                // AppendTypedStore(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", baseType, typeMap);
                             }
 
                             if (produceResult)
                             {
-                                AppendTypedLoad(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", baseType, typeMap);
+                                LoadVariable(builder, pointerRef, typeMap);
+                                // AppendTypedLoad(builder, $"[SP]\t; {pointerExpression.Name}[{pointerExpression.Offset}]", baseType, typeMap);
                             }
                         }
 
@@ -1468,61 +1753,105 @@ namespace T12
                     }
                 case ASTMemberExpression memberExpression:
                     {
-                        if (scope.TryGetValue(memberExpression.VariableName, out var variable))
+                        ASTType targetType = CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap);
+                        
+                        if (targetType is ASTStructType == false || (memberExpression.Dereference && (targetType as ASTPointerType)?.BaseType is ASTStructType))
+                            Fail($"Type {targetType} does not have any members!");
+
+                        var members = (targetType as ASTStructType).Members;
+                        int memberIndex = members.FindIndex(m => m.Name == memberExpression.MemberName);
+                        if (memberIndex < 0) Fail($"No member called '{memberExpression.MemberName}' in struct '{targetType}'");
+
+                        var memberType = ResolveType(members[memberIndex].Type, typeMap);
+
+                        // Calculate the offset
+                        int memberOffset = 0;
+                        for (int i = 0; i < memberIndex; i++)
                         {
-                            ASTType varType = TypeOfVariable(memberExpression.VariableName, scope);
-                            
-                            if (varType is ASTTypeRef)
-                                if (typeMap.TryGetValue((varType as ASTTypeRef).Name, out var type))
-                                    varType = type;
-                                else Fail($"Did not find type '{varType}'!");
+                            memberOffset += SizeOfType(members[i].Type, typeMap);
+                        }
 
-                            if (varType is ASTStructType)
+                        ASTExpression typedAssigmnent = null;
+                        if (memberExpression.Assignment != null)
+                        {
+                            var retType = CalcReturnType(memberExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
+
+                            if (TryGenerateImplicitCast(memberExpression.Assignment, memberType, scope, typeMap, functionMap, constMap, globalMap, out typedAssigmnent, out var error) == false)
+                                Fail($"Can't generate implicit cast from type '{retType}' to type '{memberType}'! (Cast error: {error})");
+                        }
+                        
+                        if (memberExpression.TargetExpr is ASTVariableExpression)
+                        {
+                            ASTVariableExpression varExpr = memberExpression.TargetExpr as ASTVariableExpression;
+
+                            if (TryResolveVariable(varExpr.Name, scope, globalMap, constMap, typeMap, out VariableRef variable) == false)
+                                Fail($"There is no variable called '{varExpr.Name}'!");
+
+                            if (variable.VariableType == VariableType.Constant)
+                                Fail("We don't do complex constants!");
+
+                            if (variable.VariableType == VariableType.Pointer)
+                                Fail("Pointers don't have members! Something is weird here because we should not get pointers from 'TryResolveVariable'...");
+
+                            //FIXME: Can we do this better?
+                            if (variable.VariableType == VariableType.Local)
                             {
-                                var members = (varType as ASTStructType).Members;
-                                int index = members.FindIndex(m => m.Name == memberExpression.MemberName);
-                                if (index < 0) Fail($"No member called '{memberExpression.MemberName}' in struct '{varType}'");
-
-                                var memberType = members[index].Type;
-                                
-                                if (memberType is ASTTypeRef)
-                                    if (typeMap.TryGetValue((memberType as ASTTypeRef).Name, out var type))
-                                        memberType = type;
-                                    else Fail($"Did not find type '{memberType}'!");
-
-                                // Calculate the offset
-                                int offset = 0;
-                                for (int i = 0; i < index; i++)
+                                VariableRef member = new VariableRef()
                                 {
-                                    offset += SizeOfType(members[i].Type, typeMap);
-                                }
+                                    VariableType = VariableType.Local,
+                                    LocalAddress = variable.LocalAddress + memberOffset,
+                                    Type = memberType,
+                                    Comment = $"[{varExpr.Name}.{memberExpression.MemberName}]",
+                                };
 
-                                if (memberExpression.Assignment != null)
+                                if (typedAssigmnent != null)
                                 {
-                                    var retType = CalcReturnType(memberExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
-
-                                    if (TryGenerateImplicitCast(memberExpression.Assignment, memberType, scope, typeMap, functionMap, constMap, globalMap, out var typedExpr, out var error) == false)
-                                        Fail($"Can't generate implicit cast from type '{retType}' to type '{memberType}'! (Cast error: {error})");
-
-                                    EmitExpression(builder, typedExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    AppendTypedStore(builder, $"{variable.Offset + offset}", memberType, typeMap);
+                                    // Load the assignment value
+                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    // Store that value into local
+                                    StoreVariable(builder, member, typeMap);
+                                    // AppendTypedStore(builder, $"{variable.Offset + offset}", memberType, typeMap);
                                 }
 
                                 if (produceResult)
                                 {
-                                    AppendTypedLoad(builder, $"{variable.Offset + offset}", memberType, typeMap);
+                                    LoadVariable(builder, member, typeMap);
+                                    // AppendTypedLoad(builder, $"{variable.Offset + offset}", memberType, typeMap);
+                                }
+                            }
+                            else if (variable.VariableType == VariableType.Global)
+                            {
+                                VariableRef member = new VariableRef
+                                {
+                                    // NOTE: This might not be the right thing to do...
+                                    VariableType = VariableType.Pointer,
+                                    Type = memberType,
+                                    Comment = $"[{varExpr.Name}.{memberExpression.MemberName}]",
+                                };
+
+                                if (typedAssigmnent != null)
+                                {
+                                    // Can we do this?
+                                    builder.AppendLine($"\tloadl #(#{variable.GlobalName} {memberOffset} +)");
+                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    StoreVariable(builder, member, typeMap);
+                                }
+
+                                if (produceResult)
+                                {
+                                    LoadVariable(builder, member, typeMap);
                                 }
                             }
                             else
                             {
-                                Fail($"Type {varType} does not have any members!");
+                                Fail($"This should not happen! We have a weird VariableType '{variable.VariableType}'!");
                             }
                         }
                         else
                         {
-                            Fail($"No variable called '{memberExpression.VariableName}'!");
+                            // We don't have a way to optimize this yet...
+                            // We'll just emit the whole struct, isolate the member, and possibly assign to it...
                         }
-
                         break;
                     }
                 default:

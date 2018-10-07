@@ -1230,32 +1230,44 @@ namespace T12
             }
             else if (peek.IsIdentifier)
             {
-                var peek_action_tok = Tokens.ElementAt(1);
-
-                // FIXME: Make variable assignment different from a variable expression
-                if (peek_action_tok.Type == TokenType.Equal)
+                ASTExpression expr;
+                var peekActionTok = Tokens.ElementAt(1);
+                if (peekActionTok.Type == TokenType.Open_parenthesis)
                 {
-                    // Variable assignment expression
-                    return ASTVariableExpression.Parse(Tokens);
-                }
-                else if (peek_action_tok.Type == TokenType.Open_parenthesis)
-                {
-                    // Function call
-                    return ASTFunctionCall.Parse(Tokens);
-                }
-                else if (peek_action_tok.Type == TokenType.Open_square_bracket)
-                {
-                    return ASTPointerExpression.Parse(Tokens);
-                }
-                else if (peek_action_tok.Type == TokenType.Period)
-                {
-                    return ASTMemberExpression.Parse(Tokens);
+                    expr = ASTFunctionCall.Parse(Tokens);
                 }
                 else
                 {
-                    // Variable expression
-                    return ASTVariableExpression.Parse(Tokens);
+                    // We know its a variable but we don't know what we will do with it
+                    expr = ASTVariableExpression.Parse(Tokens);
                 }
+
+                peek = Tokens.Peek();
+                while (peek.IsPostfixOperator)
+                {
+                    if (peek.Type == TokenType.Open_parenthesis)
+                    {
+                        // Function call
+                        return ASTFunctionCall.Parse(Tokens);
+                    }
+                    else if (peek.Type == TokenType.Open_square_bracket)
+                    {
+                        return ASTPointerExpression.Parse(Tokens);
+                    }
+                    else if (peek.Type == TokenType.Period || peek.Type == TokenType.Arrow)
+                    {
+                        return ASTMemberExpression.Parse(Tokens, expr);
+                    }
+                    else
+                    {
+                        // Variable expression
+                        return ASTVariableExpression.Parse(Tokens);
+                    }
+
+                    peek = Tokens.Peek();
+                }
+
+                return expr;
             }
             else if (peek.Type == TokenType.Keyword_Cast)
             {
@@ -1341,6 +1353,8 @@ namespace T12
 
     public class ASTWordLitteral : ASTNumericLitteral
     {
+        public const int WORD_MAX_VALUE = 0xFFF;
+
         public ASTWordLitteral(string value, int intValue) : base(ASTBaseType.Word, value, intValue) { }
         
         public static new ASTWordLitteral Parse(Queue<Token> Tokens)
@@ -1349,6 +1363,8 @@ namespace T12
             if (tok.Type != TokenType.Word_Litteral) Fail("Expected word litteral!");
 
             if (int.TryParse(tok.Value, out int value) == false) Fail($"Could not parse int '{tok.Value}'");
+            
+            if (value > WORD_MAX_VALUE) Fail($"Litteral '{value}' is to big for a word litteral!");
 
             return new ASTWordLitteral(tok.Value, value);
         }
@@ -1562,6 +1578,7 @@ namespace T12
             Negation,
             Compliment,
             Logical_negation,
+            Deference,
             // TODO: More
         }
 
@@ -1586,6 +1603,8 @@ namespace T12
                     return UnaryOperationType.Compliment;
                 case TokenType.Exclamationmark:
                     return UnaryOperationType.Logical_negation;
+                case TokenType.Asterisk:
+                    return UnaryOperationType.Deference;
                 default:
                     Fail($"Expected a unary operator token, not '{token}'");
                     return UnaryOperationType.Unknown;
@@ -1785,24 +1804,27 @@ namespace T12
 
     public class ASTMemberExpression : ASTExpression
     {
-        public readonly string VariableName;
+        public readonly ASTExpression TargetExpr;
         public readonly string MemberName;
         public readonly ASTExpression Assignment;
+        public readonly bool Dereference;
 
-        public ASTMemberExpression(string varName, string memberName, ASTExpression assignment)
+        public ASTMemberExpression(ASTExpression targetExpr, string memberName, ASTExpression assignment, bool dereference)
         {
-            VariableName = varName;
+            TargetExpr = targetExpr;
             MemberName = memberName;
             Assignment = assignment;
+            Dereference = dereference;
         }
 
-        public static new ASTMemberExpression Parse(Queue<Token> Tokens)
+        public static ASTMemberExpression Parse(Queue<Token> Tokens, ASTExpression targetExpr)
         {
-            var varTok = Tokens.Dequeue();
-            if (varTok.IsIdentifier == false) Fail("Expected identifier!");
+            bool dereference = false;
 
+            // If we are using an arrow, set the dereference flag
             var periodTok = Tokens.Dequeue();
-            if (periodTok.Type != TokenType.Period) Fail("Expected period!");
+            if (periodTok.Type == TokenType.Arrow) dereference = true;
+            else if (periodTok.Type != TokenType.Period) Fail("Expected period!");
 
             var memberTok = Tokens.Dequeue();
             if (memberTok.IsIdentifier == false) Fail("Expected member name!");
@@ -1815,14 +1837,13 @@ namespace T12
 
                 assign = ASTExpression.Parse(Tokens);
             }
-
-            string varName = varTok.Value;
+            
             string memberName = memberTok.Value;
 
-            return new ASTMemberExpression(varName, memberName, assign);
+            return new ASTMemberExpression(targetExpr, memberName, assign, dereference);
         }
     }
-
+    
     #region Casts
 
     public abstract class ASTCastExpression : ASTExpression
