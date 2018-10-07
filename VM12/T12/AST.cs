@@ -279,13 +279,15 @@ namespace T12
     {
         // NOTE: Is this really needed. There is probably a way to make this a lot cleaner!
 
-        public readonly ASTStructType DeclaredType;
-
-        public ASTStructDeclarationDirective(ASTStructType type)
+        public readonly string Name;
+        public readonly ASTType DeclaredType;
+        
+        public ASTStructDeclarationDirective(string name, ASTType type)
         {
+            Name = name;
             DeclaredType = type;
         }
-
+        
         public static new ASTStructDeclarationDirective Parse(Queue<Token> Tokens)
         {
             var structTok = Tokens.Dequeue();
@@ -295,34 +297,50 @@ namespace T12
             if (nameTok.IsIdentifier == false) Fail($"Expected struct name! Got '{nameTok}'!");
             string name = nameTok.Value;
 
-            var openBraceTok = Tokens.Dequeue();
-            if (openBraceTok.Type != TokenType.Open_brace) Fail("Expected '{'!");
-
-            List<(ASTType Type, string Name)> members = new List<(ASTType Type, string Name)>();
-
-            var peek = Tokens.Peek();
-            while (peek.Type != TokenType.Close_brace)
+            var defTok = Tokens.Dequeue();
+            switch (defTok.Type)
             {
-                var type = ASTType.Parse(Tokens);
-                var memberNameTok = Tokens.Dequeue();
-                if (memberNameTok.IsIdentifier == false) Fail($"Expected member name! Got {memberNameTok}!");
-                string memberName = memberNameTok.Value;
+                case TokenType.Equal:
+                    {
+                        ASTType type = ASTType.Parse(Tokens);
 
-                var semicolonTok = Tokens.Dequeue();
-                if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+                        var semicolonTok = Tokens.Dequeue();
+                        if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+                        
+                        return new ASTStructDeclarationDirective(name, type);
+                    }
+                case TokenType.Open_brace:
+                    {
+                        List<(ASTType Type, string Name)> members = new List<(ASTType Type, string Name)>();
 
-                if (members.Select(m => m.Name).Contains(memberName))
-                    Fail($"Duplicate member name '{memberName}' in struct '{name}'!");
+                        var peek = Tokens.Peek();
+                        while (peek.Type != TokenType.Close_brace)
+                        {
+                            var type = ASTType.Parse(Tokens);
+                            var memberNameTok = Tokens.Dequeue();
+                            if (memberNameTok.IsIdentifier == false) Fail($"Expected member name! Got {memberNameTok}!");
+                            string memberName = memberNameTok.Value;
 
-                members.Add((type, memberName));
+                            var semicolonTok = Tokens.Dequeue();
+                            if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
 
-                peek = Tokens.Peek();
+                            if (members.Select(m => m.Name).Contains(memberName))
+                                Fail($"Duplicate member name '{memberName}' in struct '{name}'!");
+
+                            members.Add((type, memberName));
+
+                            peek = Tokens.Peek();
+                        }
+
+                        var closeBrace = Tokens.Dequeue();
+                        if (closeBrace.Type != TokenType.Close_brace) Fail("Expected '}'!");
+
+                        return new ASTStructDeclarationDirective(name, new ASTStructType(name, members));
+                    }
+                default:
+                    Fail($"Unknown struct definition token '{defTok}'!");
+                    return default;
             }
-
-            var closeBrace = Tokens.Dequeue();
-            if (closeBrace.Type != TokenType.Close_brace) Fail("Expected '}'!");
-
-            return new ASTStructDeclarationDirective(new ASTStructType(name, members));
         }
     }
 
@@ -440,7 +458,7 @@ namespace T12
         public static List<(ASTType, string)> H_TimerParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "delta") };
         public static List<(ASTType, string)> V_BlankParamList = new List<(ASTType, string)>() { };
         public static List<(ASTType, string)> KeyboardParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "pressed"), (ASTBaseType.Word, "scancode") };
-        public static List<(ASTType, string)> MouseParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "dx"), (ASTBaseType.Word, "dy"), (ASTBaseType.Word, "status") };
+        public static List<(ASTType, string)> MouseParamList = new List<(ASTType, string)>() { (ASTBaseType.Word, "x"), (ASTBaseType.Word, "y"), (ASTBaseType.Word, "status") };
 
         public static List<(ASTType Type, string Name)> InterruptToParameterList(InterruptType type)
         {
@@ -538,7 +556,7 @@ namespace T12
         {
             var peek = Tokens.Peek();
 
-            if (peek.IsBaseType)
+            if (peek.IsBaseType || peek.Type == TokenType.Asterisk || peek.Type == TokenType.Open_square_bracket)
             {
                 return ASTDeclaration.Parse(Tokens);
             }
@@ -1216,7 +1234,7 @@ namespace T12
                 var closing_tok = Tokens.Dequeue();
                 if (closing_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis");
 
-                return expr;
+                return ParsePostfix(Tokens, expr);
             }
             else if (peek.IsUnaryOp)
             {
@@ -1228,8 +1246,11 @@ namespace T12
             {
                 return ASTLitteral.Parse(Tokens);
             }
-            else if (peek.IsIdentifier)
+            else if (peek.IsIdentifier || peek.IsPostfixOperator)
             {
+                // First we parse a variable or function call expression
+                // that we use as the target for all postfix expressions
+
                 ASTExpression expr;
                 var peekActionTok = Tokens.ElementAt(1);
                 if (peekActionTok.Type == TokenType.Open_parenthesis)
@@ -1242,42 +1263,51 @@ namespace T12
                     expr = ASTVariableExpression.Parse(Tokens);
                 }
 
-                peek = Tokens.Peek();
-                while (peek.IsPostfixOperator)
-                {
-                    if (peek.Type == TokenType.Open_parenthesis)
-                    {
-                        // Function call
-                        return ASTFunctionCall.Parse(Tokens);
-                    }
-                    else if (peek.Type == TokenType.Open_square_bracket)
-                    {
-                        return ASTPointerExpression.Parse(Tokens);
-                    }
-                    else if (peek.Type == TokenType.Period || peek.Type == TokenType.Arrow)
-                    {
-                        return ASTMemberExpression.Parse(Tokens, expr);
-                    }
-                    else
-                    {
-                        // Variable expression
-                        return ASTVariableExpression.Parse(Tokens);
-                    }
-
-                    peek = Tokens.Peek();
-                }
-
-                return expr;
+                return ParsePostfix(Tokens, expr);
             }
             else if (peek.Type == TokenType.Keyword_Cast)
             {
                 return ASTExplicitCast.Parse(Tokens);
+            }
+            else if (peek.Type == TokenType.Keyword_Sizeof)
+            {
+                return ASTSizeofTypeExpression.Parse(Tokens);
             }
             else
             {
                 Fail($"Could not parse factor. Didn't know what to do with token '{peek}'");
                 return default;
             }
+        }
+
+        public static ASTExpression ParsePostfix(Queue<Token> Tokens, ASTExpression targetExpr)
+        {
+            // As long as there is a postfix token we parse a postfix expression
+
+            var peek = Tokens.Peek();
+            while (peek.IsPostfixOperator)
+            {
+                switch (peek.Type)
+                {
+                    case TokenType.Open_parenthesis:
+                        Fail("We have not implemented function pointers yet so this will not mean anything");
+                        return default;
+                    case TokenType.Open_square_bracket:
+                        targetExpr = ASTPointerExpression.Parse(Tokens, targetExpr);
+                        break;
+                    case TokenType.Period:
+                    case TokenType.Arrow:
+                        targetExpr = ASTMemberExpression.Parse(Tokens, targetExpr);
+                        break;
+                    default:
+                        Fail($"Unknown postfix operator '{peek}'!");
+                        break;
+                }
+
+                peek = Tokens.Peek();
+            }
+            
+            return targetExpr;
         }
     }
 
@@ -1522,23 +1552,19 @@ namespace T12
 
     public class ASTPointerExpression : ASTExpression
     {
-        public readonly string Name;
+        public readonly ASTExpression Pointer;
         public readonly ASTExpression Offset;
         public readonly ASTExpression Assignment;
 
-        public ASTPointerExpression(string name, ASTExpression offset, ASTExpression assignment)
+        public ASTPointerExpression(ASTExpression pointer, ASTExpression offset, ASTExpression assignment)
         {
-            Name = name;
+            Pointer = pointer;
             Offset = offset;
             Assignment = assignment;
         }
 
-        public static new ASTPointerExpression Parse(Queue<Token> Tokens)
+        public static ASTPointerExpression Parse(Queue<Token> Tokens, ASTExpression target)
         {
-            var name_tok = Tokens.Dequeue();
-            if (name_tok.IsIdentifier == false) Fail("Expected identifier!");
-            string name = name_tok.Value;
-            
             var open_square_tok = Tokens.Dequeue();
             if (open_square_tok.Type != TokenType.Open_square_bracket) Fail("Expected '['!");
 
@@ -1561,11 +1587,11 @@ namespace T12
                     // Replace expr with the appropriate bin op
                     var op_type = ASTVariableExpression.TokenToOperatorType(op_tok);
 
-                    assignment = new ASTBinaryOp(op_type, new ASTVariableExpression(name, null), assignment);
+                    assignment = new ASTBinaryOp(op_type, target, assignment);
                 }
             }
 
-            return new ASTPointerExpression(name, offset, assignment);
+            return new ASTPointerExpression(target, offset, assignment);
         }
     }
 
@@ -1578,7 +1604,7 @@ namespace T12
             Negation,
             Compliment,
             Logical_negation,
-            Deference,
+            Dereference,
             // TODO: More
         }
 
@@ -1603,8 +1629,8 @@ namespace T12
                     return UnaryOperationType.Compliment;
                 case TokenType.Exclamationmark:
                     return UnaryOperationType.Logical_negation;
-                case TokenType.Asterisk:
-                    return UnaryOperationType.Deference;
+                case TokenType.ShiftLeft:
+                    return UnaryOperationType.Dereference;
                 default:
                     Fail($"Expected a unary operator token, not '{token}'");
                     return UnaryOperationType.Unknown;
@@ -1828,22 +1854,55 @@ namespace T12
 
             var memberTok = Tokens.Dequeue();
             if (memberTok.IsIdentifier == false) Fail("Expected member name!");
-
-            ASTExpression assign = null;
-
-            if (Tokens.Peek().Type == TokenType.Equal)
+            string memberName = memberTok.Value;
+            
+            ASTExpression assignment = null;
+            
+            if (Tokens.Peek().IsAssignmentOp)
             {
-                Tokens.Dequeue();
+                var op_tok = Tokens.Dequeue();
 
-                assign = ASTExpression.Parse(Tokens);
+                assignment = ASTExpression.Parse(Tokens);
+
+                if (op_tok.Type != TokenType.Equal)
+                {
+                    // Replace expr with the appropriate bin op
+                    var op_type = ASTVariableExpression.TokenToOperatorType(op_tok);
+
+                    assignment = new ASTBinaryOp(op_type, new ASTMemberExpression(targetExpr, memberName, null, dereference), assignment);
+                }
             }
             
-            string memberName = memberTok.Value;
-
-            return new ASTMemberExpression(targetExpr, memberName, assign, dereference);
+            return new ASTMemberExpression(targetExpr, memberName, assignment, dereference);
         }
     }
     
+    public class ASTSizeofTypeExpression : ASTExpression
+    {
+        public readonly ASTType Type;
+
+        public ASTSizeofTypeExpression(ASTType type)
+        {
+            Type = type;
+        }
+
+        public static new ASTSizeofTypeExpression Parse(Queue<Token> Tokens)
+        {
+            var sizeofTok = Tokens.Dequeue();
+            if (sizeofTok.Type != TokenType.Keyword_Sizeof) Fail("Expected sizeof!");
+
+            var openParen = Tokens.Dequeue();
+            if (openParen.Type != TokenType.Open_parenthesis) Fail("Expected '('!");
+
+            ASTType type = ASTType.Parse(Tokens);
+
+            var closeParen = Tokens.Dequeue();
+            if (closeParen.Type != TokenType.Close_parenthesis) Fail("Expected ')'!");
+
+            return new ASTSizeofTypeExpression(type);
+        }
+    }
+
     #region Casts
 
     public abstract class ASTCastExpression : ASTExpression
@@ -1955,67 +2014,63 @@ namespace T12
         public static ASTType Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
-            if (!tok.IsType) Fail("Exptected type identifier!");
-
-            // Temporary
-            //if (tok.Type != TokenType.Keyword_Word) Fail("We only support word variables atm!");
-            
-            ASTType type;
-            if (ASTBaseType.BaseTypeMap.TryGetValue(tok.Value, out ASTBaseType baseType))
+            switch (tok.Type)
             {
-                type = baseType;
-            }
-            else
-            {
-                type = new ASTTypeRef(tok.Value);
-            }
-
-            // If there is a following asterisk we make a pointer out of the type
-            var peek = Tokens.Peek();
-            while (peek.Type == TokenType.Asterisk || peek.Type == TokenType.Open_square_bracket)
-            {
-                Tokens.Dequeue();
-
-                if (peek.Type == TokenType.Asterisk)
-                {
-                    // Make a pointer type out of current type
-                    type = new ASTPointerType(type);
-                }
-                else if (peek.Type == TokenType.Open_square_bracket)
-                {
-                    // Parse and make the current type the base for an array
-                    peek = Tokens.Peek();
-                    if (peek.Type == TokenType.Word_Litteral || peek.Type == TokenType.Double_Word_Litteral)
+                case TokenType.Asterisk:
                     {
-                        var numLit = ASTNumericLitteral.Parse(Tokens);
-                        
-                        if (Tokens.Dequeue().Type != TokenType.Close_squre_bracket)
-                            Fail("Expected ']'!");
-
-                        type = new ASTFixedArrayType(type, numLit);
+                        ASTType type = ASTType.Parse(Tokens);
+                        return new ASTPointerType(type);
                     }
-                    else if (peek.Type == TokenType.Close_squre_bracket)
+                case TokenType.Open_square_bracket:
                     {
-                        // This is an array with a runtime size
+                        // Parse and make the current type the base for an array
+                        var peek = Tokens.Peek();
+                        if (peek.Type == TokenType.Word_Litteral || peek.Type == TokenType.Double_Word_Litteral)
+                        {
+                            var numLit = ASTNumericLitteral.Parse(Tokens);
 
-                        // Dequeue the closing square bracket
-                        Tokens.Dequeue();
-                        
-                        type = new ASTArrayType(type);
+                            if (Tokens.Dequeue().Type != TokenType.Close_squre_bracket)
+                                Fail("Expected ']'!");
+
+                            ASTType type = ASTType.Parse(Tokens);
+
+                            return new ASTFixedArrayType(type, numLit);
+                        }
+                        else if (peek.Type == TokenType.Close_squre_bracket)
+                        {
+                            // This is an array with a runtime size
+
+                            // Dequeue the closing square bracket
+                            Tokens.Dequeue();
+
+                            ASTType type = ASTType.Parse(Tokens);
+
+                            return new ASTArrayType(type);
+                        }
+                        else
+                        {
+                            Fail($"Undexpected token while parsing array type '{peek}'!");
+                            return default;
+                        }
                     }
-                    else
+                default:
                     {
-                        Fail($"Undexpected token while parsing array type '{peek}'! Current type: {type}");
+                        // Do normal parsing
+                        if (tok.IsType == false) Fail("Exptected type identifier!");
+
+                        ASTType type;
+                        if (ASTBaseType.BaseTypeMap.TryGetValue(tok.Value, out ASTBaseType baseType))
+                        {
+                            type = baseType;
+                        }
+                        else
+                        {
+                            type = new ASTTypeRef(tok.Value);
+                        }
+
+                        return type;
                     }
-                }
-                
-                peek = Tokens.Peek();
             }
-
-            // Temporary
-            //if (type != ASTBaseType.Word) Fail("We only support word variables atm!");
-
-            return type;
         }
     }
 
@@ -2055,7 +2110,7 @@ namespace T12
 
         public static ASTPointerType Of(ASTType type) => new ASTPointerType(type);
 
-        public ASTPointerType(ASTType baseType) : base($"{baseType.TypeName}*")
+        public ASTPointerType(ASTType baseType) : base($"*{baseType.TypeName}")
         {
             BaseType = baseType;
         }
@@ -2084,7 +2139,7 @@ namespace T12
 
         public readonly ASTType BaseType;
 
-        public ASTArrayType(ASTType baseType) : this(baseType, $"{baseType.TypeName}[]") { }
+        public ASTArrayType(ASTType baseType) : this(baseType, $"[]{baseType.TypeName}") { }
 
         protected ASTArrayType(ASTType baseType, string name) : base(name)
         {
@@ -2096,7 +2151,7 @@ namespace T12
     {
         public new readonly ASTNumericLitteral Size;
 
-        public ASTFixedArrayType(ASTType baseType, ASTNumericLitteral size) : base(baseType, $"{baseType.TypeName}[{size}]")
+        public ASTFixedArrayType(ASTType baseType, ASTNumericLitteral size) : base(baseType, $"[{size}]{baseType.TypeName}")
         {
             Size = size;
         }
@@ -2124,6 +2179,6 @@ namespace T12
             Members = members;
         }
     }
-
+    
     #endregion
 }

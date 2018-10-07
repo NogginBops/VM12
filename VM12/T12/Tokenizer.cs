@@ -25,6 +25,9 @@ namespace T12
         Numbersign,
         Arrow,
 
+        ShiftLeft,
+        ShiftRight,
+
         DoubleAnd,
         DoublePipe,
         DoubleEqual,
@@ -75,6 +78,8 @@ namespace T12
         Keyword_Break,
         Keyword_Continue,
         Keyword_Cast,
+        Keyword_Namespace,
+        Keyword_Sizeof,
 
         Keyword_Use,
         Keyword_Extern,
@@ -127,7 +132,7 @@ namespace T12
             Type == TokenType.Minus ||
             Type == TokenType.Tilde ||
             Type == TokenType.Exclamationmark ||
-            Type == TokenType.Asterisk;
+            Type == TokenType.ShiftLeft;
 
         public bool IsBinaryOp =>
             Type == TokenType.Plus ||
@@ -216,6 +221,9 @@ namespace T12
             ( TokenType.Numbersign, new Regex("^#") ),
             ( TokenType.Arrow, new Regex("^->") ),
 
+            ( TokenType.ShiftLeft, new Regex("^<<") ),
+            ( TokenType.ShiftRight, new Regex("^>>") ),
+
             ( TokenType.DoubleAnd, new Regex("^&&") ),
             ( TokenType.DoublePipe, new Regex("^\\|\\|") ),
             ( TokenType.DoubleEqual, new Regex("^==") ),
@@ -265,6 +273,8 @@ namespace T12
             ( TokenType.Keyword_Break, new Regex("^break\\b") ),
             ( TokenType.Keyword_Continue, new Regex("^continue\\b") ),
             ( TokenType.Keyword_Cast, new Regex("^cast\\b") ),
+            ( TokenType.Keyword_Namespace, new Regex("^namespace\\b") ),
+            ( TokenType.Keyword_Sizeof, new Regex("^sizeof\\b") ),
 
             ( TokenType.Keyword_Use, new Regex("^use\\b") ),
             ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),
