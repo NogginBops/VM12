@@ -713,8 +713,8 @@ namespace VM12Asm
                 AsemFile asmFile = Parse(rawFile);
                 watch.Stop();
                 parseTime += watch.ElapsedTicks;
-
-                files[use] = asmFile;
+                
+                files[fi.Name] = asmFile;
 
                 foreach (var u in asmFile.Usings.Reverse())
                 {

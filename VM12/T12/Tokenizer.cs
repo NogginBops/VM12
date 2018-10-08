@@ -81,6 +81,8 @@ namespace T12
         Keyword_Namespace,
         Keyword_Sizeof,
 
+        Keyword_Public,
+        Keyword_Private,
         Keyword_Use,
         Keyword_Extern,
         Keyword_Const,
@@ -118,7 +120,9 @@ namespace T12
             Type == TokenType.Keyword_Bool ||
             Type == TokenType.Keyword_Char ||
             Type == TokenType.Keyword_String ||
-            Type == TokenType.Identifier;
+            Type == TokenType.Identifier ||
+            Type == TokenType.Open_square_bracket ||
+            Type == TokenType.Asterisk;
 
         public bool IsBaseType =>
             Type == TokenType.Keyword_Void ||
@@ -175,6 +179,8 @@ namespace T12
             Type == TokenType.Identifier;
 
         public bool IsDirectiveKeyword => 
+            Type == TokenType.Keyword_Public ||
+            Type == TokenType.Keyword_Private ||
             Type == TokenType.Keyword_Use ||
             Type == TokenType.Keyword_Extern || 
             Type == TokenType.Keyword_Const ||
@@ -276,6 +282,8 @@ namespace T12
             ( TokenType.Keyword_Namespace, new Regex("^namespace\\b") ),
             ( TokenType.Keyword_Sizeof, new Regex("^sizeof\\b") ),
 
+            ( TokenType.Keyword_Public, new Regex("^public\\b") ),
+            ( TokenType.Keyword_Private, new Regex("^private\\b") ),
             ( TokenType.Keyword_Use, new Regex("^use\\b") ),
             ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),
             ( TokenType.Keyword_Const, new Regex("^const\\b") ),

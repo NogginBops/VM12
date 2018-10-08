@@ -14,8 +14,9 @@ namespace T12
 
             if (args.Length <= 0)
             {
-                Console.WriteLine("Cannot run without input file!");
-                return;
+                Console.Write("InputFile: ");
+                inFile = Console.ReadLine();
+                outFile = Path.ChangeExtension(inFile, "12asm");
             }
             else
             {

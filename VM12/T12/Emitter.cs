@@ -167,14 +167,14 @@ namespace T12
                     }
                 case ASTMemberExpression memberExpression:
                     {
-                        var targetType = CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap); ;
+                        var targetType = ResolveType(CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
 
-                        if (targetType is ASTTypeRef)
-                            if (typeMap.TryGetValue((targetType as ASTTypeRef).Name, out var reffedType))
-                                targetType = reffedType;
-                            else
-                                Fail($"There is no type called '{(targetType as ASTTypeRef).Name}'!");
-                                
+                        var test = memberExpression;
+
+                        if (memberExpression.Dereference && targetType is ASTPointerType pointerType && pointerType.BaseType is ASTStructType)
+                        {
+                            targetType = pointerType.BaseType;
+                        }
 
                         if (targetType is ASTStructType == false)
                             Fail($"Type '{targetType}' does not have members!");
@@ -625,6 +625,9 @@ namespace T12
             if (type is ASTTypeRef)
                 return ResolveType(type.TypeName, typeMap);
 
+            if (type is ASTPointerType)
+                return new ASTPointerType(ResolveType((type as ASTPointerType).BaseType, typeMap));
+
             return type;
         }
 
@@ -708,6 +711,11 @@ namespace T12
         {
             switch (directive)
             {
+                case ASTVisibilityDirective visibilityDirective:
+                    {
+                        builder.AppendLine($"{(visibilityDirective.IsPublic ? "!global" : "!private")}");
+                        break;
+                    }
                 case ASTUseDirective use:
                     {
                         builder.AppendLine($"& {Path.GetFileNameWithoutExtension(use.FileName)} {use.FileName}");
@@ -721,6 +729,14 @@ namespace T12
                         functionMap.Add(externFunc.FunctionName, func);
                         break;
                     }
+                case ASTExternConstantDirective externConstDirective:
+                    {
+                        constMap[externConstDirective.Name] = new ASTConstDirective(externConstDirective.Type, externConstDirective.Name, null);
+
+                        builder.AppendLine($"<{externConstDirective.Name} = extern>");
+
+                        break;
+                    }
                 case ASTConstDirective constDirective:
                     {
                         // TODO: Is constant value?
@@ -728,13 +744,26 @@ namespace T12
                         // TODO: Resolve conflicts
                         constMap[constDirective.Name] = constDirective;
 
+                        var constType = ResolveType(constDirective.Type, typeMap);
+
+                        if (constType is ASTStructType)
+                            Fail("We don't do constant structs yet? Or there cannot be constant structs!");
+                        
                         if (constDirective.Value is ASTStringLitteral)
                         {
+                            // FIXME: This is risky, and does not feel super good...
                             // We do nothing as we handle the case when we need the constant
                         }
                         else
                         {
+                            // We send in an empty scope as there is no scope
+                            var valueType = ResolveType(CalcReturnType(constDirective.Value, new VarMap(), typeMap, functionMap, constMap, globalMap), typeMap);
 
+                            // If we are casting from a (d)word to pointer of those types there is no problem
+                            if (constType is ASTPointerType)
+                                if (valueType != ASTBaseType.Word && valueType != ASTBaseType.DoubleWord)
+                                    Fail($"Can't convert constant expression of type '{valueType}' to type '{constType}'!");
+                            
                             // FIXME: Proper constant folding!!!!!!!
                             builder.AppendLine($"<{constDirective.Name} = {(constDirective.Value as ASTLitteral).Value}>");
                         }
@@ -1621,15 +1650,17 @@ namespace T12
                                 Comment = $"{pointerExpression.Pointer}[{pointerExpression.Offset}]",
                             };
 
+                            var test = pointerExpression;
+
                             // Add the offset to the pointer
                             builder.AppendLine($"\tladd");
                             
                             if (pointerExpression.Assignment != null)
                             {
-                                var assign_type = CalcReturnType(pointerExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
+                                var assignType = CalcReturnType(pointerExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
 
                                 if (TryGenerateImplicitCast(pointerExpression.Assignment, baseType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedAssign, out error) == false)
-                                    Fail($"Cannot assign expression of type '{assign_type}' to pointer to type '{baseType}'! (Implicit cast error: '{error}')");
+                                    Fail($"Cannot assign expression of type '{assignType}' to pointer to type '{baseType}'! (Implicit cast error: '{error}')");
 
                                 if (produceResult)
                                 {
@@ -1808,6 +1839,16 @@ namespace T12
                                 // We don't have to do anything to swap base type for pointer types!
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
+                            else if (fromType is ASTPointerType && toType == ASTBaseType.DoubleWord)
+                            {
+                                // We don't have to do anything to convert a pointer to a dword!
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType == ASTBaseType.DoubleWord && toType == ASTPointerType.Of(ASTBaseType.Void))
+                            {
+                                // We don't have to do anything to convert a dword to a pointer!
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
                             else
                             {
                                 Fail($"There is no explicit cast from {fromType} to {toType}!");
@@ -1818,10 +1859,22 @@ namespace T12
                     }
                 case ASTMemberExpression memberExpression:
                     {
+                        var test = memberExpression;
+
                         ASTType targetType = ResolveType(CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
                         
-                        if (targetType is ASTStructType == false || (memberExpression.Dereference && (targetType as ASTPointerType)?.BaseType is ASTStructType))
-                            Fail($"Type {targetType} does not have any members!");
+                        if (targetType is ASTStructType == false)
+                        {
+                            if (memberExpression.Dereference && targetType is ASTPointerType pointerType && pointerType.BaseType is ASTStructType)
+                            {
+                                // FIXME: Do proper dereferencing!!!
+                                targetType = pointerType.BaseType;
+                            }
+                            else
+                            {
+                                Fail($"Type {targetType} does not have any members!");
+                            }
+                        }
 
                         var members = (targetType as ASTStructType).Members;
                         int memberIndex = members.FindIndex(m => m.Name == memberExpression.MemberName);
@@ -1835,9 +1888,7 @@ namespace T12
                         {
                             memberOffset += SizeOfType(members[i].Type, typeMap);
                         }
-
-                        var test = memberExpression;
-
+                        
                         ASTExpression typedAssigmnent = null;
                         if (memberExpression.Assignment != null)
                         {

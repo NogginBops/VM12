@@ -97,10 +97,25 @@ namespace T12
             var peek = Tokens.Peek();
             switch (peek.Type)
             {
+                case TokenType.Keyword_Public:
+                    Tokens.Dequeue();
+                    if (Tokens.Dequeue().Type != TokenType.Colon) Fail("Expected ':' after visibility directive!");
+                    return new ASTVisibilityDirective(true);
+                case TokenType.Keyword_Private:
+                    Tokens.Dequeue();
+                    if (Tokens.Dequeue().Type != TokenType.Colon) Fail("Expected ':' after visibility directive!");
+                    return new ASTVisibilityDirective(false);
                 case TokenType.Keyword_Use:
                     return ASTUseDirective.Parse(Tokens);
                 case TokenType.Keyword_Extern:
-                    return ASTExternFunctionDirective.Parse(Tokens);
+                    if (Tokens.ElementAt(1).Type == TokenType.Keyword_Const)
+                    {
+                        return ASTExternConstantDirective.Parse(Tokens);
+                    }
+                    else
+                    {
+                        return ASTExternFunctionDirective.Parse(Tokens);
+                    }
                 case TokenType.Keyword_Const:
                     return ASTConstDirective.Parse(Tokens);
                 case TokenType.Keyword_Global:
@@ -111,6 +126,16 @@ namespace T12
                     Fail($"Unexpected token '{peek}' expected a valid directive!");
                     return default;
             }
+        }
+    }
+
+    public class ASTVisibilityDirective : ASTDirective
+    {
+        public readonly bool IsPublic;
+
+        public ASTVisibilityDirective(bool isPublic)
+        {
+            IsPublic = isPublic;
         }
     }
 
@@ -206,14 +231,46 @@ namespace T12
         }
     }
 
+    public class ASTExternConstantDirective : ASTDirective
+    {
+        public readonly ASTType Type;
+        public readonly string Name;
+
+        public ASTExternConstantDirective(ASTType type, string name)
+        {
+            Type = type;
+            Name = name;
+        }
+
+        public static new ASTExternConstantDirective Parse(Queue<Token> Tokens)
+        {
+            var extern_tok = Tokens.Dequeue();
+            if (extern_tok.Type != TokenType.Keyword_Extern) Fail("Expected 'extern'!");
+
+            var const_tok = Tokens.Dequeue();
+            if (const_tok.Type != TokenType.Keyword_Const) Fail("Expected 'const'!");
+
+            var type = ASTType.Parse(Tokens);
+            
+            var nameTok = Tokens.Dequeue();
+            if (nameTok.IsIdentifier == false) Fail("Expected identifier!");
+            string name = nameTok.Value;
+
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+
+            return new ASTExternConstantDirective(type, name);
+        }
+    }
+
     public class ASTConstDirective : ASTDirective
     {
         // There is only constants of base types
-        public readonly ASTBaseType Type;
+        public readonly ASTType Type;
         public readonly string Name;
         public readonly ASTExpression Value;
 
-        public ASTConstDirective(ASTBaseType type, string name, ASTExpression value)
+        public ASTConstDirective(ASTType type, string name, ASTExpression value)
         {
             Type = type;
             Name = name;
@@ -226,7 +283,6 @@ namespace T12
             if (const_tok.Type != TokenType.Keyword_Const) Fail("Expected 'const'!");
 
             var type = ASTType.Parse(Tokens);
-            if ((type is ASTBaseType) == false) Fail($"Cannot use a non-base type for a constant variable! Got '{type}'");
 
             var name_tok = Tokens.Dequeue();
             if (name_tok.Type != TokenType.Identifier) Fail($"Expected constant name!");
@@ -240,7 +296,7 @@ namespace T12
             var semicolon_tok = Tokens.Dequeue();
             if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
 
-            return new ASTConstDirective(type as ASTBaseType, name, value);
+            return new ASTConstDirective(type, name, value);
         }
     }
 
