@@ -55,7 +55,7 @@ namespace T12
         {
             string fileData = File.ReadAllText(infile);
 
-            var tokens = Tokenizer.Tokenize(fileData);
+            var tokens = Tokenizer.Tokenize(fileData, infile);
 
             AST ast = AST.Parse(tokens);
             

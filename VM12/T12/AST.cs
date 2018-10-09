@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.IO;
 using VM12_Opcode;
 
 namespace T12
@@ -9,7 +10,7 @@ namespace T12
     public class AST
     {
         public readonly ASTProgram Program;
-
+        
         public AST(ASTProgram Program)
         {
             this.Program = Program;
@@ -27,13 +28,44 @@ namespace T12
         }
     }
 
+    public struct TraceData
+    {
+        public string File;
+        public int StartLine;
+        public int EndLine;
+
+        public static readonly TraceData Internal = new TraceData
+        {
+            File = "internal",
+            StartLine = -1,
+            EndLine = -1,
+        };
+
+        public static TraceData From(Token tok)
+        {
+            return new TraceData
+            {
+                File = tok.File,
+                StartLine = tok.Line,
+                EndLine = tok.Line,
+            };
+        }
+    }
+
     public abstract class ASTNode
     {
-        protected static void Fail(string error)
+        public readonly TraceData Trace;
+
+        public ASTNode(TraceData trace)
+        {
+            Trace = trace;
+        }
+
+        protected static void Fail(Token tok, string error)
         {
             // TODO: Do something better!
             //throw new FormatException(error);
-            throw new FormatException(error);
+            throw new FormatException($"Error in file {Path.GetFileName(tok.File)} at line {tok.Line}: '{error}'");
         }
     }
     
@@ -42,7 +74,7 @@ namespace T12
         public readonly List<ASTDirective> Directives;
         public readonly List<ASTFunction> Functions;
 
-        public ASTProgram(List<ASTDirective> Directives, List<ASTFunction> Functions)
+        public ASTProgram(TraceData trace, List<ASTDirective> Directives, List<ASTFunction> Functions) : base(trace)
         {
             this.Directives = Directives;
             this.Functions = Functions;
@@ -52,6 +84,13 @@ namespace T12
         {
             List<ASTDirective> directives = new List<ASTDirective>();
             List<ASTFunction> functions = new List<ASTFunction>();
+            
+            var trace = new TraceData
+            {
+                File = Tokens.Peek().File,
+                StartLine = Tokens.Peek().Line,
+                EndLine = Tokens.Last().Line,
+            };
 
             while (Tokens.Count > 0)
             {
@@ -73,7 +112,7 @@ namespace T12
                 }
                 else
                 {
-                    Fail($"Unknown token {peek} in program!");
+                    Fail(peek, $"Unknown token {peek} in program!");
                 }
             }
             
@@ -82,9 +121,9 @@ namespace T12
                 functions.Add(ASTFunction.Parse(Tokens));
             }
 
-            if (Tokens.Count > 0) Fail($"There was '{Tokens.Count}' tokens left that couldn't be parsed. Next token: '{Tokens.Peek()}'");
+            if (Tokens.Count > 0) Fail(Tokens.Peek(), $"There was '{Tokens.Count}' tokens left that couldn't be parsed. Next token: '{Tokens.Peek()}'");
             
-            return new ASTProgram(directives, functions);
+            return new ASTProgram(trace, directives, functions);
         }
     }
 
@@ -92,19 +131,43 @@ namespace T12
 
     public abstract class ASTDirective : ASTNode
     {
+        public ASTDirective(TraceData trace) : base(trace) { }
+
         public static ASTDirective Parse(Queue<Token> Tokens)
         {
             var peek = Tokens.Peek();
             switch (peek.Type)
             {
                 case TokenType.Keyword_Public:
-                    Tokens.Dequeue();
-                    if (Tokens.Dequeue().Type != TokenType.Colon) Fail("Expected ':' after visibility directive!");
-                    return new ASTVisibilityDirective(true);
+                    {
+                        var publicTok = Tokens.Dequeue();
+                        var colonTok = Tokens.Dequeue();
+                        if (colonTok.Type != TokenType.Colon) Fail(peek, "Expected ':' after visibility directive!");
+
+                        var trace = new TraceData
+                        {
+                            File = publicTok.File,
+                            StartLine = publicTok.Line,
+                            EndLine = colonTok.Line,
+                        };
+
+                        return new ASTVisibilityDirective(trace, true);
+                    }
                 case TokenType.Keyword_Private:
-                    Tokens.Dequeue();
-                    if (Tokens.Dequeue().Type != TokenType.Colon) Fail("Expected ':' after visibility directive!");
-                    return new ASTVisibilityDirective(false);
+                    {
+                        var privateTok = Tokens.Dequeue();
+                        var colonTok = Tokens.Dequeue();
+                        if (colonTok.Type != TokenType.Colon) Fail(peek, "Expected ':' after visibility directive!");
+
+                        var trace = new TraceData
+                        {
+                            File = privateTok.File,
+                            StartLine = privateTok.Line,
+                            EndLine = colonTok.Line,
+                        };
+
+                        return new ASTVisibilityDirective(trace, false);
+                    }
                 case TokenType.Keyword_Use:
                     return ASTUseDirective.Parse(Tokens);
                 case TokenType.Keyword_Extern:
@@ -123,7 +186,7 @@ namespace T12
                 case TokenType.Keyword_Struct:
                     return ASTStructDeclarationDirective.Parse(Tokens);
                 default:
-                    Fail($"Unexpected token '{peek}' expected a valid directive!");
+                    Fail(peek, $"Unexpected token '{peek}' expected a valid directive!");
                     return default;
             }
         }
@@ -133,7 +196,7 @@ namespace T12
     {
         public readonly bool IsPublic;
 
-        public ASTVisibilityDirective(bool isPublic)
+        public ASTVisibilityDirective(TraceData trace, bool isPublic) : base(trace)
         {
             IsPublic = isPublic;
         }
@@ -143,15 +206,15 @@ namespace T12
     {
         public readonly string FileName;
 
-        public ASTUseDirective(string filename)
+        public ASTUseDirective(TraceData trace, string filename) : base(trace)
         {
             FileName = filename;
         }
 
         public static new ASTUseDirective Parse(Queue<Token> Tokens)
         {
-            var use_tok = Tokens.Dequeue();
-            if (use_tok.Type != TokenType.Keyword_Use) Fail("Exptected 'use'!");
+            var useTok = Tokens.Dequeue();
+            if (useTok.Type != TokenType.Keyword_Use) Fail(useTok, "Exptected 'use'!");
 
             string name = "";
             var peek = Tokens.Peek();
@@ -164,9 +227,16 @@ namespace T12
             }
 
             // Dequeue semicolon
-            Tokens.Dequeue();
+            var semicolonTok = Tokens.Dequeue();
+
+            var trace = new TraceData
+            {
+                File = useTok.File,
+                StartLine = useTok.Line,
+                EndLine = semicolonTok.Line,
+            };
             
-            return new ASTUseDirective(name);
+            return new ASTUseDirective(trace, name);
         }
     }
 
@@ -176,7 +246,7 @@ namespace T12
         public readonly List<(ASTType Type, string Name)> Parameters;
         public readonly ASTType ReturnType;
 
-        public ASTExternFunctionDirective(string functionName, List<(ASTType, string)> parameters, ASTType returnType)
+        public ASTExternFunctionDirective(TraceData trace, string functionName, List<(ASTType, string)> parameters, ASTType returnType) : base(trace)
         {
             FunctionName = functionName;
             Parameters = parameters;
@@ -185,20 +255,20 @@ namespace T12
 
         public static new ASTExternFunctionDirective Parse(Queue<Token> Tokens)
         {
-            var extern_tok = Tokens.Dequeue();
-            if (extern_tok.Type != TokenType.Keyword_Extern) Fail("Expected 'extern'!");
+            var externTok = Tokens.Dequeue();
+            if (externTok.Type != TokenType.Keyword_Extern) Fail(externTok, "Expected 'extern'!");
 
             var retType = ASTType.Parse(Tokens);
 
-            var name_tok = Tokens.Dequeue();
-            if (name_tok.IsIdentifier == false) Fail($"Expected external function name (identifier)! Got {name_tok}");
-            string funcName = name_tok.Value;
+            var nameTok = Tokens.Dequeue();
+            if (nameTok.IsIdentifier == false) Fail(nameTok, $"Expected external function name (identifier)! Got {nameTok}");
+            string funcName = nameTok.Value;
 
             List<(ASTType, string)> parameters = new List<(ASTType, string)>();
 
             // Confirm that we have a opening parenthesis
-            var open_paren_tok = Tokens.Dequeue();
-            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected '('");
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
 
             // We peeked so we can handle this loop more uniform by always dequeueing at the start
             var peek = Tokens.Peek();
@@ -212,22 +282,29 @@ namespace T12
 
                 parameters.Add((type, name));
 
-                var cont_token = Tokens.Peek();
-                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
-                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
                 // Dequeue the comma
                 Tokens.Dequeue();
 
                 peek = Tokens.Peek();
             }
 
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected ')'");
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
-            return new ASTExternFunctionDirective(funcName, parameters, retType);
+            var trace = new TraceData
+            {
+                File = externTok.File,
+                StartLine = externTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTExternFunctionDirective(trace, funcName, parameters, retType);
         }
     }
 
@@ -236,7 +313,7 @@ namespace T12
         public readonly ASTType Type;
         public readonly string Name;
 
-        public ASTExternConstantDirective(ASTType type, string name)
+        public ASTExternConstantDirective(TraceData trace, ASTType type, string name) : base(trace)
         {
             Type = type;
             Name = name;
@@ -244,22 +321,29 @@ namespace T12
 
         public static new ASTExternConstantDirective Parse(Queue<Token> Tokens)
         {
-            var extern_tok = Tokens.Dequeue();
-            if (extern_tok.Type != TokenType.Keyword_Extern) Fail("Expected 'extern'!");
+            var externTok = Tokens.Dequeue();
+            if (externTok.Type != TokenType.Keyword_Extern) Fail(externTok, "Expected 'extern'!");
 
-            var const_tok = Tokens.Dequeue();
-            if (const_tok.Type != TokenType.Keyword_Const) Fail("Expected 'const'!");
+            var constTok = Tokens.Dequeue();
+            if (constTok.Type != TokenType.Keyword_Const) Fail(constTok, "Expected 'const'!");
 
             var type = ASTType.Parse(Tokens);
             
             var nameTok = Tokens.Dequeue();
-            if (nameTok.IsIdentifier == false) Fail("Expected identifier!");
+            if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
             string name = nameTok.Value;
 
             var semicolonTok = Tokens.Dequeue();
-            if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
-            return new ASTExternConstantDirective(type, name);
+            var trace = new TraceData
+            {
+                File = externTok.File,
+                StartLine = externTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTExternConstantDirective(trace, type, name);
         }
     }
 
@@ -270,7 +354,7 @@ namespace T12
         public readonly string Name;
         public readonly ASTExpression Value;
 
-        public ASTConstDirective(ASTType type, string name, ASTExpression value)
+        public ASTConstDirective(TraceData trace, ASTType type, string name, ASTExpression value) : base(trace)
         {
             Type = type;
             Name = name;
@@ -279,24 +363,31 @@ namespace T12
 
         public static new ASTConstDirective Parse(Queue<Token> Tokens)
         {
-            var const_tok = Tokens.Dequeue();
-            if (const_tok.Type != TokenType.Keyword_Const) Fail("Expected 'const'!");
+            var constTok = Tokens.Dequeue();
+            if (constTok.Type != TokenType.Keyword_Const) Fail(constTok, "Expected 'const'!");
 
             var type = ASTType.Parse(Tokens);
 
-            var name_tok = Tokens.Dequeue();
-            if (name_tok.Type != TokenType.Identifier) Fail($"Expected constant name!");
-            string name = name_tok.Value;
+            var nameTok = Tokens.Dequeue();
+            if (nameTok.Type != TokenType.Identifier) Fail(nameTok, $"Expected constant name!");
+            string name = nameTok.Value;
 
-            var equals_tok = Tokens.Dequeue();
-            if (equals_tok.Type != TokenType.Equal) Fail($"Expected equals!");
+            var equalsTok = Tokens.Dequeue();
+            if (equalsTok.Type != TokenType.Equal) Fail(equalsTok, $"Expected equals!");
 
             var value = ASTExpression.Parse(Tokens);
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
-            return new ASTConstDirective(type, name, value);
+            var trace = new TraceData
+            {
+                File = constTok.File,
+                StartLine = constTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTConstDirective(trace, type, name, value);
         }
     }
 
@@ -305,7 +396,7 @@ namespace T12
         public readonly ASTType Type;
         public readonly string Name;
 
-        public ASTGlobalDirective(ASTType type, string name)
+        public ASTGlobalDirective(TraceData trace, ASTType type, string name) : base(trace)
         {
             Type = type;
             Name = name;
@@ -313,19 +404,26 @@ namespace T12
 
         public static new ASTGlobalDirective Parse(Queue<Token> Tokens)
         {
-            var global_tok = Tokens.Dequeue();
-            if (global_tok.Type != TokenType.Keyword_Global) Fail("Expected 'global'!");
+            var globalTok = Tokens.Dequeue();
+            if (globalTok.Type != TokenType.Keyword_Global) Fail(globalTok, "Expected 'global'!");
 
             var type = ASTType.Parse(Tokens);
 
-            var name_tok = Tokens.Dequeue();
-            if (name_tok.IsIdentifier == false) Fail("Expected global name!");
-            string name = name_tok.Value;
+            var nameTok = Tokens.Dequeue();
+            if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected global name!");
+            string name = nameTok.Value;
             
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
-            return new ASTGlobalDirective(type, name);
+            var trace = new TraceData
+            {
+                File = globalTok.File,
+                StartLine = globalTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTGlobalDirective(trace, type, name);
         }
     }
 
@@ -338,7 +436,7 @@ namespace T12
         public readonly string Name;
         public readonly ASTType DeclaredType;
         
-        public ASTStructDeclarationDirective(string name, ASTType type)
+        public ASTStructDeclarationDirective(TraceData trace, string name, ASTType type) : base(trace)
         {
             Name = name;
             DeclaredType = type;
@@ -347,10 +445,10 @@ namespace T12
         public static new ASTStructDeclarationDirective Parse(Queue<Token> Tokens)
         {
             var structTok = Tokens.Dequeue();
-            if (structTok.Type != TokenType.Keyword_Struct) Fail("Expected struct!");
+            if (structTok.Type != TokenType.Keyword_Struct) Fail(structTok, "Expected struct!");
 
             var nameTok = Tokens.Dequeue();
-            if (nameTok.IsIdentifier == false) Fail($"Expected struct name! Got '{nameTok}'!");
+            if (nameTok.IsIdentifier == false) Fail(nameTok, $"Expected struct name! Got '{nameTok}'!");
             string name = nameTok.Value;
 
             var defTok = Tokens.Dequeue();
@@ -361,9 +459,16 @@ namespace T12
                         ASTType type = ASTType.Parse(Tokens);
 
                         var semicolonTok = Tokens.Dequeue();
-                        if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
-                        
-                        return new ASTStructDeclarationDirective(name, type);
+                        if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
+
+                        var trace = new TraceData
+                        {
+                            File = structTok.File,
+                            StartLine = structTok.Line,
+                            EndLine = semicolonTok.Line,
+                        };
+
+                        return new ASTStructDeclarationDirective(trace, name, type);
                     }
                 case TokenType.Open_brace:
                     {
@@ -374,14 +479,14 @@ namespace T12
                         {
                             var type = ASTType.Parse(Tokens);
                             var memberNameTok = Tokens.Dequeue();
-                            if (memberNameTok.IsIdentifier == false) Fail($"Expected member name! Got {memberNameTok}!");
+                            if (memberNameTok.IsIdentifier == false) Fail(memberNameTok, $"Expected member name! Got {memberNameTok}!");
                             string memberName = memberNameTok.Value;
 
                             var semicolonTok = Tokens.Dequeue();
-                            if (semicolonTok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+                            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
                             if (members.Select(m => m.Name).Contains(memberName))
-                                Fail($"Duplicate member name '{memberName}' in struct '{name}'!");
+                                Fail(memberNameTok, $"Duplicate member name '{memberName}' in struct '{name}'!");
 
                             members.Add((type, memberName));
 
@@ -389,12 +494,19 @@ namespace T12
                         }
 
                         var closeBrace = Tokens.Dequeue();
-                        if (closeBrace.Type != TokenType.Close_brace) Fail("Expected '}'!");
+                        if (closeBrace.Type != TokenType.Close_brace) Fail(closeBrace, "Expected '}'!");
 
-                        return new ASTStructDeclarationDirective(name, new ASTStructType(name, members));
+                        var trace = new TraceData
+                        {
+                            File = structTok.File,
+                            StartLine = structTok.Line,
+                            EndLine = closeBrace.Line,
+                        };
+
+                        return new ASTStructDeclarationDirective(trace, name, new ASTStructType(trace, name, members));
                     }
                 default:
-                    Fail($"Unknown struct definition token '{defTok}'!");
+                    Fail(defTok, $"Unknown struct definition token '{defTok}'!");
                     return default;
             }
         }
@@ -410,7 +522,7 @@ namespace T12
         
         public readonly List<ASTBlockItem> Body;
 
-        public ASTFunction(string Name, ASTType ReturnType, List<(ASTType, string)> Parameters, List<ASTBlockItem> Body)
+        public ASTFunction(TraceData trace, string Name, ASTType ReturnType, List<(ASTType, string)> Parameters, List<ASTBlockItem> Body) : base(trace)
         {
             this.Name = Name;
             this.ReturnType = ReturnType;
@@ -420,19 +532,19 @@ namespace T12
 
         public static ASTFunction Parse(Queue<Token> Tokens)
         {
-            var type_tok = Tokens.Peek();
-            if (type_tok.IsType == false) Fail("Expected a type!");
+            var typeTok = Tokens.Peek();
+            if (typeTok.IsType == false) Fail(typeTok, "Expected a type!");
             var returnType = ASTType.Parse(Tokens);
             
-            var ident_tok = Tokens.Dequeue();
-            if (ident_tok.Type != TokenType.Identifier) Fail("Expected an identifier!");
-            var name = ident_tok.Value;
+            var identTok = Tokens.Dequeue();
+            if (identTok.Type != TokenType.Identifier) Fail(identTok, "Expected an identifier!");
+            var name = identTok.Value;
 
             List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
 
             // Confirm that we have a opening parenthesis
-            var open_paren_tok = Tokens.Dequeue();
-            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected '('");
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
             
             // We peeked so we can handle this loop more uniform by always dequeueing at the start
             var peek = Tokens.Peek();
@@ -440,26 +552,26 @@ namespace T12
             {
                 ASTType type = ASTType.Parse(Tokens);
 
-                var param_ident_tok = Tokens.Dequeue();
-                if (param_ident_tok.IsIdentifier == false) Fail("Expected identifier!");
-                string param_name = param_ident_tok.Value;
+                var paramIdentTok = Tokens.Dequeue();
+                if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
+                string param_name = paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
 
-                var cont_token = Tokens.Peek();
-                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
-                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
                 // Dequeue the comma
                 Tokens.Dequeue();
                 
                 peek = Tokens.Peek();
             }
 
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected ')'");
 
-            var open_brace_tok = Tokens.Dequeue();
-            if (open_brace_tok.Type != TokenType.Open_brace) Fail("Expected '{'");
+            var openBraceTok = Tokens.Dequeue();
+            if (openBraceTok.Type != TokenType.Open_brace) Fail(openBraceTok, "Expected '{'");
 
             List<ASTBlockItem> body = new List<ASTBlockItem>();
 
@@ -473,10 +585,17 @@ namespace T12
             }
 
             // Dequeue the closing brace
-            var close_brace_tok = Tokens.Dequeue();
-            if (close_brace_tok.Type != TokenType.Close_brace) Fail("Expected closing brace");
+            var closeBraceTok = Tokens.Dequeue();
+            if (closeBraceTok.Type != TokenType.Close_brace) Fail(closeBraceTok, "Expected closing brace");
 
-            return new ASTFunction(name, returnType, parameters, body);
+            var trace = new TraceData
+            {
+                File = typeTok.File,
+                StartLine = typeTok.Line,
+                EndLine = closeBraceTok.Line,
+            };
+
+            return new ASTFunction(trace, name, returnType, parameters, body);
         }
     }
 
@@ -484,10 +603,10 @@ namespace T12
     {
         public readonly InterruptType Type;
         
-        public ASTInterrupt(InterruptType type, List<(ASTType Type, string Name)> parameters, List<ASTBlockItem> body) : base(InterruptTypeToName(type), ASTBaseType.Void, parameters, body)
+        public ASTInterrupt(TraceData trace, InterruptType type, List<(ASTType Type, string Name)> parameters, List<ASTBlockItem> body) : base(trace, InterruptTypeToName(type), ASTBaseType.Void, parameters, body)
         {
             if (type == InterruptType.stop)
-                Fail("Cannot define a interupt procedure for the interrupt stop");
+                throw new ArgumentException("Cannot define a interupt procedure for the interrupt stop");
 
             Type = type;
         }
@@ -536,18 +655,24 @@ namespace T12
         
         public static new ASTInterrupt Parse(Queue<Token> Tokens)
         {
-            var interrupt_tok = Tokens.Dequeue();
-            if (interrupt_tok.Type != TokenType.Keyword_Interrupt) Fail("Expected interrupt!");
+            var interruptTok = Tokens.Dequeue();
+            if (interruptTok.Type != TokenType.Keyword_Interrupt) Fail(interruptTok, "Expected interrupt!");
 
-            var interrupt_type_tok = Tokens.Dequeue();
-            if (interrupt_type_tok.IsIdentifier == false) Fail("Expected interrupt type!");
-            if (Enum.TryParse(interrupt_type_tok.Value, out InterruptType interruptType) == false) Fail($"'{interrupt_type_tok.Value}' is not a valid interrupt type!");
+            var interruptTypeTok = Tokens.Dequeue();
+            if (interruptTypeTok.IsIdentifier == false) Fail(interruptTypeTok, "Expected interrupt type!");
+            if (Enum.TryParse(interruptTypeTok.Value, out InterruptType interruptType) == false) Fail(interruptTypeTok, $"'{interruptTypeTok.Value}' is not a valid interrupt type!");
+
+            if (interruptType == InterruptType.stop)
+                Fail(interruptTypeTok, "Cannot define a interupt procedure for the interrupt stop");
 
             // FIXME!! Validate params and parse body!!!!
-            var open_parenthesis = Tokens.Dequeue();
-            if (open_parenthesis.Type != TokenType.Open_parenthesis) Fail("Expected '('!");
+            var openParenthesis = Tokens.Dequeue();
+            if (openParenthesis.Type != TokenType.Open_parenthesis) Fail(openParenthesis, "Expected '('!");
 
             List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
+
+            // This is to provide accurate debug info
+            List<Token> paramTokens = new List<Token>();
 
             // We peeked so we can handle this loop more uniform by always dequeueing at the start
             var peek = Tokens.Peek();
@@ -555,37 +680,38 @@ namespace T12
             {
                 ASTType type = ASTType.Parse(Tokens);
 
-                var param_ident_tok = Tokens.Dequeue();
-                if (param_ident_tok.IsIdentifier == false) Fail("Expected identifier!");
-                string param_name = param_ident_tok.Value;
+                var paramIdentTok = Tokens.Dequeue();
+                if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
+                string param_name = paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
+                paramTokens.Add(paramIdentTok);
 
-                var cont_token = Tokens.Peek();
-                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
-                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
                 // Dequeue the comma
                 Tokens.Dequeue();
 
                 peek = Tokens.Peek();
             }
 
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected ')'");
 
             var interruptParams = InterruptToParameterList(interruptType);
 
             if (interruptParams.Count != parameters.Count)
-                Fail($"Missmatching parameter count for interrupt {interruptType}, expected {interruptParams.Count} params, got {parameters.Count}");
+                Fail(closeParenTok, $"Missmatching parameter count for interrupt {interruptType}, expected {interruptParams.Count} params, got {parameters.Count}");
 
             for (int i = 0; i < interruptParams.Count; i++)
             {
                 if (interruptParams[i].Type != parameters[i].Type)
-                    Fail($"Non matching type for interrupt {interruptType}! Parameter {parameters[i].Name} ({i}) expected '{interruptParams[i].Type}' got '{parameters[i].Type}'");
+                    Fail(paramTokens[i], $"Non matching type for interrupt {interruptType}! Parameter {parameters[i].Name} ({i}) expected '{interruptParams[i].Type}' got '{parameters[i].Type}'");
             }
 
-            var open_brace_tok = Tokens.Dequeue();
-            if (open_brace_tok.Type != TokenType.Open_brace) Fail("Expected '{'");
+            var openBraceTok = Tokens.Dequeue();
+            if (openBraceTok.Type != TokenType.Open_brace) Fail(openBraceTok, "Expected '{'");
 
             List<ASTBlockItem> body = new List<ASTBlockItem>();
 
@@ -599,15 +725,24 @@ namespace T12
             }
 
             // Dequeue the closing brace
-            var close_brace_tok = Tokens.Dequeue();
-            if (close_brace_tok.Type != TokenType.Close_brace) Fail("Expected closing brace");
+            var closeBraceTok = Tokens.Dequeue();
+            if (closeBraceTok.Type != TokenType.Close_brace) Fail(closeBraceTok, "Expected closing brace");
 
-            return new ASTInterrupt(interruptType, parameters, body);
+            var trace = new TraceData
+            {
+                File = interruptTok.File,
+                StartLine = interruptTok.Line,
+                EndLine = closeBraceTok.Line,
+            };
+
+            return new ASTInterrupt(trace, interruptType, parameters, body);
         }
     }
 
     public abstract class ASTBlockItem : ASTNode
     {
+        public ASTBlockItem(TraceData trace) : base(trace) { }
+
         public static ASTBlockItem Parse(Queue<Token> Tokens)
         {
             var peek = Tokens.Peek();
@@ -636,6 +771,8 @@ namespace T12
 
     public abstract class ASTDeclaration : ASTBlockItem
     {
+        public ASTDeclaration(TraceData trace) : base(trace) { }
+
         public static new ASTBlockItem Parse(Queue<Token> Tokens)
         {
             return ASTVariableDeclaration.Parse(Tokens);
@@ -648,7 +785,7 @@ namespace T12
         public readonly string VariableName;
         public readonly ASTExpression Initializer;
 
-        public ASTVariableDeclaration(ASTType Type, string VariableName, ASTExpression Initializer)
+        public ASTVariableDeclaration(TraceData trace, ASTType Type, string VariableName, ASTExpression Initializer) : base(trace)
         {
             this.Type = Type;
             this.VariableName = VariableName;
@@ -661,9 +798,9 @@ namespace T12
             //var word_tok = Tokens.Dequeue();
             //if (word_tok.Type != TokenType.Keyword_Word) Fail("We only support word variables atm!");
 
-            var ident_tok = Tokens.Dequeue();
-            if (ident_tok.Type != TokenType.Identifier) Fail($"Invalid identifier in variable declareation. '{ident_tok}'");
-            string name = ident_tok.Value;
+            var identTok = Tokens.Dequeue();
+            if (identTok.Type != TokenType.Identifier) Fail(identTok, $"Invalid identifier in variable declareation. '{identTok}'");
+            string name = identTok.Value;
 
             ASTExpression init = null;
 
@@ -676,10 +813,17 @@ namespace T12
                 init = ASTExpression.Parse(Tokens);
             }
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("A statement must end in a semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "A statement must end in a semicolon!");
 
-            return new ASTVariableDeclaration(type, name, init);
+            var trace = new TraceData
+            {
+                File = type.Trace.File,
+                StartLine = type.Trace.StartLine,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTVariableDeclaration(trace, type, name, init);
         }
     }
     
@@ -689,6 +833,8 @@ namespace T12
 
     public abstract class ASTStatement : ASTBlockItem
     {
+        public ASTStatement(TraceData trace) : base(trace) { }
+
         public static new ASTStatement Parse(Queue<Token> Tokens)
         {
             // Here we need to figure out what statement we need to parse
@@ -728,14 +874,21 @@ namespace T12
     
     public class ASTEmptyStatement : ASTStatement
     {
-        public ASTEmptyStatement() { }
+        public ASTEmptyStatement(TraceData trace) : base(trace) { }
 
         public static new ASTEmptyStatement Parse(Queue<Token> Tokens)
         {
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected a semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected a semicolon!");
 
-            return new ASTEmptyStatement();
+            var trace = new TraceData
+            {
+                File = semicolonTok.File,
+                StartLine = semicolonTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTEmptyStatement(trace);
         }
     }
 
@@ -743,7 +896,7 @@ namespace T12
     {
         public readonly ASTExpression Expr;
 
-        public ASTExpressionStatement(ASTExpression Expr)
+        public ASTExpressionStatement(TraceData trace, ASTExpression Expr) : base(trace)
         {
             this.Expr = Expr;
         }
@@ -752,10 +905,17 @@ namespace T12
         {
             var expr = ASTExpression.Parse(Tokens);
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail($"Expected semicolon! Got '{semicolon_tok}'!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, $"Expected semicolon! Got '{semicolonTok}'!");
 
-            return new ASTExpressionStatement(expr);
+            var trace = new TraceData
+            {
+                File = expr.Trace.File,
+                StartLine = expr.Trace.StartLine,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTExpressionStatement(trace, expr);
         }
     }
 
@@ -764,7 +924,7 @@ namespace T12
         public readonly ReadOnlyCollection<string> VariableNames;
         public readonly ASTExpression AssignmentExpression;
 
-        public ASTAssignmentStatement(List<string> VariableNames, ASTExpression AssignmentExpression)
+        public ASTAssignmentStatement(TraceData trace, List<string> VariableNames, ASTExpression AssignmentExpression) : base(trace)
         {
             this.VariableNames = new ReadOnlyCollection<string>(VariableNames);
             this.AssignmentExpression = AssignmentExpression;
@@ -774,9 +934,9 @@ namespace T12
         {
             List<string> ids = new List<string>();
 
-            var ident_tok = Tokens.Dequeue();
-            if (ident_tok.IsIdentifier == false) Fail("Expected identifier!");
-            ids.Add(ident_tok.Value);
+            var identTok = Tokens.Dequeue();
+            if (identTok.IsIdentifier == false) Fail(identTok, "Expected identifier!");
+            ids.Add(identTok.Value);
 
             ASTExpression expr = null;
 
@@ -786,11 +946,11 @@ namespace T12
                 // Dequeue equals
                 Tokens.Dequeue();
 
-                var cont_ident_tok = Tokens.Peek();
-                if (cont_ident_tok.IsIdentifier)
+                var contIdentTok = Tokens.Peek();
+                if (contIdentTok.IsIdentifier)
                 {
                     // Here we add another value to assign to.
-                    ids.Add(cont_ident_tok.Value);
+                    ids.Add(contIdentTok.Value);
                     Tokens.Dequeue();
                 }
                 else
@@ -803,12 +963,19 @@ namespace T12
                 peek = Tokens.Peek();
             }
 
-            if (expr == null) Fail("Assignment must end in an expression!");
+            if (expr == null) Fail(peek, "Assignment must end in an expression!");
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("A statement must end in a semicolon!");
-            
-            return new ASTAssignmentStatement(ids, expr);
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "A statement must end in a semicolon!");
+
+            var trace = new TraceData
+            {
+                File = identTok.File,
+                StartLine = identTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTAssignmentStatement(trace, ids, expr);
         }
 
         
@@ -818,15 +985,15 @@ namespace T12
     {
         public readonly ASTExpression ReturnValueExpression;
 
-        public ASTReturnStatement(ASTExpression ReturnValueExpression)
+        public ASTReturnStatement(TraceData trace, ASTExpression ReturnValueExpression) : base(trace)
         {
             this.ReturnValueExpression = ReturnValueExpression;
         }
 
         public static new ASTReturnStatement Parse(Queue<Token> Tokens)
         {
-            var ret_tok = Tokens.Dequeue();
-            if (ret_tok.Type != TokenType.Keyword_Return) Fail("Expected return keyword!");
+            var retTok = Tokens.Dequeue();
+            if (retTok.Type != TokenType.Keyword_Return) Fail(retTok, "Expected return keyword!");
 
             ASTExpression returnValExpr = null;
 
@@ -834,10 +1001,17 @@ namespace T12
             if (peek.Type != TokenType.Semicolon)
                 returnValExpr = ASTExpression.Parse(Tokens);
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("A statement must end in a semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "A statement must end in a semicolon!");
 
-            return new ASTReturnStatement(returnValExpr);
+            var trace = new TraceData
+            {
+                File = retTok.File,
+                StartLine = retTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTReturnStatement(trace, returnValExpr);
         }
     }
 
@@ -847,7 +1021,7 @@ namespace T12
         public readonly ASTStatement IfTrue;
         public readonly ASTStatement IfFalse;
 
-        public ASTIfStatement(ASTExpression Condition, ASTStatement IfTrue, ASTStatement IfFalse)
+        public ASTIfStatement(TraceData trace, ASTExpression Condition, ASTStatement IfTrue, ASTStatement IfFalse) : base(trace)
         {
             this.Condition = Condition;
             this.IfTrue = IfTrue;
@@ -856,16 +1030,16 @@ namespace T12
 
         public static new ASTIfStatement Parse(Queue<Token> Tokens)
         {
-            var if_tok = Tokens.Dequeue();
-            if (if_tok.Type != TokenType.Keyword_If) Fail("Expected if keyword!");
+            var ifTok = Tokens.Dequeue();
+            if (ifTok.Type != TokenType.Keyword_If) Fail(ifTok, "Expected if keyword!");
 
-            var open_paren_tok = Tokens.Dequeue();
-            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected a opening parenthesis!");
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected a opening parenthesis!");
 
             var expr = ASTExpression.Parse(Tokens);
 
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected a closing parenthesis!");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected a closing parenthesis!");
 
             var ifTrue = ASTStatement.Parse(Tokens);
 
@@ -880,7 +1054,14 @@ namespace T12
                 ifFalse = ASTStatement.Parse(Tokens);
             }
 
-            return new ASTIfStatement(expr, ifTrue, ifFalse);
+            var trace = new TraceData
+            {
+                File = ifTok.File,
+                StartLine = ifTok.Line,
+                EndLine = ifFalse?.Trace.EndLine ?? ifTrue.Trace.EndLine,
+            };
+
+            return new ASTIfStatement(trace, expr, ifTrue, ifFalse);
         }
     }
 
@@ -888,15 +1069,15 @@ namespace T12
     {
         public readonly ReadOnlyCollection<ASTBlockItem> Block;
 
-        public ASTCompoundStatement(List<ASTBlockItem> Block)
+        public ASTCompoundStatement(TraceData trace, List<ASTBlockItem> Block) : base(trace)
         {
             this.Block = new ReadOnlyCollection<ASTBlockItem>(Block);
         }
 
         public static new ASTCompoundStatement Parse(Queue<Token> Tokens)
         {
-            var open_brace_tok = Tokens.Dequeue();
-            if (open_brace_tok.Type != TokenType.Open_brace) Fail("Expected opening brace!");
+            var openBraceTok = Tokens.Dequeue();
+            if (openBraceTok.Type != TokenType.Open_brace) Fail(openBraceTok, "Expected opening brace!");
 
             List<ASTBlockItem> blockItems = new List<ASTBlockItem>();
 
@@ -908,10 +1089,17 @@ namespace T12
                 peek = Tokens.Peek();
             }
 
-            var close_brace_tok = Tokens.Dequeue();
-            if (close_brace_tok.Type != TokenType.Close_brace) Fail("Expected closing brace!");
+            var closeBraceTok = Tokens.Dequeue();
+            if (closeBraceTok.Type != TokenType.Close_brace) Fail(closeBraceTok, "Expected closing brace!");
 
-            return new ASTCompoundStatement(blockItems);
+            var trace = new TraceData
+            {
+                File = openBraceTok.File,
+                StartLine = openBraceTok.Line,
+                EndLine = closeBraceTok.Line,
+            };
+
+            return new ASTCompoundStatement(trace, blockItems);
         }
     }
 
@@ -922,7 +1110,8 @@ namespace T12
         public readonly ASTExpression PostExpression;
         public readonly ASTStatement Body;
 
-        public ASTForWithDeclStatement(ASTVariableDeclaration Declaration, ASTExpression Condition, ASTExpression PostExpression, ASTStatement Body)        {
+        public ASTForWithDeclStatement(TraceData trace, ASTVariableDeclaration Declaration, ASTExpression Condition, ASTExpression PostExpression, ASTStatement Body) : base(trace)
+        {
             this.Declaration = Declaration;
             this.Condition = Condition;
             this.PostExpression = PostExpression;
@@ -931,28 +1120,35 @@ namespace T12
 
         public static new ASTForWithDeclStatement Parse(Queue<Token> Tokens)
         {
-            var for_tok = Tokens.Dequeue();
-            if (for_tok.Type != TokenType.Keyword_For) Fail("Expected token for!");
+            var forTok = Tokens.Dequeue();
+            if (forTok.Type != TokenType.Keyword_For) Fail(forTok, "Expected token for!");
 
-            var open_paren_tok = Tokens.Dequeue();
-            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected opening parenthesis!");
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected opening parenthesis!");
             
             // Ends with a semicolon
             var declaration = ASTVariableDeclaration.Parse(Tokens);
 
             var condition = ASTExpression.Parse(Tokens);
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected a semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected a semicolon!");
 
             var postExpr = ASTExpression.Parse(Tokens);
             
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis!");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected closing parenthesis!");
 
             var body = ASTStatement.Parse(Tokens);
 
-            return new ASTForWithDeclStatement(declaration, condition, postExpr, body);
+            var trace = new TraceData
+            {
+                File = forTok.File,
+                StartLine = forTok.Line,
+                EndLine = body.Trace.EndLine,
+            };
+
+            return new ASTForWithDeclStatement(trace, declaration, condition, postExpr, body);
         }
     }
 
@@ -961,7 +1157,7 @@ namespace T12
         public readonly ASTExpression Condition;
         public readonly ASTStatement Body;
 
-        public ASTWhileStatement(ASTExpression Condition, ASTStatement Body)
+        public ASTWhileStatement(TraceData trace, ASTExpression Condition, ASTStatement Body) : base(trace)
         {
             this.Condition = Condition;
             this.Body = Body;
@@ -969,20 +1165,27 @@ namespace T12
 
         public static new ASTWhileStatement Parse(Queue<Token> Tokens)
         {
-            var while_tok = Tokens.Dequeue();
-            if (while_tok.Type != TokenType.Keyword_While) Fail("Expected while!");
+            var whileTok = Tokens.Dequeue();
+            if (whileTok.Type != TokenType.Keyword_While) Fail(whileTok, "Expected while!");
 
-            var open_paren_tok = Tokens.Dequeue();
-            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected opening parenthesis!");
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected opening parenthesis!");
 
             var condition = ASTExpression.Parse(Tokens);
 
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis!");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected closing parenthesis!");
             
             var body = ASTStatement.Parse(Tokens);
 
-            return new ASTWhileStatement(condition, body);
+            var trace = new TraceData
+            {
+                File = whileTok.File,
+                StartLine = whileTok.Line,
+                EndLine = body.Trace.EndLine,
+            };
+
+            return new ASTWhileStatement(trace, condition, body);
         }
     }
 
@@ -991,7 +1194,7 @@ namespace T12
         public readonly ASTStatement Body;
         public readonly ASTExpression Condition;
 
-        public ASTDoWhileStatement(ASTStatement Body, ASTExpression Condition)
+        public ASTDoWhileStatement(TraceData trace, ASTStatement Body, ASTExpression Condition) : base(trace)
         {
             this.Body = Body;
             this.Condition = Condition;
@@ -999,48 +1202,63 @@ namespace T12
 
         public static new ASTDoWhileStatement Parse(Queue<Token> Tokens)
         {
-            var do_tok = Tokens.Dequeue();
-            if (do_tok.Type != TokenType.Keyword_Do) Fail("Expected do!");
+            var doTok = Tokens.Dequeue();
+            if (doTok.Type != TokenType.Keyword_Do) Fail(doTok, "Expected do!");
 
             var body = ASTStatement.Parse(Tokens);
 
-            var while_tok = Tokens.Dequeue();
-            if (while_tok.Type != TokenType.Keyword_While) Fail("Expected while!");
+            var whileTok = Tokens.Dequeue();
+            if (whileTok.Type != TokenType.Keyword_While) Fail(whileTok, "Expected while!");
 
-            var open_paren_tok = Tokens.Dequeue();
-            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected opening parenthesis!");
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected opening parenthesis!");
 
             var condition = ASTExpression.Parse(Tokens);
 
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis!");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected closing parenthesis!");
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected a semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected a semicolon!");
 
-            return new ASTDoWhileStatement(body, condition);
+            var trace = new TraceData
+            {
+                File = doTok.File,
+                StartLine = doTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTDoWhileStatement(trace, body, condition);
         }
     }
 
     public class ASTBreakStatement : ASTStatement
     {
+        public ASTBreakStatement(TraceData trace) : base(trace) { }
+
         public static new ASTBreakStatement Parse(Queue<Token> Tokens)
         {
-            var break_tok = Tokens.Dequeue();
-            if (break_tok.Type != TokenType.Keyword_Break) Fail("Expected keyword break!");
+            var breakTok = Tokens.Dequeue();
+            if (breakTok.Type != TokenType.Keyword_Break) Fail(breakTok, "Expected keyword break!");
 
-            return new ASTBreakStatement();
+            var trace = TraceData.From(breakTok);
+
+            return new ASTBreakStatement(trace);
         }
     }
 
     public class ASTContinueStatement : ASTStatement
     {
+        public ASTContinueStatement(TraceData trace) : base(trace) { }
+
         public static new ASTContinueStatement Parse(Queue<Token> Tokens)
         {
-            var break_tok = Tokens.Dequeue();
-            if (break_tok.Type != TokenType.Keyword_Continue) Fail("Expected keyword continue!");
+            var continueTok = Tokens.Dequeue();
+            if (continueTok.Type != TokenType.Keyword_Continue) Fail(continueTok, "Expected keyword continue!");
 
-            return new ASTContinueStatement();
+            var trace = TraceData.From(continueTok);
+
+            return new ASTContinueStatement(trace);
         }
     }
 
@@ -1048,36 +1266,43 @@ namespace T12
     {
         public readonly List<ASTStringLitteral> Assembly;
 
-        public ASTInlineAssemblyStatement(List<ASTStringLitteral> assembly)
+        public ASTInlineAssemblyStatement(TraceData trace, List<ASTStringLitteral> assembly) : base(trace)
         {
             Assembly = assembly;
         }
 
         public static new ASTInlineAssemblyStatement Parse(Queue<Token> Tokens)
         {
-            var assem_tok = Tokens.Dequeue();
-            if (assem_tok.Type != TokenType.Keyword_Assembly) Fail("Expected assembly!");
+            var assemTok = Tokens.Dequeue();
+            if (assemTok.Type != TokenType.Keyword_Assembly) Fail(assemTok, "Expected assembly!");
 
-            var open_parenthesis = Tokens.Dequeue();
-            if (open_parenthesis.Type != TokenType.Open_parenthesis) Fail("Expected '('");
+            var openParenthesis = Tokens.Dequeue();
+            if (openParenthesis.Type != TokenType.Open_parenthesis) Fail(openParenthesis, "Expected '('");
 
             List<ASTStringLitteral> assembly = new List<ASTStringLitteral>();
             while (Tokens.Peek().Type != TokenType.Close_parenthesis)
             {
                 if (Tokens.Peek().Type != TokenType.String_Litteral)
-                    Fail($"Assembly statements can only contain assembly strings! Got {Tokens.Peek()}");
+                    Fail(Tokens.Peek(), $"Assembly statements can only contain assembly strings! Got {Tokens.Peek()}");
 
                 var string_lit = ASTStringLitteral.Parse(Tokens);
                 assembly.Add(string_lit);
             }
 
-            var close_parenthesis = Tokens.Dequeue();
-            if (close_parenthesis.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+            var closeParenthesis = Tokens.Dequeue();
+            if (closeParenthesis.Type != TokenType.Close_parenthesis) Fail(closeParenthesis, "Expected ')'");
 
-            var semicolon_tok = Tokens.Dequeue();
-            if (semicolon_tok.Type != TokenType.Semicolon) Fail("Expected semicolon!");
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
-            return new ASTInlineAssemblyStatement(assembly);
+            var trace = new TraceData
+            {
+                File = assemTok.File,
+                StartLine = assemTok.Line,
+                EndLine = semicolonTok.Line,
+            };
+
+            return new ASTInlineAssemblyStatement(trace, assembly);
         }
     }
 
@@ -1087,6 +1312,8 @@ namespace T12
 
     public abstract class ASTExpression : ASTNode
     {
+        public ASTExpression(TraceData trace) : base(trace) { }
+
         public static ASTExpression Parse(Queue<Token> Tokens)
         {
             // We start by parsing logical or which has the lowest precedence
@@ -1107,12 +1334,19 @@ namespace T12
 
                 var ifTrue = ASTExpression.Parse(Tokens);
 
-                var colon_tok = Tokens.Dequeue();
-                if (colon_tok.Type != TokenType.Colon) Fail("Expected a colon!");
+                var colonTok = Tokens.Dequeue();
+                if (colonTok.Type != TokenType.Colon) Fail(colonTok, "Expected a colon!");
 
                 var ifFalse = ASTExpression.Parse(Tokens);
 
-                expr = new ASTConditionalExpression(expr, ifTrue, ifFalse);
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = ifFalse.Trace.EndLine,
+                };
+
+                expr = new ASTConditionalExpression(trace, expr, ifTrue, ifFalse);
             }
 
             return expr;
@@ -1126,9 +1360,17 @@ namespace T12
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.DoublePipe)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseLogicalAnd(Tokens);
-                expr = new ASTBinaryOp(op_type, expr, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseLogicalAnd(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
@@ -1143,9 +1385,17 @@ namespace T12
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.DoubleAnd)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseBitwiseOr(Tokens);
-                expr = new ASTBinaryOp(op_type, expr, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseBitwiseOr(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
@@ -1160,9 +1410,17 @@ namespace T12
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.Pipe)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseBitwiseXor(Tokens);
-                expr = new ASTBinaryOp(op_type, expr, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseBitwiseXor(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
@@ -1177,9 +1435,17 @@ namespace T12
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.Caret)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseBitwiseAnd(Tokens);
-                expr = new ASTBinaryOp(op_type, expr, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseBitwiseAnd(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
@@ -1194,9 +1460,17 @@ namespace T12
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.And)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseEqual(Tokens);
-                expr = new ASTBinaryOp(op_type, expr, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseEqual(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
@@ -1211,9 +1485,17 @@ namespace T12
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.NotEqual || peek.Type == TokenType.DoubleEqual)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseRelational(Tokens);
-                expr = new ASTBinaryOp(op_type, expr, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseRelational(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
@@ -1223,7 +1505,7 @@ namespace T12
         // The third level of precedence (< | > | <= | >=)
         public static ASTExpression ParseRelational(Queue<Token> Tokens)
         {
-            var term = ParseAddative(Tokens);
+            var expr = ParseAddative(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.Open_angle_bracket ||
@@ -1231,48 +1513,72 @@ namespace T12
                 peek.Type == TokenType.Less_than_or_equal ||
                 peek.Type == TokenType.Greater_than_or_equal)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseAddative(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseAddative(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // The second level of precedence (+ | -)
         public static ASTExpression ParseAddative(Queue<Token> Tokens)
         {
-            var term = ParseTerm(Tokens);
+            var expr = ParseTerm(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.Plus || peek.Type == TokenType.Minus)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseTerm(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseTerm(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // The highest level of precedence (* and /)
         public static ASTExpression ParseTerm(Queue<Token> Tokens)
         {
             // We start by parsing a factor, and handle it as an expression
-            var term = ParseFactor(Tokens);
+            var expr = ParseFactor(Tokens);
 
             var peek = Tokens.Peek();
             while (peek.Type == TokenType.Asterisk || peek.Type == TokenType.Slash || peek.Type == TokenType.Percent)
             {
-                var op_type = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
-                var next_term = ParseFactor(Tokens);
-                term = new ASTBinaryOp(op_type, term, next_term);
+                var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var nextTerm = ParseFactor(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = nextTerm.Trace.EndLine,
+                };
+
+                expr = new ASTBinaryOp(trace, opType, expr, nextTerm);
                 peek = Tokens.Peek();
             }
 
-            return term;
+            return expr;
         }
 
         // Other kinds of expressions like function calls and variable assignment
@@ -1287,16 +1593,25 @@ namespace T12
 
                 var expr = ASTExpression.Parse(Tokens);
 
-                var closing_tok = Tokens.Dequeue();
-                if (closing_tok.Type != TokenType.Close_parenthesis) Fail("Expected closing parenthesis");
+                var closingTok = Tokens.Dequeue();
+                if (closingTok.Type != TokenType.Close_parenthesis) Fail(closingTok, "Expected closing parenthesis");
 
                 return ParsePostfix(Tokens, expr);
             }
             else if (peek.IsUnaryOp)
             {
-                var opType = ASTUnaryOp.TokenToOperatorType(Tokens.Dequeue());
+                var opTok = Tokens.Dequeue();
+                var opType = ASTUnaryOp.TokenToOperatorType(opTok);
                 var factor = ASTExpression.ParseFactor(Tokens);
-                return new ASTUnaryOp(opType, factor);
+
+                var trace = new TraceData
+                {
+                    File = opTok.File,
+                    StartLine = opTok.Line,
+                    EndLine = factor.Trace.EndLine,
+                };
+
+                return new ASTUnaryOp(trace, opType, factor);
             }
             else if (peek.IsLitteral)
             {
@@ -1331,7 +1646,7 @@ namespace T12
             }
             else
             {
-                Fail($"Could not parse factor. Didn't know what to do with token '{peek}'");
+                Fail(peek, $"Could not parse factor. Didn't know what to do with token '{peek}'");
                 return default;
             }
         }
@@ -1346,7 +1661,7 @@ namespace T12
                 switch (peek.Type)
                 {
                     case TokenType.Open_parenthesis:
-                        Fail("We have not implemented function pointers yet so this will not mean anything");
+                        Fail(peek, "We have not implemented function pointers yet so this will not mean anything");
                         return default;
                     case TokenType.Open_square_bracket:
                         targetExpr = ASTPointerExpression.Parse(Tokens, targetExpr);
@@ -1356,7 +1671,7 @@ namespace T12
                         targetExpr = ASTMemberExpression.Parse(Tokens, targetExpr);
                         break;
                     default:
-                        Fail($"Unknown postfix operator '{peek}'!");
+                        Fail(peek, $"Unknown postfix operator '{peek}'!");
                         break;
                 }
 
@@ -1375,7 +1690,7 @@ namespace T12
 
         public readonly string Value;
 
-        public ASTLitteral(ASTBaseType type, string value)
+        public ASTLitteral(TraceData trace, ASTBaseType type, string value) : base(trace)
         {
             Type = type;
             Value = value;
@@ -1396,17 +1711,17 @@ namespace T12
                 case TokenType.Double_Word_Litteral:
                     return ASTDoubleWordLitteral.Parse(Tokens);
                 case TokenType.Keyword_True:
-                    Tokens.Dequeue();
-                    return ASTBoolLitteral.True;
+                    var trueTok = Tokens.Dequeue();
+                    return new ASTBoolLitteral(TraceData.From(trueTok), true);
                 case TokenType.Keyword_False:
-                    Tokens.Dequeue();
-                    return ASTBoolLitteral.False;
+                    var falseTok = Tokens.Dequeue();
+                    return new ASTBoolLitteral(TraceData.From(falseTok), false);
                 case TokenType.Char_Litteral:
                     return ASTCharLitteral.Parse(Tokens);
                 case TokenType.String_Litteral:
                     return ASTStringLitteral.Parse(Tokens);
                 default:
-                    Fail($"Expected litteral, got '{peek}'");
+                    Fail(peek, $"Expected litteral, got '{peek}'");
                     return default;
             }
         }
@@ -1416,7 +1731,7 @@ namespace T12
     {
         public readonly int IntValue;
 
-        public ASTNumericLitteral(ASTBaseType type, string value, int intValue) : base(type, value)
+        public ASTNumericLitteral(TraceData trace, ASTBaseType type, string value, int intValue) : base(trace, type, value)
         {
             IntValue = intValue;
         }
@@ -1431,7 +1746,7 @@ namespace T12
                 case TokenType.Double_Word_Litteral:
                     return ASTDoubleWordLitteral.Parse(Tokens);
                 default:
-                    Fail($"Expected numeric litteral! Got {peek}");
+                    Fail(peek, $"Expected numeric litteral! Got {peek}");
                     return default;
             }
         }
@@ -1441,50 +1756,63 @@ namespace T12
     {
         public const int WORD_MAX_VALUE = 0xFFF;
 
-        public ASTWordLitteral(string value, int intValue) : base(ASTBaseType.Word, value, intValue) { }
+        public ASTWordLitteral(TraceData trace, string value, int intValue) : base(trace, ASTBaseType.Word, value, intValue) { }
         
         public static new ASTWordLitteral Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
-            if (tok.Type != TokenType.Word_Litteral) Fail("Expected word litteral!");
+            if (tok.Type != TokenType.Word_Litteral) Fail(tok, "Expected word litteral!");
 
-            if (int.TryParse(tok.Value, out int value) == false) Fail($"Could not parse int '{tok.Value}'");
+            if (int.TryParse(tok.Value, out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
             
-            if (value > WORD_MAX_VALUE) Fail($"Litteral '{value}' is to big for a word litteral!");
+            if (value > WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is to big for a word litteral!");
 
-            return new ASTWordLitteral(tok.Value, value);
+            var trace = TraceData.From(tok);
+
+            return new ASTWordLitteral(trace, tok.Value, value);
         }
     }
 
     public class ASTDoubleWordLitteral : ASTNumericLitteral
     {
-        public ASTDoubleWordLitteral(string value, int intValue) : base(ASTBaseType.DoubleWord, value, intValue) { }
+        public const int DOUBLE_WORD_MAX_VALUE = 0xFFF_FFF;
+
+        public ASTDoubleWordLitteral(TraceData trace, string value, int intValue) : base(trace, ASTBaseType.DoubleWord, value, intValue) { }
 
         public static new ASTDoubleWordLitteral Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
-            if (tok.Type != TokenType.Double_Word_Litteral) Fail("Expected dword litteral!");
+            if (tok.Type != TokenType.Double_Word_Litteral) Fail(tok, "Expected dword litteral!");
 
             // Parse without the end letter!
-            if (int.TryParse(tok.Value.Substring(0, tok.Value.Length - 1), out int value) == false) Fail($"Could not parse int '{tok.Value}'");
+            if (int.TryParse(tok.Value.Substring(0, tok.Value.Length - 1), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
 
-            return new ASTDoubleWordLitteral(tok.Value, value);
+            if (value > DOUBLE_WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is too big for a double word!");
+
+            var trace = TraceData.From(tok);
+
+            return new ASTDoubleWordLitteral(trace, tok.Value, value);
         }
     }
 
     public class ASTBoolLitteral : ASTLitteral
     {
-        public static readonly ASTBoolLitteral True = new ASTBoolLitteral("true");
-        public static readonly ASTBoolLitteral False = new ASTBoolLitteral("false");
-        
-        private ASTBoolLitteral(string value) : base(ASTBaseType.Bool, value) { }
+        //public static readonly ASTBoolLitteral True = new ASTBoolLitteral("true");
+        //public static readonly ASTBoolLitteral False = new ASTBoolLitteral("false");
+
+        public readonly bool BoolValue;
+
+        public ASTBoolLitteral(TraceData trace, bool value) : base(trace, ASTBaseType.Bool, value.ToString())
+        {
+            BoolValue = value;
+        }
     }
 
     public class ASTCharLitteral : ASTLitteral
     {
         public readonly char CharValue;
 
-        public ASTCharLitteral(string value, char charValue) : base(ASTBaseType.Char, value)
+        public ASTCharLitteral(TraceData trace, string value, char charValue) : base(trace, ASTBaseType.Char, value)
         {
             CharValue = charValue;
         }
@@ -1492,13 +1820,15 @@ namespace T12
         public static new ASTCharLitteral Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
-            if (tok.Type != TokenType.Char_Litteral) Fail("Expected char litteral!");
+            if (tok.Type != TokenType.Char_Litteral) Fail(tok, "Expected char litteral!");
 
             // FIXME: This does not handle escapes!
             // Get the second character of the string
             char value = tok.Value[1];
 
-            return new ASTCharLitteral(tok.Value, value);
+            var trace = TraceData.From(tok);
+
+            return new ASTCharLitteral(trace, tok.Value, value);
         }
     }
 
@@ -1506,17 +1836,19 @@ namespace T12
     {
         public readonly string Contents;
 
-        public ASTStringLitteral(string value) : base(ASTBaseType.String, value)
+        public ASTStringLitteral(TraceData trace, string value) : base(trace, ASTBaseType.String, value)
         {
             Contents = value.Substring(1, value.Length - 2);
         }
 
         public static new ASTStringLitteral Parse(Queue<Token> Tokens)
         {
-            var string_tok = Tokens.Dequeue();
-            if (string_tok.Type != TokenType.String_Litteral) Fail("Expected string litteral!");
+            var stringTok = Tokens.Dequeue();
+            if (stringTok.Type != TokenType.String_Litteral) Fail(stringTok, "Expected string litteral!");
 
-            return new ASTStringLitteral(string_tok.Value);
+            var trace = TraceData.From(stringTok);
+
+            return new ASTStringLitteral(trace, stringTok.Value);
         }
     }
 
@@ -1541,10 +1873,10 @@ namespace T12
         public readonly string Name;
         public readonly ASTExpression AssignmentExpression;
 
-        public ASTVariableExpression(string VariableName, ASTExpression AssignmentExpression)
+        public ASTVariableExpression(TraceData trace, string variableName, ASTExpression assignmentExpression) : base(trace)
         {
-            this.Name = VariableName;
-            this.AssignmentExpression = AssignmentExpression;
+            this.Name = variableName;
+            this.AssignmentExpression = assignmentExpression;
         }
 
         public override string ToString()
@@ -1554,29 +1886,43 @@ namespace T12
 
         public static new ASTVariableExpression Parse(Queue<Token> Tokens)
         {
-            var ident_tok = Tokens.Dequeue();
-            if (ident_tok.IsIdentifier == false) Fail("Expected an identifier!");
-            string name = ident_tok.Value;
+            var identTok = Tokens.Dequeue();
+            if (identTok.IsIdentifier == false) Fail(identTok, "Expected an identifier!");
+            string name = identTok.Value;
 
             ASTExpression expr = null;
 
             var peek = Tokens.Peek();
             if (peek.IsAssignmentOp)
             {
-                var op_tok = Tokens.Dequeue();
+                var opTok = Tokens.Dequeue();
 
                 expr = ASTExpression.Parse(Tokens);
 
-                if (op_tok.Type != TokenType.Equal)
+                if (opTok.Type != TokenType.Equal)
                 {
                     // Replace expr with the appropriate bin op
-                    var op_type = TokenToOperatorType(op_tok);
+                    var opType = TokenToOperatorType(opTok);
 
-                    expr = new ASTBinaryOp(op_type, new ASTVariableExpression(name, null), expr);
+                    var assignmentTrace = new TraceData
+                    {
+                        File = identTok.File,
+                        StartLine = identTok.Line,
+                        EndLine = expr.Trace.EndLine,
+                    };
+
+                    expr = new ASTBinaryOp(assignmentTrace, opType, new ASTVariableExpression(TraceData.From(identTok), name, null), expr);
                 }
             }
 
-            return new ASTVariableExpression(name, expr);
+            var trace = new TraceData
+            {
+                File = identTok.File,
+                StartLine = identTok.Line,
+                EndLine = expr?.Trace.EndLine ?? identTok.Line,
+            };
+
+            return new ASTVariableExpression(trace, name, expr);
         }
 
         public static ASTBinaryOp.BinaryOperatorType TokenToOperatorType(Token token)
@@ -1600,7 +1946,7 @@ namespace T12
                 case TokenType.CaretEqual:
                     return ASTBinaryOp.BinaryOperatorType.Bitwise_Xor;
                 default:
-                    Fail($"Token '{token}' is not a assignment operator!");
+                    Fail(token, $"Token '{token}' is not a assignment operator!");
                     return ASTBinaryOp.BinaryOperatorType.Unknown;
             }
         }
@@ -1612,7 +1958,7 @@ namespace T12
         public readonly ASTExpression Offset;
         public readonly ASTExpression Assignment;
 
-        public ASTPointerExpression(ASTExpression pointer, ASTExpression offset, ASTExpression assignment)
+        public ASTPointerExpression(TraceData trace, ASTExpression pointer, ASTExpression offset, ASTExpression assignment) : base(trace)
         {
             Pointer = pointer;
             Offset = offset;
@@ -1621,33 +1967,47 @@ namespace T12
 
         public static ASTPointerExpression Parse(Queue<Token> Tokens, ASTExpression target)
         {
-            var open_square_tok = Tokens.Dequeue();
-            if (open_square_tok.Type != TokenType.Open_square_bracket) Fail("Expected '['!");
+            var openSquareTok = Tokens.Dequeue();
+            if (openSquareTok.Type != TokenType.Open_square_bracket) Fail(openSquareTok, "Expected '['!");
 
             var offset = ASTExpression.Parse(Tokens);
 
-            var closed_square_tok = Tokens.Dequeue();
-            if (closed_square_tok.Type != TokenType.Close_squre_bracket) Fail("Expected ']'!");
+            var closedSquareTok = Tokens.Dequeue();
+            if (closedSquareTok.Type != TokenType.Close_squre_bracket) Fail(closedSquareTok, "Expected ']'!");
 
             ASTExpression assignment = null;
 
             var peek = Tokens.Peek();
             if (peek.IsAssignmentOp)
             {
-                var op_tok = Tokens.Dequeue();
+                var opTok = Tokens.Dequeue();
 
                 assignment = ASTExpression.Parse(Tokens);
 
-                if (op_tok.Type != TokenType.Equal)
+                if (opTok.Type != TokenType.Equal)
                 {
                     // Replace expr with the appropriate bin op
-                    var op_type = ASTVariableExpression.TokenToOperatorType(op_tok);
+                    var opType = ASTVariableExpression.TokenToOperatorType(opTok);
 
-                    assignment = new ASTBinaryOp(op_type, target, assignment);
+                    var assignmentTrace = new TraceData
+                    {
+                        File = target.Trace.File,
+                        StartLine = target.Trace.StartLine,
+                        EndLine = opTok.Line,
+                    };
+
+                    assignment = new ASTBinaryOp(assignmentTrace, opType, target, assignment);
                 }
             }
 
-            return new ASTPointerExpression(target, offset, assignment);
+            var trace = new TraceData
+            {
+                File = openSquareTok.File,
+                StartLine = openSquareTok.Line,
+                EndLine = assignment?.Trace.EndLine ?? closedSquareTok.Line,
+            };
+
+            return new ASTPointerExpression(trace, target, offset, assignment);
         }
     }
 
@@ -1667,7 +2027,7 @@ namespace T12
         public readonly UnaryOperationType OperatorType;
         public readonly ASTExpression Expr;
 
-        public ASTUnaryOp(UnaryOperationType OperatorType, ASTExpression Expr)
+        public ASTUnaryOp(TraceData trace, UnaryOperationType OperatorType, ASTExpression Expr) : base(trace)
         {
             this.OperatorType = OperatorType;
             this.Expr = Expr;
@@ -1688,7 +2048,7 @@ namespace T12
                 case TokenType.ShiftLeft:
                     return UnaryOperationType.Dereference;
                 default:
-                    Fail($"Expected a unary operator token, not '{token}'");
+                    Fail(token, $"Expected a unary operator token, not '{token}'");
                     return UnaryOperationType.Unknown;
             }
         }
@@ -1724,7 +2084,7 @@ namespace T12
         public readonly ASTExpression Left;
         public readonly ASTExpression Right;
 
-        public ASTBinaryOp(BinaryOperatorType OperatorType, ASTExpression Left, ASTExpression Right)
+        public ASTBinaryOp(TraceData trace, BinaryOperatorType OperatorType, ASTExpression Left, ASTExpression Right) : base(trace)
         {
             this.OperatorType = OperatorType;
             this.Left = Left;
@@ -1773,7 +2133,7 @@ namespace T12
                 case TokenType.Caret:
                     return BinaryOperatorType.Bitwise_Xor;
                 default:
-                    Fail($"Expected a binary operator token, not '{token}'");
+                    Fail(token, $"Expected a binary operator token, not '{token}'");
                     return BinaryOperatorType.Unknown;
             }
         }
@@ -1831,7 +2191,7 @@ namespace T12
         public readonly ASTExpression IfTrue;
         public readonly ASTExpression IfFalse;
 
-        public ASTConditionalExpression(ASTExpression Condition, ASTExpression IfTrue, ASTExpression IfFalse)
+        public ASTConditionalExpression(TraceData trace, ASTExpression Condition, ASTExpression IfTrue, ASTExpression IfFalse) : base(trace)
         {
             this.Condition = Condition;
             this.IfTrue = IfTrue;
@@ -1844,7 +2204,7 @@ namespace T12
         public readonly string FunctionName;
         public readonly List<ASTExpression> Arguments;
 
-        public ASTFunctionCall(string functionName, List<ASTExpression> arguments)
+        public ASTFunctionCall(TraceData trace, string functionName, List<ASTExpression> arguments) : base(trace)
         {
             FunctionName = functionName;
             Arguments = arguments;
@@ -1852,12 +2212,12 @@ namespace T12
 
         public static new ASTFunctionCall Parse(Queue<Token> Tokens)
         {
-            var name_tok = Tokens.Dequeue();
-            if (name_tok.IsIdentifier == false) Fail("Expected identifier!");
-            string funcName = name_tok.Value;
+            var nameTok = Tokens.Dequeue();
+            if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
+            string funcName = nameTok.Value;
 
-            var open_paren_tok = Tokens.Dequeue();
-            if (open_paren_tok.Type != TokenType.Open_parenthesis) Fail("Expected '('");
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
 
             List<ASTExpression> arguments = new List<ASTExpression>();
 
@@ -1868,19 +2228,26 @@ namespace T12
                 var expr = ASTExpression.Parse(Tokens);
                 arguments.Add(expr);
 
-                var cont_token = Tokens.Peek();
-                if (cont_token.Type != TokenType.Comma && cont_token.Type == TokenType.Close_parenthesis) break;
-                else if (cont_token.Type != TokenType.Comma) Fail("Expected ',' or a ')'");
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
                 // Dequeue the comma
                 Tokens.Dequeue();
 
                 peek = Tokens.Peek();
             }
 
-            var close_paren_tok = Tokens.Dequeue();
-            if (close_paren_tok.Type != TokenType.Close_parenthesis) Fail("Expected ')'");
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected ')'");
 
-            return new ASTFunctionCall(funcName, arguments);
+            var trace = new TraceData
+            {
+                File = nameTok.File,
+                StartLine = nameTok.Line,
+                EndLine = closeParenTok.Line,
+            };
+
+            return new ASTFunctionCall(trace, funcName, arguments);
         }
     }
 
@@ -1891,7 +2258,7 @@ namespace T12
         public readonly ASTExpression Assignment;
         public readonly bool Dereference;
 
-        public ASTMemberExpression(ASTExpression targetExpr, string memberName, ASTExpression assignment, bool dereference)
+        public ASTMemberExpression(TraceData trace, ASTExpression targetExpr, string memberName, ASTExpression assignment, bool dereference) : base(trace)
         {
             TargetExpr = targetExpr;
             MemberName = memberName;
@@ -1906,30 +2273,51 @@ namespace T12
             // If we are using an arrow, set the dereference flag
             var periodTok = Tokens.Dequeue();
             if (periodTok.Type == TokenType.Arrow) dereference = true;
-            else if (periodTok.Type != TokenType.Period) Fail("Expected period!");
+            else if (periodTok.Type != TokenType.Period) Fail(periodTok, "Expected period!");
 
             var memberTok = Tokens.Dequeue();
-            if (memberTok.IsIdentifier == false) Fail("Expected member name!");
+            if (memberTok.IsIdentifier == false) Fail(memberTok, "Expected member name!");
             string memberName = memberTok.Value;
             
             ASTExpression assignment = null;
             
             if (Tokens.Peek().IsAssignmentOp)
             {
-                var op_tok = Tokens.Dequeue();
+                var opTok = Tokens.Dequeue();
 
                 assignment = ASTExpression.Parse(Tokens);
 
-                if (op_tok.Type != TokenType.Equal)
+                if (opTok.Type != TokenType.Equal)
                 {
                     // Replace expr with the appropriate bin op
-                    var op_type = ASTVariableExpression.TokenToOperatorType(op_tok);
+                    var opType = ASTVariableExpression.TokenToOperatorType(opTok);
 
-                    assignment = new ASTBinaryOp(op_type, new ASTMemberExpression(targetExpr, memberName, null, dereference), assignment);
+                    var memberTrace = new TraceData
+                    {
+                        File = targetExpr.Trace.File,
+                        StartLine = targetExpr.Trace.StartLine,
+                        EndLine = memberTok.Line,
+                    };
+
+                    var assignmentTrace = new TraceData
+                    {
+                        File = targetExpr.Trace.File,
+                        StartLine = targetExpr.Trace.StartLine,
+                        EndLine = opTok.Line,
+                    };
+
+                    assignment = new ASTBinaryOp(assignmentTrace, opType, new ASTMemberExpression(memberTrace, targetExpr, memberName, null, dereference), assignment);
                 }
             }
             
-            return new ASTMemberExpression(targetExpr, memberName, assignment, dereference);
+            var trace = new TraceData
+            {
+                File = periodTok.File,
+                StartLine = periodTok.Line,
+                EndLine = assignment?.Trace.EndLine ?? memberTok.Line,
+            };
+
+            return new ASTMemberExpression(trace, targetExpr, memberName, assignment, dereference);
         }
     }
     
@@ -1937,7 +2325,7 @@ namespace T12
     {
         public readonly ASTType Type;
 
-        public ASTSizeofTypeExpression(ASTType type)
+        public ASTSizeofTypeExpression(TraceData trace, ASTType type) : base(trace)
         {
             Type = type;
         }
@@ -1945,17 +2333,24 @@ namespace T12
         public static new ASTSizeofTypeExpression Parse(Queue<Token> Tokens)
         {
             var sizeofTok = Tokens.Dequeue();
-            if (sizeofTok.Type != TokenType.Keyword_Sizeof) Fail("Expected sizeof!");
+            if (sizeofTok.Type != TokenType.Keyword_Sizeof) Fail(sizeofTok, "Expected sizeof!");
 
             var openParen = Tokens.Dequeue();
-            if (openParen.Type != TokenType.Open_parenthesis) Fail("Expected '('!");
+            if (openParen.Type != TokenType.Open_parenthesis) Fail(openParen, "Expected '('!");
 
             ASTType type = ASTType.Parse(Tokens);
 
             var closeParen = Tokens.Dequeue();
-            if (closeParen.Type != TokenType.Close_parenthesis) Fail("Expected ')'!");
+            if (closeParen.Type != TokenType.Close_parenthesis) Fail(closeParen, "Expected ')'!");
 
-            return new ASTSizeofTypeExpression(type);
+            var trace = new TraceData
+            {
+                File = sizeofTok.File,
+                StartLine = sizeofTok.Line,
+                EndLine = closeParen.Line,
+            };
+
+            return new ASTSizeofTypeExpression(trace, type);
         }
     }
 
@@ -1966,7 +2361,7 @@ namespace T12
         public readonly ASTExpression From;
         public readonly ASTType To;
 
-        public ASTCastExpression(ASTExpression from, ASTType to)
+        public ASTCastExpression(TraceData trace, ASTExpression from, ASTType to) : base(trace)
         {
             From = from;
             To = to;
@@ -1980,7 +2375,7 @@ namespace T12
 
         // There will be no way for the parser to generate implicit casts
         // They will only be created when generating assembly
-        public ASTImplicitCast(ASTExpression from, ASTBaseType fromType, ASTBaseType to) : base(from, to)
+        public ASTImplicitCast(TraceData trace, ASTExpression from, ASTBaseType fromType, ASTBaseType to) : base(trace, from, to)
         {
             FromType = fromType;
         }
@@ -1988,24 +2383,33 @@ namespace T12
 
     public class ASTExplicitCast : ASTCastExpression
     {
-        public ASTExplicitCast(ASTExpression from, ASTType to) : base(from, to) { }
+        public ASTExplicitCast(TraceData trace, ASTExpression from, ASTType to) : base(trace, from, to) { }
 
         public static new ASTExplicitCast Parse(Queue<Token> Tokens)
         {
-            var cast_tok = Tokens.Dequeue();
-            if (cast_tok.Type != TokenType.Keyword_Cast) Fail("Expected cast!");
+            var castTok = Tokens.Dequeue();
+            if (castTok.Type != TokenType.Keyword_Cast) Fail(castTok, "Expected cast!");
 
-            var open_parenthesis = Tokens.Dequeue();
-            if (open_parenthesis.Type != TokenType.Open_parenthesis) Fail("Expected '('!");
+            var openParenthesis = Tokens.Dequeue();
+            if (openParenthesis.Type != TokenType.Open_parenthesis) Fail(openParenthesis, "Expected '('!");
 
             var castType = ASTType.Parse(Tokens);
 
-            var close_parenthesis = Tokens.Dequeue();
-            if (close_parenthesis.Type != TokenType.Close_parenthesis) Fail("Expected ')'!");
+            var closeParenthesis = Tokens.Dequeue();
+            if (closeParenthesis.Type != TokenType.Close_parenthesis) Fail(closeParenthesis, "Expected ')'!");
+
+            // FIXME: Make casting left-associative
 
             var expression = ASTExpression.Parse(Tokens);
 
-            return new ASTExplicitCast(expression, castType);
+            var trace = new TraceData
+            {
+                File = castTok.File,
+                StartLine = castTok.Line,
+                EndLine = expression.Trace.EndLine,
+            };
+
+            return new ASTExplicitCast(trace, expression, castType);
         }
     }
 
@@ -2013,7 +2417,7 @@ namespace T12
     {
         public readonly ASTPointerType FromType;
 
-        public ASTPointerToVoidPointerCast(ASTExpression from, ASTPointerType fromType) : base(from, ASTPointerType.Of(ASTBaseType.Void))
+        public ASTPointerToVoidPointerCast(TraceData trace, ASTExpression from, ASTPointerType fromType) : base(trace, from, ASTPointerType.Of(ASTBaseType.Void))
         {
             FromType = fromType;
         }
@@ -2024,7 +2428,7 @@ namespace T12
         public readonly ASTFixedArrayType FromType;
         public new readonly ASTArrayType To;
 
-        public ASTFixedArrayToArrayCast(ASTExpression from, ASTFixedArrayType fromType, ASTArrayType to) : base(from, to)
+        public ASTFixedArrayToArrayCast(TraceData trace, ASTExpression from, ASTFixedArrayType fromType, ASTArrayType to) : base(trace, from, to)
         {
             FromType = fromType;
         }
@@ -2040,7 +2444,7 @@ namespace T12
     {
         public readonly string TypeName;
         
-        public ASTType(string Type)
+        public ASTType(TraceData trace, string Type) : base(trace)
         {
             this.TypeName = Type;
         }
@@ -2075,7 +2479,15 @@ namespace T12
                 case TokenType.Asterisk:
                     {
                         ASTType type = ASTType.Parse(Tokens);
-                        return new ASTPointerType(type);
+
+                        var trace = new TraceData
+                        {
+                            File = tok.File,
+                            StartLine = tok.Line,
+                            EndLine = type.Trace.EndLine,
+                        };
+
+                        return new ASTPointerType(trace, type);
                     }
                 case TokenType.Open_square_bracket:
                     {
@@ -2085,12 +2497,19 @@ namespace T12
                         {
                             var numLit = ASTNumericLitteral.Parse(Tokens);
 
-                            if (Tokens.Dequeue().Type != TokenType.Close_squre_bracket)
-                                Fail("Expected ']'!");
+                            var closeSquareTok = Tokens.Dequeue();
+                            if (closeSquareTok.Type != TokenType.Close_squre_bracket) Fail(closeSquareTok, "Expected ']'!");
 
                             ASTType type = ASTType.Parse(Tokens);
 
-                            return new ASTFixedArrayType(type, numLit);
+                            var trace = new TraceData
+                            {
+                                File = tok.File,
+                                StartLine = tok.Line,
+                                EndLine = type.Trace.EndLine,
+                            };
+
+                            return new ASTFixedArrayType(trace, type, numLit);
                         }
                         else if (peek.Type == TokenType.Close_squre_bracket)
                         {
@@ -2101,19 +2520,27 @@ namespace T12
 
                             ASTType type = ASTType.Parse(Tokens);
 
-                            return new ASTArrayType(type);
+                            var trace = new TraceData
+                            {
+                                File = tok.File,
+                                StartLine = tok.Line,
+                                EndLine = type.Trace.EndLine,
+                            };
+
+                            return new ASTArrayType(trace, type);
                         }
                         else
                         {
-                            Fail($"Undexpected token while parsing array type '{peek}'!");
+                            Fail(peek, $"Undexpected token while parsing array type '{peek}'!");
                             return default;
                         }
                     }
                 default:
                     {
                         // Do normal parsing
-                        if (tok.IsType == false) Fail("Exptected type identifier!");
+                        if (tok.IsType == false) Fail(tok, "Exptected type identifier!");
 
+                        // TODO: Fix traces for base types?
                         ASTType type;
                         if (ASTBaseType.BaseTypeMap.TryGetValue(tok.Value, out ASTBaseType baseType))
                         {
@@ -2121,7 +2548,8 @@ namespace T12
                         }
                         else
                         {
-                            type = new ASTTypeRef(tok.Value);
+                            var trace = TraceData.From(tok);
+                            type = new ASTTypeRef(trace, tok.Value);
                         }
 
                         return type;
@@ -2152,7 +2580,8 @@ namespace T12
 
         public readonly int Size;
         
-        private ASTBaseType(string name, int size) : base(name)
+        // FIXME: Trace data for internal types?
+        private ASTBaseType(string name, int size) : base(TraceData.Internal, name)
         {
             Size = size;
         }
@@ -2164,9 +2593,9 @@ namespace T12
 
         public const int Size = 2;
 
-        public static ASTPointerType Of(ASTType type) => new ASTPointerType(type);
+        public static ASTPointerType Of(ASTType type) => new ASTPointerType(type.Trace, type);
 
-        public ASTPointerType(ASTType baseType) : base($"*{baseType.TypeName}")
+        public ASTPointerType(TraceData trace, ASTType baseType) : base(trace, $"*{baseType.TypeName}")
         {
             BaseType = baseType;
         }
@@ -2195,9 +2624,9 @@ namespace T12
 
         public readonly ASTType BaseType;
 
-        public ASTArrayType(ASTType baseType) : this(baseType, $"[]{baseType.TypeName}") { }
+        public ASTArrayType(TraceData trace, ASTType baseType) : this(trace, baseType, $"[]{baseType.TypeName}") { }
 
-        protected ASTArrayType(ASTType baseType, string name) : base(name)
+        protected ASTArrayType(TraceData trace, ASTType baseType, string name) : base(trace, name)
         {
             BaseType = baseType;
         }
@@ -2207,7 +2636,7 @@ namespace T12
     {
         public new readonly ASTNumericLitteral Size;
 
-        public ASTFixedArrayType(ASTType baseType, ASTNumericLitteral size) : base(baseType, $"[{size}]{baseType.TypeName}")
+        public ASTFixedArrayType(TraceData trace, ASTType baseType, ASTNumericLitteral size) : base(trace, baseType, $"[{size}]{baseType.TypeName}")
         {
             Size = size;
         }
@@ -2220,7 +2649,7 @@ namespace T12
     {
         public readonly string Name;
 
-        public ASTTypeRef(string name) : base(name)
+        public ASTTypeRef(TraceData trace, string name) : base(trace, name)
         {
             Name = name;
         }
@@ -2230,7 +2659,7 @@ namespace T12
     {
         public readonly List<(ASTType Type, string Name)> Members;
 
-        public ASTStructType(string name, List<(ASTType, string)> members) : base(name)
+        public ASTStructType(TraceData trace, string name, List<(ASTType, string)> members) : base(trace, name)
         {
             Members = members;
         }

@@ -215,7 +215,7 @@ namespace T12
             else if (exprType is ASTFixedArrayType && targetType is ASTArrayType)
             {
                 // We can always cast a fixed size array to a non-fixed array.
-                result = new ASTFixedArrayToArrayCast(expression, exprType as ASTFixedArrayType, targetType as ASTArrayType);
+                result = new ASTFixedArrayToArrayCast(expression.Trace, expression, exprType as ASTFixedArrayType, targetType as ASTArrayType);
                 error = null;
                 return true;
             }
@@ -224,13 +224,13 @@ namespace T12
                 // Here there is a special case where we can optimize the loading of words and dwords
                 ASTWordLitteral litteral = expression as ASTWordLitteral;
                 // NOTE: Is adding the 'd' to the litteral the right thing to do?
-                result = new ASTDoubleWordLitteral(litteral.Value + "d", litteral.IntValue);
+                result = new ASTDoubleWordLitteral(litteral.Trace, litteral.Value + "d", litteral.IntValue);
                 error = default;
                 return true;
             }
             else if (exprType is ASTPointerType && targetType == ASTPointerType.Of(ASTBaseType.Void))
             {
-                result = new ASTPointerToVoidPointerCast(expression, exprType as ASTPointerType);
+                result = new ASTPointerToVoidPointerCast(expression.Trace, expression, exprType as ASTPointerType);
                 error = default;
                 return true;
             }
@@ -239,7 +239,7 @@ namespace T12
                 // FIXME!!! This is a ugly hack!! When we go over to struct strings this will have to change
                 // So we just say that we can conver this. We rely on the fact that we never actually check
                 // to see if the expression results in a pointer when generating the cast
-                result = new ASTPointerToVoidPointerCast(expression, ASTPointerType.Of(ASTBaseType.Word));
+                result = new ASTPointerToVoidPointerCast(expression.Trace, expression, ASTPointerType.Of(ASTBaseType.Word));
                 error = default;
                 return true;
             }
@@ -252,7 +252,7 @@ namespace T12
 
                     if (exprSize < targetSize)
                     {
-                        result = new ASTImplicitCast(expression, exprType as ASTBaseType, targetType as ASTBaseType);
+                        result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
                         error = default;
                         return true;
                     }
@@ -626,7 +626,7 @@ namespace T12
                 return ResolveType(type.TypeName, typeMap);
 
             if (type is ASTPointerType)
-                return new ASTPointerType(ResolveType((type as ASTPointerType).BaseType, typeMap));
+                return ASTPointerType.Of(ResolveType((type as ASTPointerType).BaseType, typeMap));
 
             return type;
         }
@@ -724,14 +724,14 @@ namespace T12
                 case ASTExternFunctionDirective externFunc:
                     {
                         // Create a new ASTFunction without body
-                        ASTFunction func = new ASTFunction(externFunc.FunctionName, externFunc.ReturnType, externFunc.Parameters, null);
+                        ASTFunction func = new ASTFunction(externFunc.Trace, externFunc.FunctionName, externFunc.ReturnType, externFunc.Parameters, null);
                         // Add that function to the function map
                         functionMap.Add(externFunc.FunctionName, func);
                         break;
                     }
                 case ASTExternConstantDirective externConstDirective:
                     {
-                        constMap[externConstDirective.Name] = new ASTConstDirective(externConstDirective.Type, externConstDirective.Name, null);
+                        constMap[externConstDirective.Name] = new ASTConstDirective(externConstDirective.Trace, externConstDirective.Type, externConstDirective.Name, null);
 
                         builder.AppendLine($"<{externConstDirective.Name} = extern>");
 
@@ -855,7 +855,14 @@ namespace T12
             // NOTE: This should be done better
             if (functionConext.ReturnType == ASTBaseType.Void && (func.Body.Count <= 0 || func.Body.Last() is ASTReturnStatement == false))
             {
-                var returnStatement = new ASTReturnStatement(null);
+                var trace = new TraceData
+                {
+                    File = func.Trace.File,
+                    StartLine = func.Trace.EndLine,
+                    EndLine = func.Trace.EndLine,
+                };
+
+                var returnStatement = new ASTReturnStatement(trace, null);
                 func.Body.Add(returnStatement);
             }
 
@@ -1811,7 +1818,7 @@ namespace T12
                             // This is an optimization for dword litterals casted to words. We can just compile time truncate the litteral to 12-bits.
                             ASTDoubleWordLitteral dwordLit = cast.From as ASTDoubleWordLitteral;
                             int truncatedValue = dwordLit.IntValue & 0xFFF;
-                            ASTWordLitteral wordLit = new ASTWordLitteral(truncatedValue.ToString(), truncatedValue);
+                            ASTWordLitteral wordLit = new ASTWordLitteral(dwordLit.Trace, truncatedValue.ToString(), truncatedValue);
                             EmitExpression(builder, wordLit, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                         }
                         else
@@ -2055,7 +2062,7 @@ namespace T12
                     break;
                 case ASTBoolLitteral boolLitteral:
                     // NOTE: Should we load the constants instead?
-                    builder.AppendLine($"\tload #{(boolLitteral == ASTBoolLitteral.True ? 1 : 0)}\t; {(boolLitteral == ASTBoolLitteral.True ? "true" : "false")}");
+                    builder.AppendLine($"\tload #{(boolLitteral.BoolValue ? 1 : 0)}\t; {(boolLitteral.BoolValue ? "true" : "false")}");
                     break;
                 case ASTCharLitteral charLitteral:
                     builder.AppendLine($"\tload {charLitteral.Value}");

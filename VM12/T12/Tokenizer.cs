@@ -112,6 +112,9 @@ namespace T12
         public readonly TokenType Type;
         public readonly string Value;
 
+        public readonly string File;
+        public readonly int Line;
+        
         // NOTE: This is not 100% to be true, change name?
         public bool IsType =>
             Type == TokenType.Keyword_Void ||
@@ -193,10 +196,12 @@ namespace T12
             Type == TokenType.Period ||
             Type == TokenType.Arrow;
 
-        public Token(TokenType Type, string Value)
+        public Token(TokenType Type, string Value, string file, int line)
         {
             this.Type = Type;
             this.Value = Value;
+            this.File = file;
+            this.Line = line;
         }
 
         public override string ToString()
@@ -304,19 +309,21 @@ namespace T12
             ( TokenType.String_Litteral, new Regex("^\\\"(?:\\\\.|[^\"\\\\])*\\\"") ),
         };
 
-        public static Queue<Token> Tokenize(string code)
+        public static Queue<Token> Tokenize(string code, string file)
         {
             var tokens = new Queue<Token>();
-            
+
+            int line = 1;
+
             while (string.IsNullOrWhiteSpace(code) == false)
             {
-                tokens.Enqueue(MatchToken(code, out code));
+                tokens.Enqueue(MatchToken(file, code, ref line, out code));
             }
 
             return tokens;
         }
 
-        private static Token MatchToken(string text, out string remaining)
+        private static Token MatchToken(string file, string text, ref int line, out string remaining)
         {
             (Match, TokenType) FindFirstMatch()
             {
@@ -332,12 +339,25 @@ namespace T12
                 return default;
             }
 
-            text = text.TrimStart();
+            //text = text.TrimStart();
+
+            int skip = 0;
+            while (char.IsWhiteSpace(text[skip]))
+            {
+                if (text[skip] == '\n')
+                {
+                    line++;
+                }
+
+                skip++;
+            }
+
+            text = text.Substring(skip);
 
             var (match, type) = FindFirstMatch();
             
             remaining = text.Substring(match.Length);
-            return new Token(type, match.Value);
+            return new Token(type, match.Value, file, line);
         }
     }
 }
