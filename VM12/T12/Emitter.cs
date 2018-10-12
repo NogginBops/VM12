@@ -707,7 +707,7 @@ namespace T12
         }
         */
 
-        public static string EmitAsem(AST ast)
+        public static string EmitAsem(ASTFile file)
         {
             StringBuilder builder = new StringBuilder();
             
@@ -721,16 +721,16 @@ namespace T12
             // But that might not be desirable either.
             GlobalMap globalMap = new GlobalMap();
 
-            FunctionMap functionMap = ast.Program.Functions.ToDictionary(func => func.Name, func => func);
+            FunctionMap functionMap = file.Functions.ToDictionary(func => func.Name, func => func);
             
-            foreach (var directive in ast.Program.Directives)
+            foreach (var directive in file.Directives)
             {
                 EmitDirective(builder, directive, typeMap, functionMap, constMap, globalMap);
             }
 
             builder.AppendLine();
 
-            foreach (var func in ast.Program.Functions)
+            foreach (var func in file.Functions)
             {
                 EmitFunction(builder, func, typeMap, functionMap, constMap, globalMap);
                 builder.AppendLine();
@@ -751,6 +751,17 @@ namespace T12
                 case ASTUseDirective use:
                     {
                         builder.AppendLine($"& {Path.GetFileNameWithoutExtension(use.FileName)} {use.FileName}");
+                        break;
+                    }
+                case ASTImportDirective import:
+                    {
+                        builder.AppendLine($"& {import.ImportName} {Path.ChangeExtension(import.File, ".12asm")}");
+
+                        // FIXME: Import the data from the file! This will need refactoring!
+                        // We could add like a export struct that contains all data that is exported from a file.
+                        // This sounds like a good idea.
+                        // Ordering will need some thinking about
+
                         break;
                     }
                 case ASTExternFunctionDirective externFunc:

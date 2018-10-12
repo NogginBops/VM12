@@ -84,6 +84,8 @@ namespace T12
         Keyword_Public,
         Keyword_Private,
         Keyword_Use,
+        Keyword_Import,
+        Keyword_As,
         Keyword_Extern,
         Keyword_Const,
         Keyword_Global,
@@ -181,10 +183,11 @@ namespace T12
         public bool IsIdentifier => 
             Type == TokenType.Identifier;
 
-        public bool IsDirectiveKeyword => 
+        public bool IsDirectiveKeyword =>
             Type == TokenType.Keyword_Public ||
             Type == TokenType.Keyword_Private ||
             Type == TokenType.Keyword_Use ||
+            Type == TokenType.Keyword_Import ||
             Type == TokenType.Keyword_Extern || 
             Type == TokenType.Keyword_Const ||
             Type == TokenType.Keyword_Global ||
@@ -290,6 +293,8 @@ namespace T12
             ( TokenType.Keyword_Public, new Regex("^public\\b") ),
             ( TokenType.Keyword_Private, new Regex("^private\\b") ),
             ( TokenType.Keyword_Use, new Regex("^use\\b") ),
+            ( TokenType.Keyword_Import, new Regex("^import\\b") ),
+            ( TokenType.Keyword_As, new Regex("^as\\b") ),
             ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),
             ( TokenType.Keyword_Const, new Regex("^const\\b") ),
             ( TokenType.Keyword_Global, new Regex("^global\\b") ),

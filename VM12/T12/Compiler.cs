@@ -31,10 +31,10 @@ namespace T12
                 }
             }
             
-            string result = Compile(inFile);
+            //string result = Compile(inFile);
 
             Console.WriteLine();
-            Console.WriteLine(result);
+            //Console.WriteLine(result);
             
             Console.ReadKey();
         }
@@ -46,95 +46,31 @@ namespace T12
                 outFile = new FileInfo(Path.ChangeExtension(inFile.FullName, "12asm"));
             }
             
-            string result = Compile(inFile.FullName);
+            /*string result = */Compile(inFile.FullName);
             
-            File.WriteAllText(outFile.FullName, result);
+            //File.WriteAllText(outFile.FullName, result);
         }
 
-        public static string Compile(string infile)
+        public static void Compile(string infile)
         {
             string fileData = File.ReadAllText(infile);
 
             var tokens = Tokenizer.Tokenize(fileData, infile);
 
-            AST ast = AST.Parse(tokens);
-            
+            AST ast = AST.Parse(infile);
+
             // TODO: Do validaton on the AST
 
             // TODO: We can generate a debug file with the name of all locals!
 
-            string result = Emitter.EmitAsem(ast);
+            foreach (var file in ast.Files)
+            {
+                string result = Emitter.EmitAsem(file.Value);
+
+                // FIXME: Write to file
+            }
             
-            return result;
+            return;
         }
-
-        string TestCode = @"
-use Test.12asm;
-extern word* alloc_w(word words);
-
-use Testing.12asm;
-
-extern void run_tests();
-
-void start() {
-	run_tests();
-    return;
-}
-
-word main()
-{
-    bool bo = true;
-    // Now we can have comments?
-    alloc_w(10);
-    word a = 0;
-    a = 4 + 4;
-    word b = clamp(a, 40, pow(40, 2));
-    return 4 % 2; // Test
-}
-
-word clamp(word val, word min, word max)
-{
-    return val < min ? min : val > max ? max : val;
-}
-
-word clamp2(word val, word min, word max)
-{
-    if (val < min) return min;
-    if (val > max) return max;
-    return val;
-}
-
-word pow(word base, word exp) {
-    word result = 1;
-    for (word i = 0; i < exp; i += 1)
-    {
-        result *= base;
-    }
-    return result;
-}
-
-word breakcontinuetest(word asdf) {
-    for (word a = 0; a < 1000; a += 1)
-    {
-        if (a % 2 == 0) continue;
-        if (a == 59) break;
-        asdf += 1;
-    }
-    
-    return 2;
-}
-
-word whiletest(word a) {
-    word b = a;
-    do
-    {
-        a += a;
-        
-        b += 1;
-    } while (b > 0);
-    
-    return a;
-}
-            ";
     }
 }

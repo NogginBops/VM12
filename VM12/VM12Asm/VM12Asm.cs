@@ -7,6 +7,7 @@ using System.IO;
 using System.Diagnostics;
 using VM12_Opcode;
 using SKON;
+using Util;
 
 namespace VM12Asm
 {

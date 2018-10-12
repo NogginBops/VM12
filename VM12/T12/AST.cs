@@ -4,27 +4,53 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.IO;
 using VM12_Opcode;
+using Util;
 
 namespace T12
 {
     public class AST
     {
-        public readonly ASTProgram Program;
+        public readonly Dictionary<string, ASTFile> Files;
         
-        public AST(ASTProgram Program)
+        public AST(Dictionary<string, ASTFile> files)
         {
-            this.Program = Program;
+            this.Files = files;
         }
 
-        public static AST Parse(Queue<Token> Tokens)
+        public static AST Parse(string inFile)
         {
+            // FIXME
+
+            var directory = new DirectoryInfo(Path.GetDirectoryName(inFile));
+
+            Dictionary<string, FileInfo> dirFiles = directory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
+
             // We can probably do this better!
             // Because we will want to emit comments to the assembly
+            string fileData = File.ReadAllText(inFile);
+            Queue<Token> Tokens = Tokenizer.Tokenize(fileData, inFile);
             Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
+            
+            Dictionary<string, ASTFile> files = new Dictionary<string, ASTFile>();
 
-            var program = ASTProgram.Parse(Tokens);
+            var file = ASTFile.Parse(Tokens);
+            files.Add(Path.GetFileName(inFile), file);
 
-            return new AST(program);
+            foreach (var import in file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>())
+            {
+                if (files.ContainsKey(import.File) == false)
+                {
+                    // We have not parsed this file yet
+                    if (dirFiles.TryGetValue(import.File, out var importFile) == false)
+                        // TODO: Better error thing here!
+                        throw new FileNotFoundException($"Could not import '{import.ImportName}', did not find file '{import.File}'!");
+
+                    // Parse the file!
+                    files.Add(importFile.Name, ASTFile.Parse(Tokenizer.Tokenize(File.ReadAllText(importFile.FullName), importFile.FullName)));
+                }
+            }
+            
+            return new AST(files);
         }
     }
 
@@ -61,7 +87,7 @@ namespace T12
             Trace = trace;
         }
 
-        protected static void Fail(Token tok, string error)
+        public static void Fail(Token tok, string error)
         {
             // TODO: Do something better!
             //throw new FormatException(error);
@@ -69,18 +95,18 @@ namespace T12
         }
     }
     
-    public class ASTProgram : ASTNode
+    public class ASTFile : ASTNode
     {
         public readonly List<ASTDirective> Directives;
         public readonly List<ASTFunction> Functions;
 
-        public ASTProgram(TraceData trace, List<ASTDirective> Directives, List<ASTFunction> Functions) : base(trace)
+        public ASTFile(TraceData trace, List<ASTDirective> Directives, List<ASTFunction> Functions) : base(trace)
         {
             this.Directives = Directives;
             this.Functions = Functions;
         }
 
-        public static ASTProgram Parse(Queue<Token> Tokens)
+        public static ASTFile Parse(Queue<Token> Tokens)
         {
             List<ASTDirective> directives = new List<ASTDirective>();
             List<ASTFunction> functions = new List<ASTFunction>();
@@ -123,7 +149,7 @@ namespace T12
 
             if (Tokens.Count > 0) Fail(Tokens.Peek(), $"There was '{Tokens.Count}' tokens left that couldn't be parsed. Next token: '{Tokens.Peek()}'");
             
-            return new ASTProgram(trace, directives, functions);
+            return new ASTFile(trace, directives, functions);
         }
     }
 
@@ -170,6 +196,8 @@ namespace T12
                     }
                 case TokenType.Keyword_Use:
                     return ASTUseDirective.Parse(Tokens);
+                case TokenType.Keyword_Import:
+                    return ASTImportDirective.Parse(Tokens);
                 case TokenType.Keyword_Extern:
                     if (Tokens.ElementAt(1).Type == TokenType.Keyword_Const)
                     {
@@ -201,7 +229,7 @@ namespace T12
             IsPublic = isPublic;
         }
     }
-
+   
     public class ASTUseDirective : ASTDirective
     {
         public readonly string FileName;
@@ -237,6 +265,92 @@ namespace T12
             };
             
             return new ASTUseDirective(trace, name);
+        }
+    }
+
+    public class ASTImportDirective : ASTDirective, IEquatable<ASTImportDirective>
+    {
+        public readonly string File;
+        public readonly string ImportName;
+
+        public ASTImportDirective(TraceData trace, string file, string importName) : base(trace)
+        {
+            File = file;
+            ImportName = importName;
+        }
+
+        public static new ASTImportDirective Parse(Queue<Token> Tokens)
+        {
+            var importTok = Tokens.Dequeue();
+            if (importTok.Type != TokenType.Keyword_Import) Fail(importTok, "Expected 'import'!");
+
+            string file = "";
+
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Keyword_As && peek.Type != TokenType.Semicolon)
+            {
+                file += Tokens.Dequeue().Value;
+                peek = Tokens.Peek();
+            }
+
+            string importName = "";
+            
+            var endTok = Tokens.Dequeue();
+            if (endTok.Type == TokenType.Keyword_As)
+            {
+                peek = Tokens.Peek();
+                while (peek.Type != TokenType.Semicolon)
+                {
+                    importName += Tokens.Dequeue().Value;
+                    peek = Tokens.Peek();
+                }
+
+                // Dequeue semicolon
+                endTok = Tokens.Dequeue();
+            }
+            else
+            {
+                importName = Path.GetFileNameWithoutExtension(file);
+            }
+
+            var trace = new TraceData
+            {
+                File = importTok.File,
+                StartLine = importTok.Line,
+                EndLine = endTok.Line,
+            };
+
+            return new ASTImportDirective(trace, file, importName);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as ASTImportDirective);
+        }
+
+        public bool Equals(ASTImportDirective other)
+        {
+            return other != null &&
+                   File == other.File &&
+                   ImportName == other.ImportName;
+        }
+
+        public override int GetHashCode()
+        {
+            var hashCode = 780891818;
+            hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(File);
+            hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(ImportName);
+            return hashCode;
+        }
+
+        public static bool operator ==(ASTImportDirective directive1, ASTImportDirective directive2)
+        {
+            return EqualityComparer<ASTImportDirective>.Default.Equals(directive1, directive2);
+        }
+
+        public static bool operator !=(ASTImportDirective directive1, ASTImportDirective directive2)
+        {
+            return !(directive1 == directive2);
         }
     }
 
