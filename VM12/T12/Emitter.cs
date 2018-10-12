@@ -159,12 +159,16 @@ namespace T12
                 case ASTPointerExpression pointerExpression:
                     {
                         var targetType = ResolveType(CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap), typeMap);
-                        
-                        // TODO: Array types?
-                        if (targetType is ASTPointerType == false)
-                            Fail(targetType.Trace, $"Cannot dereference non-pointer type '{targetType}'!");
 
-                        return (targetType as ASTPointerType).BaseType;
+                        if (targetType is ASTArrayType)
+                            return (targetType as ASTArrayType).BaseType;
+                        else if (targetType is ASTPointerType)
+                            return (targetType as ASTPointerType).BaseType;
+                        else if (targetType is ASTFixedArrayType)
+                            return (targetType as ASTFixedArrayType).BaseType;
+
+                        Fail(targetType.Trace, $"Cannot dereference non-pointer type '{targetType}'!");
+                        return default;
                     }
                 case ASTFunctionCall functionCall:
                     {
@@ -184,15 +188,31 @@ namespace T12
                             targetType = pointerType.BaseType;
                         }
 
-                        if (targetType is ASTStructType == false)
-                            Fail(memberExpression.TargetExpr.Trace, $"Type '{targetType}' does not have members!");
+                        // TODO: Add length and data members to arrays!
+                        /*
+                        if (targetType is ASTArrayType || targetType is ASTFixedArrayType)
+                        {
+                            var arrayType = targetType as ASTArrayType;
+                            var fixedArrayType = targetType as ASTFixedArrayType;
+                            
+                            
+                            if (memberExpression.MemberName == "length")
+                                return ASTBaseType.DoubleWord;
+                            else if (memberExpression.MemberName == "data")
+                                return ASTPointerType.Of(arrayType?.BaseType ?? fixedArrayType?.BaseType);
+                        }
+                        else */
+                        if (targetType is ASTStructType)
+                        {
+                            var (type, name) = (targetType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
+                            if (type == null)
+                                Fail(memberExpression.TargetExpr.Trace, $"Type '{targetType}' does not contain a member '{memberExpression.MemberName}'!");
 
+                            return type;
+                        }
 
-                        var (type, name) = (targetType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
-                        if (type == null)
-                            Fail(memberExpression.TargetExpr.Trace, $"Type '{targetType}' does not contain a member '{memberExpression.MemberName}'!");
-
-                        return type;
+                        Fail(memberExpression.TargetExpr.Trace, $"Type '{targetType}' does not have members!");
+                        return default;
                     }
                 case ASTCastExpression cast:
                     // We assume all casts will work. Because if they are in the AST they shuold work!
@@ -200,6 +220,9 @@ namespace T12
                 case ASTSizeofTypeExpression sizeExpr:
                     int size = SizeOfType(sizeExpr.Type, typeMap);
                     return size > ASTWordLitteral.WORD_MAX_VALUE ? ASTBaseType.DoubleWord : ASTBaseType.Word;
+                case ASTAddressOfExpression addressOfExpression:
+                    // Address of resturns a pointer to the type of the expression.
+                    return ASTPointerType.Of(CalcReturnType(addressOfExpression.Expr, scope, typeMap, functionMap, constMap, globalMap));
                 default:
                     Fail(expression.Trace, $"Unknown expression type {expression}, this is a compiler bug!");
                     break;
@@ -1410,7 +1433,11 @@ namespace T12
                                 }
                                 else if (type_size == 2)
                                 {
-                                    throw new NotImplementedException();
+                                    // FIXME: Make this better!
+                                    builder.AppendLine("\tslswap and");
+                                    builder.AppendLine("\tslswap slswap");
+                                    builder.AppendLine("\tand");
+                                    builder.AppendLine("\tswap");
                                 }
                                 else
                                 {
@@ -1633,9 +1660,9 @@ namespace T12
                 case ASTPointerExpression pointerExpression:
                     {
                         // We use this to deref a pointer that is loaded to the stack
-                        void DerefPointer(ASTPointerType pointerType)
+                        void DerefPointer<T>(T pointerType) where T : ASTType, IDereferenceableType
                         {
-                            ASTType baseType = pointerType.BaseType;
+                            ASTType baseType = pointerType.DerefType;
                             
                             if (baseType == ASTBaseType.Void)
                                 Fail(pointerType.Trace, "Cannot deference void pointer! Cast to a valid pointer type!");
@@ -1719,24 +1746,32 @@ namespace T12
                                         // This is checked so that is exists in TryResolveVariable
                                         var global = globalMap[variable.GlobalName];
 
-                                        if (global.Type is ASTPointerType)
+                                        if (global.Type is ASTPointerType pointerType)
                                         {
                                             // Load the global variable, because we are loading it as a pointer we are using loadl
                                             builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
 
                                             // This does the rest!
-                                            DerefPointer(global.Type as ASTPointerType);
+                                            DerefPointer(pointerType);
                                         }
-                                        else if (global.Type is ASTArrayType)
+                                        else if (global.Type is ASTArrayType arrayType)
                                         {
-                                            ASTArrayType arrayType = global.Type as ASTArrayType;
-                                            
                                             // FIXME: Do bounds check!
                                             // TODO: Handle FixedArray!
                                             builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
 
                                             // This does the rest!
-                                            DerefPointer(global.Type as ASTPointerType);
+                                            DerefPointer(arrayType);
+                                        }
+                                        else if (global.Type is ASTFixedArrayType fixedArrayType)
+                                        {
+                                            // FIXME: Do bounds check!
+                                            // TODO: Handle FixedArray!
+
+                                            // We are loading a pointer so loadl is fine
+                                            builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
+
+                                            DerefPointer(fixedArrayType);
                                         }
                                         else
                                         {
@@ -2046,6 +2081,43 @@ namespace T12
                             };
 
                             LoadVariable(builder, sizeofTypeExpression.Trace, variable, typeMap);
+                        }
+                        break;
+                    }
+                case ASTAddressOfExpression addressOfExpression:
+                    {
+                        if (addressOfExpression.Expr is ASTVariableExpression variableExpression)
+                        {
+                            if (TryResolveVariable(variableExpression.Name, scope, globalMap, constMap, typeMap, out var variable) == false)
+                                Fail(addressOfExpression.Expr.Trace, $"No variable called '{variableExpression.Name}'!");
+                            
+                            switch (variable.VariableType)
+                            {
+                                case VariableType.Local:
+                                    {
+                                        throw new NotImplementedException();
+
+                                        break;
+                                    }
+                                case VariableType.Global:
+                                    {
+                                        builder.AppendLine($"\tloadl #{variable.GlobalName}\t; &[{variable.GlobalName}]");
+                                        break;
+                                    }
+                                case VariableType.Pointer:
+                                    Fail(addressOfExpression.Trace, $"TryResolveVariable should not return variable of type pointer!");
+                                    break;
+                                case VariableType.Constant:
+                                    Fail(addressOfExpression.Trace, $"Cannot take address of constant '{variable.ConstantName}'!");
+                                    break;
+                                default:
+                                    Fail(addressOfExpression.Trace, $"Unknown variable type: '{variable.VariableType}'!");
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            Fail(addressOfExpression.Trace, $"Unsupported or invalid type for address of: '{addressOfExpression.Expr}'");
                         }
                         break;
                     }

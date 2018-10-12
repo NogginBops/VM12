@@ -1840,7 +1840,12 @@ namespace VM12Asm
                                                 if (value.Length <= 2)
                                                 {
                                                     instructions.Add((short)current.Opcode);
-                                                    instructions.Add(value.Length < 2 ? (short)(value[0] == 0xFFF ? 0xFFF : 0) : value[1]);
+
+                                                    // FIXME: We used to do sign extension here... 
+                                                    // We should probably do some kind of thing here but for now we don't
+                                                    // instructions.Add(value.Length < 2 ? (short)(value[0] == 0xFFF ? 0xFFF : 0) : value[1]);
+                                                    
+                                                    instructions.Add(value.Length < 2 ? (short)0 : value[1]);
                                                     instructions.Add(value[0]);
                                                 }
                                                 else

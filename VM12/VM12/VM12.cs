@@ -910,7 +910,7 @@ namespace VM12
                 mem[this.FP + 4] = 0;   // No locals
                 mem[this.FP + 5] = 0;
                 this.locals = 0;
-                this.SP = this.FP + 5;
+                this.SP = this.FP + 6;
 
                 //int PC = this.PC;
                 //int SP = this.SP;
@@ -1968,7 +1968,10 @@ namespace VM12
             halt = true;
             interruptsEnabled = true;
         }
-        
+
+        public const int CHAR_WIDTH = 8;
+        public const int CHAR_HEIGHT = 12;
+
         public void StartGraphicsCoProssessor()
         {
             // We start executing instructions
@@ -2097,6 +2100,57 @@ namespace VM12
                         case GrapicOps.PalettedSprite_Mask:
                             GP++;
                             break;
+                        case GrapicOps.FontcharBuffer:
+                            {
+                                int color = mem[GP + 1];
+                                int char_buffer_addr = mem[GP + 2] << 12 | mem[GP + 3];
+                                int buffer_length = mem[GP + 4] << 12 | mem[GP + 5];
+                                int vram_addr = mem[GP + 6] << 12 | mem[GP + 7];
+                                int font_addr = mem[GP + 8] << 12 | mem[GP + 9];
+                                
+                                for (int i = 0; i < buffer_length; i++)
+                                {
+                                    int c = mem[char_buffer_addr++];
+                                    int char_addr = font_addr + (c * CHAR_WIDTH);
+                                    
+                                    bool not_zero = false;
+                                    for (int j = 0; j < 8; j++)
+                                    {
+                                        char_data[j] = mem[char_addr + j];
+                                        not_zero |= char_data[j] != 0;
+                                    }
+
+                                    if (not_zero)
+                                    {
+                                        int draw_addr = vram_addr;
+                                        int mask = 0x800;
+                                        for (int j = 0; j < 12; j++)
+                                        {
+                                            if ((char_data[0] & mask) != 0) mem[draw_addr + 0] = color;
+                                            if ((char_data[1] & mask) != 0) mem[draw_addr + 1] = color;
+                                            if ((char_data[2] & mask) != 0) mem[draw_addr + 2] = color;
+                                            if ((char_data[3] & mask) != 0) mem[draw_addr + 3] = color;
+                                            if ((char_data[4] & mask) != 0) mem[draw_addr + 4] = color;
+                                            if ((char_data[5] & mask) != 0) mem[draw_addr + 5] = color;
+                                            if ((char_data[6] & mask) != 0) mem[draw_addr + 6] = color;
+                                            if ((char_data[7] & mask) != 0) mem[draw_addr + 7] = color;
+
+                                            draw_addr += SCREEN_WIDTH;
+                                            mask >>= 1;
+                                        }
+                                    }
+                                    
+                                    vram_addr += CHAR_WIDTH;
+
+                                    if (vram_addr < VRAM_START || vram_addr >= (VRAM_START + VRAM_SIZE))
+                                    {
+                                        Debugger.Break();
+                                    }
+                                }
+
+                                GP += 10;
+                                break;
+                            }
                         default:
                             throw new InvalidOperationException();
                     }

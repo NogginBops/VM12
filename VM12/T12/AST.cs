@@ -1644,6 +1644,10 @@ namespace T12
             {
                 return ASTSizeofTypeExpression.Parse(Tokens);
             }
+            else if (peek.Type == TokenType.And)
+            {
+                return ASTAddressOfExpression.Parse(Tokens);
+            }
             else
             {
                 Fail(peek, $"Could not parse factor. Didn't know what to do with token '{peek}'");
@@ -2354,6 +2358,36 @@ namespace T12
         }
     }
 
+    public class ASTAddressOfExpression : ASTExpression
+    {
+        public readonly ASTExpression Expr;
+
+        public ASTAddressOfExpression(TraceData trace, ASTExpression expr) : base(trace)
+        {
+            Expr = expr;
+        }
+
+        public static new ASTAddressOfExpression Parse(Queue<Token> Tokens)
+        {
+            var andTok = Tokens.Dequeue();
+            if (andTok.Type != TokenType.And) Fail(andTok, "Expected '&'!");
+
+            // NOTE: We are parsing an expression here,
+            // but only a subset of all expressions are valid here.
+            // Feels like we should do something about this while parsing.
+            var expr = ASTExpression.ParseFactor(Tokens);
+
+            var trace = new TraceData
+            {
+                File = andTok.File,
+                StartLine = andTok.Line,
+                EndLine = expr.Trace.EndLine,
+            };
+
+            return new ASTAddressOfExpression(trace, expr);
+        }
+    }
+
     #region Casts
 
     public abstract class ASTCastExpression : ASTExpression
@@ -2400,7 +2434,7 @@ namespace T12
 
             // FIXME: Make casting left-associative
 
-            var expression = ASTExpression.Parse(Tokens);
+            var expression = ASTExpression.ParseFactor(Tokens);
 
             var trace = new TraceData
             {
@@ -2433,7 +2467,7 @@ namespace T12
             FromType = fromType;
         }
     }
-
+    
     #endregion
 
     #endregion
@@ -2586,12 +2620,22 @@ namespace T12
             Size = size;
         }
     }
-    
-    public class ASTPointerType : ASTType
+
+    public interface IDereferenceableType
+    {
+        /// <summary>
+        /// The underlying type that is available when dereferencing this type.
+        /// </summary>
+        ASTType DerefType { get; }
+    }
+
+    public class ASTPointerType : ASTType, IDereferenceableType
     {
         public readonly ASTType BaseType;
 
         public const int Size = 2;
+
+        public ASTType DerefType => BaseType;
 
         public static ASTPointerType Of(ASTType type) => new ASTPointerType(type.Trace, type);
 
@@ -2617,13 +2661,15 @@ namespace T12
             // return HashCode.Combine(BaseType);
         }
     }
-
-    public class ASTArrayType : ASTType
+    
+    public class ASTArrayType : ASTType, IDereferenceableType
     {
         public const int Size = 4;
 
         public readonly ASTType BaseType;
 
+        public ASTType DerefType => BaseType;
+        
         public ASTArrayType(TraceData trace, ASTType baseType) : this(trace, baseType, $"[]{baseType.TypeName}") { }
 
         protected ASTArrayType(TraceData trace, ASTType baseType, string name) : base(trace, name)
@@ -2632,12 +2678,16 @@ namespace T12
         }
     }
     
-    public class ASTFixedArrayType : ASTArrayType
+    public class ASTFixedArrayType : ASTType, IDereferenceableType
     {
-        public new readonly ASTNumericLitteral Size;
+        public readonly ASTType BaseType;
+        public readonly ASTNumericLitteral Size;
 
-        public ASTFixedArrayType(TraceData trace, ASTType baseType, ASTNumericLitteral size) : base(trace, baseType, $"[{size}]{baseType.TypeName}")
+        public ASTType DerefType => BaseType;
+
+        public ASTFixedArrayType(TraceData trace, ASTType baseType, ASTNumericLitteral size) : base(trace, $"[{size}]{baseType.TypeName}")
         {
+            BaseType = baseType;
             Size = size;
         }
     }
