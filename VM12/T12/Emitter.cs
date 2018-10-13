@@ -12,6 +12,7 @@ namespace T12
     using TypeMap = Dictionary<string, ASTType>;
     using VarList = List<(string Name, int Offset, ASTType Type)>;
     using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
+    using ImportMap = Dictionary<string, ASTFile>;
 
     public struct FunctionConext
     {
@@ -456,8 +457,6 @@ namespace T12
             /// This member is valid of VariableType is local!
             /// </summary>
             public int LocalAddress;
-            // NOTE: What is this?!
-            public ASTPointerExpression Pointer;
             public string GlobalName;
             public string ConstantName;
             public ASTType Type;
@@ -693,7 +692,7 @@ namespace T12
 
             return memberOffset;
         }
-        
+
         /*
         private static bool TryResolveConstantValue(ASTExpression constExpression, out int constant)
         {
@@ -707,14 +706,14 @@ namespace T12
         }
         */
 
-        public static string EmitAsem(ASTFile file)
+        public static string EmitAsem(ASTFile file, AST ast)
         {
             StringBuilder builder = new StringBuilder();
-            
-            TypeMap typeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType) kvp.Value);
+
+            TypeMap typeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType)kvp.Value);
 
             ConstMap constMap = new ConstMap();
-            
+
             // NOTE: This might not be the best solution
             // because when you look for variables you might forget to check the globals
             // This might be fixed with a function to do this.
@@ -722,7 +721,16 @@ namespace T12
             GlobalMap globalMap = new GlobalMap();
 
             FunctionMap functionMap = file.Functions.ToDictionary(func => func.Name, func => func);
-            
+
+            ImportMap importMap = new ImportMap();
+            foreach (var import in file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>())
+            {
+                if (ast.Files.TryGetValue(import.File, out var importFile) == false)
+                    Fail(import.Trace, $"Could not find import file '{import.File}'!");
+                
+                importMap.Add(import.ImportName, importFile);
+            }
+
             foreach (var directive in file.Directives)
             {
                 EmitDirective(builder, directive, typeMap, functionMap, constMap, globalMap);

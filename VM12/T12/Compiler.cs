@@ -65,7 +65,7 @@ namespace T12
 
             foreach (var file in ast.Files)
             {
-                string result = Emitter.EmitAsem(file.Value);
+                string result = Emitter.EmitAsem(file.Value, ast);
 
                 // FIXME: Write to file
             }
