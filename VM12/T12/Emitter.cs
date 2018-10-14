@@ -65,49 +65,38 @@ namespace T12
             return ResolveType(varType.Type, typeMap);
         }
 
-        private static int SizeOfType(ASTType type, TypeMap map)
+        private static int SizeOfType(ASTType type, TypeMap typeMap)
         {
-            if (type is ASTPointerType)
+            // NOTE: Here we don't check that the underlying types are valid types
+            // E.g. We can have a pointer to some type and that type does not have to exist for this type to work
+            switch (type)
             {
-                return ASTPointerType.Size;
-            }
-            else if (type is ASTFixedArrayType)
-            {
-                ASTFixedArrayType array = type as ASTFixedArrayType;
-                return array.Size.IntValue * SizeOfType(array.BaseType, map);
-            }
-            else if (type is ASTArrayType)
-            {
-                return ASTArrayType.Size;
-            }
-            else if (map.TryGetValue(type.TypeName, out ASTType outType))
-            {
-                if (outType is ASTBaseType)
-                {
-                    return (outType as ASTBaseType).Size;
-                }
-                else if (outType is ASTStructType)
-                {
-                    ASTStructType sType = outType as ASTStructType;
-
-                    int size = 0;
-                    foreach (var member in sType.Members)
-                    {
-                        size += SizeOfType(member.Type, map);
-                    }
-
-                    return size;
-                }
-                else
-                {
-                    Fail(type.Trace, $"We don't support this type of type atm! ({outType} of type {outType.GetType()})");
-                    return default;
-                }
-            }
-            else
-            {
-                Fail(type.Trace, $"Could not find type named '{type.TypeName}'");
-                return default;
+                case ASTBaseType baseType:
+                    return baseType.Size;
+                case ASTStructType structType:
+                    return structType.Members.Select(member => SizeOfType(member.Type, typeMap)).Sum();
+                case ASTPointerType pointerType:
+                    return ASTPointerType.Size;
+                case ASTFixedArrayType fixedArrayType:
+                    return fixedArrayType.Size.IntValue * SizeOfType(fixedArrayType.BaseType, typeMap);
+                case ASTArrayType arrayType:
+                    return ASTArrayType.Size;
+                case ASTExternType externType:
+                    if (typeMap.TryGetValue(externType.TypeName, out var outType))
+                        if (outType is ASTExternType outExternType)
+                        {
+                            return SizeOfType(outExternType.Type, typeMap);
+                        }
+                        else
+                        {
+                            Fail(externType.Trace, "");
+                            return default;
+                        }
+                    else
+                        return SizeOfType(externType.Type, typeMap);
+                default:
+                    // We don't fully know the size of the type yet so we consult the TypeMap
+                    return SizeOfType(ResolveType(type, typeMap), typeMap);
             }
         }
 
@@ -496,6 +485,12 @@ namespace T12
 
                 };
 
+                // NOTE: This is not the cleanest solution!
+                if (global is ASTExternGlobalDirective externGlobalDirective)
+                {
+                    variable.GlobalName = externGlobalDirective.GlobalDirective.Name;
+                }
+
                 return true;
             }
             else if (constMap.TryGetValue(name, out var constant))
@@ -655,6 +650,24 @@ namespace T12
             if (type is ASTTypeRef)
                 return ResolveType(type.Trace, type.TypeName, typeMap);
 
+            if (type is ASTExternType externType)
+            {
+                if (externType.Type is ASTTypeRef)
+                {
+                    if (typeMap.TryGetValue(type.TypeName, out var outType) == false)
+                        Fail(type.Trace, $"No type called '{type.TypeName}'!");
+
+                    // The type we will have gotten now will be the imported one with the full type info
+
+                    // NOTE: We could check that outType actually is a ASTExternType
+                    return (outType as ASTExternType).Type;
+                }
+                else
+                {
+                    return externType.Type;
+                }
+            }
+
             if (type is ASTPointerType)
                 return ASTPointerType.Of(ResolveType((type as ASTPointerType).BaseType, typeMap));
 
@@ -728,12 +741,12 @@ namespace T12
                 if (ast.Files.TryGetValue(import.File, out var importFile) == false)
                     Fail(import.Trace, $"Could not find import file '{import.File}'!");
                 
-                importMap.Add(import.ImportName, importFile);
+                importMap.Add(import.ImportName, importFile.File);
             }
 
             foreach (var directive in file.Directives)
             {
-                EmitDirective(builder, directive, typeMap, functionMap, constMap, globalMap);
+                EmitDirective(builder, directive, typeMap, functionMap, constMap, globalMap, importMap);
             }
 
             builder.AppendLine();
@@ -747,7 +760,7 @@ namespace T12
             return builder.ToString();
         }
         
-        private static void EmitDirective(StringBuilder builder, ASTDirective directive, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        private static void EmitDirective(StringBuilder builder, ASTDirective directive, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, ImportMap importMap)
         {
             switch (directive)
             {
@@ -763,13 +776,72 @@ namespace T12
                     }
                 case ASTImportDirective import:
                     {
+                        if (importMap.TryGetValue(import.ImportName, out ASTFile file) == false)
+                            Fail(import.Trace, $"Could not resolve import of type '{import.ImportName}' and file '{import.File}'!");
+
+                        // FIXME: If we import multiple files into the same name
+
+                        // FIXME: When one file uses a type from another file and that other file is using a type from the first
+
+                        ASTExternType ImportType(ASTType type)
+                        {
+                            return new ASTExternType(type.Trace, import.ImportName, type);
+                        }
+
+                        ASTType ImportTypeIfNeeded(ASTType type)
+                        {
+                            // FIXME: When two file declare the same struct name!!
+                            if (typeMap.ContainsKey(type.TypeName)) return type;
+                            return new ASTExternType(type.Trace, import.ImportName, type);
+                        }
+
                         builder.AppendLine($"& {import.ImportName} {Path.ChangeExtension(import.File, ".12asm")}");
 
-                        // FIXME: Import the data from the file! This will need refactoring!
-                        // We could add like a export struct that contains all data that is exported from a file.
-                        // This sounds like a good idea.
-                        // Ordering will need some thinking about
+                        bool visible = false;
+                        foreach (var direct in file.Directives)
+                        {
+                            if (visible == false && (direct is ASTVisibilityDirective == false))
+                                continue;
 
+                            // NOTE: We are duplicating code here
+
+                            switch (direct)
+                            {
+                                case ASTVisibilityDirective visibilityDirective:
+                                    visible = visibilityDirective.IsPublic;
+                                    break;
+                                case ASTConstDirective constDirective:
+                                    {
+                                        // FIXME: Implement!!!
+                                    }
+                                    break;
+                                case ASTGlobalDirective globalDirective:
+                                    {
+                                        var global = new ASTExternGlobalDirective(globalDirective.Trace, import.ImportName, ImportTypeIfNeeded(globalDirective.Type), globalDirective.Name, globalDirective);
+                                        globalMap.Add(global.Name, global);
+
+                                        builder.AppendLine($"<{globalDirective.Name} = extern> ; {global.Name}");
+                                    }
+                                    break;
+                                case ASTStructDeclarationDirective structDecl:
+                                    {
+                                        structDecl = new ASTStructDeclarationDirective(structDecl.Trace, $"{import.ImportName}::{structDecl.Name}", ImportType(structDecl.DeclaredType));
+
+                                        EmitDirective(builder, structDecl, typeMap, functionMap, constMap, globalMap, importMap);
+                                        break;
+                                    }
+                                default:
+                                    break;
+                            }
+                        }
+
+                        foreach (var func in file.Functions)
+                        {
+                            var @params = func.Parameters.Select(p => { p.Type = ImportTypeIfNeeded(p.Type); return p; }).ToList();
+                            var importFunc = new ASTExternFunction(func.Trace, import.ImportName, func.Name, ImportTypeIfNeeded(func.ReturnType), @params, func.Body, func);
+                            functionMap.Add(importFunc.Name, importFunc);
+                        }
+                        
                         break;
                     }
                 case ASTExternFunctionDirective externFunc:
@@ -823,7 +895,7 @@ namespace T12
                 case ASTGlobalDirective globalDirective:
                     {
                         globalMap[globalDirective.Name] = globalDirective;
-                        builder.AppendLine($"<{globalDirective.Name} = auto({SizeOfType(globalDirective.Type, typeMap)})>");
+                        builder.AppendLine($"<{globalDirective.Name} = auto({SizeOfType(globalDirective.Type, typeMap)})> ; {globalDirective.Type}");
                         break;
                     }
                 case ASTStructDeclarationDirective structDeclaration:
@@ -1268,7 +1340,7 @@ namespace T12
                                     if (produceResult)
                                     {
                                         // We are loading a pointer so 'loadl' is fine
-                                        builder.AppendLine($"\tloadl #{variableExpr.Name}");
+                                        builder.AppendLine($"\tloadl #{variable.GlobalName}");
                                         LoadVariable(builder, variableExpr.Trace, variable, typeMap);
                                     }
                                     break;
@@ -1624,9 +1696,12 @@ namespace T12
                         int hash = functionCall.GetHashCode();
                         
                         if (functionMap.TryGetValue(functionCall.FunctionName, out ASTFunction function) == false)
-                        {
                             Fail(functionCall.Trace, $"No function called '{functionCall.FunctionName}'");
-                        }
+
+                        string functionLabel = function.Name;
+
+                        if (function is ASTExternFunction externFunction)
+                            functionLabel = externFunction.Func.Name;
 
                         // FIXME!!! Check types!!!
                         if (functionCall.Arguments.Count != function.Parameters.Count)
@@ -1649,7 +1724,7 @@ namespace T12
                         }
 
                         if (functionCall.Arguments.Count > 0)
-                            builder.AppendLine($"\t; Args to function call ::{functionCall.FunctionName} {hash}");
+                            builder.AppendLine($"\t; Args to function call ::{functionLabel} {hash}");
                         
                         // This means adding a result type to expressions
                         foreach (var arg in functionCall.Arguments)
@@ -1657,7 +1732,7 @@ namespace T12
                             EmitExpression(builder, arg, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         }
 
-                        builder.AppendLine($"\t::{function.Name}");
+                        builder.AppendLine($"\t::{functionLabel}\t; {hash}");
 
                         if (produceResult == false)
                         {
@@ -1817,6 +1892,8 @@ namespace T12
                             // We emit the pointer and then dereference it
 
                             var type = ResolveType(CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+
+                            var test = pointerExpression;
 
                             if (type is ASTPointerType == false)
                                 Fail(pointerExpression.Pointer.Trace, $"Cannot dereference non-pointer type '{type}'!");

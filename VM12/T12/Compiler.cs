@@ -46,16 +46,16 @@ namespace T12
                 outFile = new FileInfo(Path.ChangeExtension(inFile.FullName, "12asm"));
             }
             
-            /*string result = */Compile(inFile.FullName);
+            /*string result = */Compile(inFile);
             
             //File.WriteAllText(outFile.FullName, result);
         }
 
-        public static void Compile(string infile)
+        public static void Compile(FileInfo infile)
         {
-            string fileData = File.ReadAllText(infile);
+            string fileData = File.ReadAllText(infile.FullName);
 
-            var tokens = Tokenizer.Tokenize(fileData, infile);
+            var tokens = Tokenizer.Tokenize(fileData, infile.FullName);
 
             AST ast = AST.Parse(infile);
 
@@ -65,9 +65,10 @@ namespace T12
 
             foreach (var file in ast.Files)
             {
-                string result = Emitter.EmitAsem(file.Value, ast);
+                string result = Emitter.EmitAsem(file.Value.File, ast);
 
                 // FIXME: Write to file
+                File.WriteAllText(Path.ChangeExtension(file.Value.FileInfo.FullName, ".12asm"), result);
             }
             
             return;

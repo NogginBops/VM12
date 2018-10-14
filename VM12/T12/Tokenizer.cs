@@ -18,6 +18,8 @@ namespace T12
         Open_square_bracket,
         Close_squre_bracket,
 
+        DoubleColon,
+
         Semicolon,
         Period,
         Comma,
@@ -27,7 +29,7 @@ namespace T12
 
         ShiftLeft,
         ShiftRight,
-
+        
         DoubleAnd,
         DoublePipe,
         DoubleEqual,
@@ -227,6 +229,8 @@ namespace T12
 
             ( TokenType.Open_square_bracket, new Regex("^\\[") ),
             ( TokenType.Close_squre_bracket, new Regex("^\\]") ),
+
+            ( TokenType.DoubleColon, new Regex("^::") ),
 
             ( TokenType.Semicolon, new Regex("^;") ),
             ( TokenType.Period, new Regex("^\\.") ),

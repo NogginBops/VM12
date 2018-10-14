@@ -10,31 +10,27 @@ namespace T12
 {
     public class AST
     {
-        public readonly Dictionary<string, ASTFile> Files;
+        public readonly Dictionary<string, (ASTFile File, FileInfo FileInfo)> Files;
         
-        public AST(Dictionary<string, ASTFile> files)
+        public AST(Dictionary<string, (ASTFile File, FileInfo FileInfo)> files)
         {
             this.Files = files;
         }
 
-        public static AST Parse(string inFile)
+        public static AST Parse(FileInfo inFile)
         {
-            // FIXME
-
-            var directory = new DirectoryInfo(Path.GetDirectoryName(inFile));
-
-            Dictionary<string, FileInfo> dirFiles = directory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
+            Dictionary<string, FileInfo> dirFiles = inFile.Directory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
 
             // We can probably do this better!
             // Because we will want to emit comments to the assembly
-            string fileData = File.ReadAllText(inFile);
-            Queue<Token> Tokens = Tokenizer.Tokenize(fileData, inFile);
+            string fileData = File.ReadAllText(inFile.FullName);
+            Queue<Token> Tokens = Tokenizer.Tokenize(fileData, inFile.FullName);
             Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
             
-            Dictionary<string, ASTFile> files = new Dictionary<string, ASTFile>();
+            Dictionary<string, (ASTFile File, FileInfo FileInfo)> files = new Dictionary<string, (ASTFile File, FileInfo FileInfo)>();
 
             var file = ASTFile.Parse(Tokens);
-            files.Add(Path.GetFileName(inFile), file);
+            files.Add(inFile.Name, (file, inFile));
 
             foreach (var import in file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>())
             {
@@ -46,7 +42,9 @@ namespace T12
                         throw new FileNotFoundException($"Could not import '{import.ImportName}', did not find file '{import.File}'!");
 
                     // Parse the file!
-                    files.Add(importFile.Name, ASTFile.Parse(Tokenizer.Tokenize(File.ReadAllText(importFile.FullName), importFile.FullName)));
+                    var tokens = Tokenizer.Tokenize(File.ReadAllText(importFile.FullName), importFile.FullName);
+                    tokens = new Queue<Token>(tokens.Where(tok => tok.Type != TokenType.Comment));
+                    files.Add(importFile.Name, (ASTFile.Parse(tokens), importFile));
                 }
             }
             
@@ -541,6 +539,18 @@ namespace T12
         }
     }
 
+    public class ASTExternGlobalDirective : ASTGlobalDirective
+    {
+        public readonly string Namespace;
+        public readonly ASTGlobalDirective GlobalDirective;
+
+        public ASTExternGlobalDirective(TraceData trace, string @namespace, ASTType type, string name, ASTGlobalDirective globalDirective) : base(trace, type, $"{@namespace}::{name}")
+        {
+            Namespace = @namespace;
+            GlobalDirective = globalDirective;
+        }
+    }
+
     // NOTE: This should really be a ASTDeclaration and not really a ASTDirective
     // But that is somewhat hard to implement
     public class ASTStructDeclarationDirective : ASTDirective
@@ -713,6 +723,18 @@ namespace T12
         }
     }
 
+    public class ASTExternFunction : ASTFunction
+    {
+        public readonly string Namespace;
+        public readonly ASTFunction Func;
+
+        public ASTExternFunction(TraceData trace, string @namespace, string name, ASTType returnType, List<(ASTType, string)> parameters, List<ASTBlockItem> body, ASTFunction func) : base(trace, $"{@namespace}::{name}", returnType, parameters, body)
+        {
+            Namespace = @namespace;
+            Func = func;
+        }
+    }
+
     public class ASTInterrupt : ASTFunction
     {
         public readonly InterruptType Type;
@@ -863,17 +885,32 @@ namespace T12
 
             if (peek.IsBaseType || peek.Type == TokenType.Asterisk || peek.Type == TokenType.Open_square_bracket)
             {
+                // Here we know its going to ba a variable declaration
                 return ASTDeclaration.Parse(Tokens);
             }
             else if (peek.IsIdentifier)
             {
                 var namePeek = Tokens.ElementAt(1);
-                var semicolonEqualsPeek = Tokens.ElementAt(2);
-                if (namePeek.IsIdentifier && 
-                    (semicolonEqualsPeek.Type == TokenType.Semicolon || semicolonEqualsPeek.Type == TokenType.Equal))
+
+                Token semicolonEqualsPeek;
+                if (namePeek.IsIdentifier)
                 {
-                    //  This is a variable declaration of a complex type!
-                    return ASTDeclaration.Parse(Tokens);
+                    semicolonEqualsPeek = Tokens.ElementAt(2);
+                    if (semicolonEqualsPeek.Type == TokenType.Semicolon || semicolonEqualsPeek.Type == TokenType.Equal)
+                    {
+                        //  This is a variable declaration of a complex type!
+                        return ASTDeclaration.Parse(Tokens);
+                    }
+                }
+                else if (namePeek.Type == TokenType.DoubleColon)
+                {
+                    // Is this a extern type variable declaration?
+                    semicolonEqualsPeek = Tokens.ElementAt(4);
+                    if (semicolonEqualsPeek.Type == TokenType.Semicolon || semicolonEqualsPeek.Type == TokenType.Equal)
+                    {
+                        //  This is a variable declaration of a complex type!
+                        return ASTDeclaration.Parse(Tokens);
+                    }
                 }
             }
 
@@ -887,7 +924,7 @@ namespace T12
     {
         public ASTDeclaration(TraceData trace) : base(trace) { }
 
-        public static new ASTBlockItem Parse(Queue<Token> Tokens)
+        public static new ASTDeclaration Parse(Queue<Token> Tokens)
         {
             return ASTVariableDeclaration.Parse(Tokens);
         }
@@ -1738,7 +1775,21 @@ namespace T12
 
                 ASTExpression expr;
                 var peekActionTok = Tokens.ElementAt(1);
-                if (peekActionTok.Type == TokenType.Open_parenthesis)
+                if (peekActionTok.Type == TokenType.DoubleColon)
+                {
+                    // NOTE: This is not the most beautiful solution, but for now it works
+
+                    peekActionTok = Tokens.ElementAt(3);
+                    if (peekActionTok.Type == TokenType.Open_parenthesis)
+                    {
+                        expr = ASTExternFunctionCall.Parse(Tokens);
+                    }
+                    else
+                    {
+                        expr = ASTExternVariableExpression.Parse(Tokens);
+                    }
+                }
+                else if(peekActionTok.Type == TokenType.Open_parenthesis)
                 {
                     expr = ASTFunctionCall.Parse(Tokens);
                 }
@@ -2069,6 +2120,39 @@ namespace T12
             }
         }
     }
+    
+    public class ASTExternVariableExpression : ASTVariableExpression
+    {
+        public readonly string Namespace;
+        public readonly ASTVariableExpression VariableExpr;
+
+        public ASTExternVariableExpression(TraceData trace, string @namespace, ASTVariableExpression variableExpr) : base(trace, $"{@namespace}::{variableExpr.Name}", variableExpr.AssignmentExpression)
+        {
+            Namespace = @namespace;
+            VariableExpr = variableExpr;
+        }
+
+        public static new ASTExternVariableExpression Parse(Queue<Token> Tokens)
+        {
+            var namespaceTok = Tokens.Dequeue();
+            if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected namespace identifier!");
+            string @namespace = namespaceTok.Value;
+
+            var doubleColonTok = Tokens.Dequeue();
+            if (doubleColonTok.Type != TokenType.DoubleColon) Fail(doubleColonTok, "Expected '::'!");
+
+            ASTVariableExpression varExpr = ASTVariableExpression.Parse(Tokens);
+
+            var trace = new TraceData
+            {
+                File = namespaceTok.File,
+                StartLine = namespaceTok.Line,
+                EndLine = varExpr.Trace.EndLine,
+            };
+
+            return new ASTExternVariableExpression(trace, @namespace, varExpr);
+        }
+    }
 
     public class ASTPointerExpression : ASTExpression
     {
@@ -2369,6 +2453,39 @@ namespace T12
         }
     }
 
+    public class ASTExternFunctionCall : ASTFunctionCall
+    {
+        public readonly string Namespace;
+        public readonly ASTFunctionCall FunctionCall;
+
+        public ASTExternFunctionCall(TraceData trace, string @namespace, ASTFunctionCall functionCall) : base(trace, $"{@namespace}::{functionCall.FunctionName}", functionCall.Arguments)
+        {
+            Namespace = @namespace;
+            FunctionCall = functionCall;
+        }
+
+        public static new ASTExternFunctionCall Parse(Queue<Token> Tokens)
+        {
+            var namespaceTok = Tokens.Dequeue();
+            if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected namespace identifier!");
+            string @namespace = namespaceTok.Value;
+
+            var doubleColonTok = Tokens.Dequeue();
+            if (doubleColonTok.Type != TokenType.DoubleColon) Fail(doubleColonTok, "Expected '::'!");
+
+            ASTFunctionCall funcCall = ASTFunctionCall.Parse(Tokens);
+
+            var trace = new TraceData
+            {
+                File = namespaceTok.File,
+                StartLine = namespaceTok.Line,
+                EndLine = funcCall.Trace.EndLine,
+            };
+
+            return new ASTExternFunctionCall(trace, @namespace, funcCall);
+        }
+    }
+
     public class ASTMemberExpression : ASTExpression
     {
         public readonly ASTExpression TargetExpr;
@@ -2588,7 +2705,7 @@ namespace T12
 
     #region Types
 
-    public abstract class ASTType : ASTNode
+    public abstract class ASTType : ASTNode, IEquatable<ASTType>
     {
         public readonly string TypeName;
         
@@ -2601,7 +2718,7 @@ namespace T12
         {
             return TypeName;
         }
-        
+        /*
         public static bool operator ==(ASTType left, ASTType right) => left?.TypeName == right?.TypeName;
         public static bool operator !=(ASTType left, ASTType right) => left?.TypeName != right?.TypeName;
 
@@ -2618,9 +2735,34 @@ namespace T12
             // This is a .net core 2+ only feature
             //return HashCode.Combine(TypeName);
         }
+        */
         
         public static ASTType Parse(Queue<Token> Tokens)
         {
+            if (Tokens.ElementAt(1).Type == TokenType.DoubleColon)
+            {
+                // This is a ref to another file
+                var namespaceTok = Tokens.Dequeue();
+                if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected identifier!");
+                string space = namespaceTok.Value;
+                
+                // Dequeue '::'
+                Tokens.Dequeue();
+
+                var typeNameTok = Tokens.Dequeue();
+                if (typeNameTok.IsIdentifier == false) Fail(typeNameTok, "");
+                string typeName = typeNameTok.Value;
+
+                var trace = new TraceData
+                {
+                    File = namespaceTok.File,
+                    StartLine = namespaceTok.Line,
+                    EndLine = typeNameTok.Line,
+                };
+
+                return new ASTExternType(trace, space, new ASTTypeRef(trace, typeName));
+            }
+
             var tok = Tokens.Dequeue();
             switch (tok.Type)
             {
@@ -2703,6 +2845,39 @@ namespace T12
                         return type;
                     }
             }
+        }
+
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as ASTType);
+        }
+
+        // NOTE: This does not do the Extern type thing!!
+        public bool Equals(ASTType other)
+        {
+            return other != null &&
+                   TypeName == other.TypeName;
+        }
+
+        public override int GetHashCode()
+        {
+            return -448171650 + EqualityComparer<string>.Default.GetHashCode(TypeName);
+        }
+
+        public static bool operator ==(ASTType type1, ASTType type2)
+        {
+            while (type1 is ASTExternType externType1) type1 = externType1.Type;
+            while (type2 is ASTExternType externType2) type2 = externType2.Type;
+
+            return EqualityComparer<ASTType>.Default.Equals(type1, type2);
+        }
+
+        public static bool operator !=(ASTType type1, ASTType type2)
+        {
+            while (type1 is ASTExternType externType1) type1 = externType1.Type;
+            while (type2 is ASTExternType externType2) type2 = externType2.Type;
+
+            return !(type1 == type2);
         }
     }
 
@@ -2829,5 +3004,45 @@ namespace T12
         }
     }
     
+    /// <summary>
+    /// This is a type that is a reference to a type in another file.
+    /// </summary>
+    public class ASTExternType : ASTType
+    {
+        public readonly string NamespaceName;
+        public readonly ASTType Type;
+
+        public ASTExternType(TraceData trace, string spaceName, ASTType type) : base(trace, $"{spaceName}::{type.TypeName}")
+        {
+            NamespaceName = spaceName;
+            Type = type;
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is ASTExternType)
+            {
+                var objType = obj as ASTType;
+                while (objType is ASTExternType)
+                {
+                    objType = (objType as ASTExternType).Type;
+                }
+
+                return Type == objType;
+            }
+
+            return base.Equals(obj);
+        }
+
+        public override int GetHashCode()
+        {
+            var hashCode = -1176423218;
+            hashCode = hashCode * -1521134295 + base.GetHashCode();
+            hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(NamespaceName);
+            hashCode = hashCode * -1521134295 + EqualityComparer<ASTType>.Default.GetHashCode(Type);
+            return hashCode;
+        }
+    }
+
     #endregion
 }
