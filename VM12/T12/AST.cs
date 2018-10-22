@@ -2709,9 +2709,9 @@ namespace T12
     {
         public readonly string TypeName;
         
-        public ASTType(TraceData trace, string Type) : base(trace)
+        public ASTType(TraceData trace, string type) : base(trace)
         {
-            this.TypeName = Type;
+            this.TypeName = type;
         }
 
         public override string ToString()
@@ -2852,6 +2852,7 @@ namespace T12
             return Equals(obj as ASTType);
         }
 
+        // TODO: Do some sophisticated more checking then just comparing strings...?
         // NOTE: This does not do the Extern type thing!!
         public bool Equals(ASTType other)
         {
@@ -2910,21 +2911,23 @@ namespace T12
         }
     }
 
-    public interface IDereferenceableType
+    public abstract class ASTDereferenceableType : ASTType
     {
         /// <summary>
         /// The underlying type that is available when dereferencing this type.
         /// </summary>
-        ASTType DerefType { get; }
+        public abstract ASTType DerefType { get; }
+
+        public ASTDereferenceableType(TraceData trace, string type) : base(trace, type) { }
     }
 
-    public class ASTPointerType : ASTType, IDereferenceableType
+    public class ASTPointerType : ASTDereferenceableType
     {
         public readonly ASTType BaseType;
 
         public const int Size = 2;
 
-        public ASTType DerefType => BaseType;
+        public override ASTType DerefType => BaseType;
 
         public static ASTPointerType Of(ASTType type) => new ASTPointerType(type.Trace, type);
 
@@ -2951,13 +2954,13 @@ namespace T12
         }
     }
     
-    public class ASTArrayType : ASTType, IDereferenceableType
+    public class ASTArrayType : ASTDereferenceableType
     {
         public const int Size = 4;
 
         public readonly ASTType BaseType;
 
-        public ASTType DerefType => BaseType;
+        public override ASTType DerefType => BaseType;
         
         public ASTArrayType(TraceData trace, ASTType baseType) : this(trace, baseType, $"[]{baseType.TypeName}") { }
 
@@ -2967,12 +2970,12 @@ namespace T12
         }
     }
     
-    public class ASTFixedArrayType : ASTType, IDereferenceableType
+    public class ASTFixedArrayType : ASTDereferenceableType
     {
         public readonly ASTType BaseType;
         public readonly ASTNumericLitteral Size;
 
-        public ASTType DerefType => BaseType;
+        public override ASTType DerefType => BaseType;
 
         public ASTFixedArrayType(TraceData trace, ASTType baseType, ASTNumericLitteral size) : base(trace, $"[{size}]{baseType.TypeName}")
         {

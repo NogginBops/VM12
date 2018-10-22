@@ -1,5 +1,33 @@
 ﻿namespace VM12_Opcode
 {
+    public static class Constants
+    {
+        public const int RAM_SIZE = 10_483_712; // before gram: 10_485_760
+        public const int GRAM_SIZE = 2048;
+        public const int VRAM_SIZE = 307_200;
+        public const int ROM_SIZE = 5_984_256;
+
+        public const int RAM_START = 0;
+        public const int GRAM_START = RAM_SIZE;
+        public const int VRAM_START = RAM_SIZE + GRAM_SIZE;
+        public const int ROM_START = RAM_SIZE + GRAM_SIZE + VRAM_SIZE;
+
+        public const int RAM_END = RAM_START + RAM_SIZE - 1;
+        public const int GRAM_END = GRAM_START + GRAM_SIZE - 1;
+        public const int VRAM_END = VRAM_START + VRAM_SIZE - 1;
+        public const int ROM_END = ROM_START + ROM_SIZE - 1;
+
+        public const int MEM_SIZE = RAM_SIZE + GRAM_SIZE + VRAM_SIZE + ROM_SIZE;
+
+        public const int SCREEN_WIDTH = 640;
+        public const int SCREEN_HEIGHT = 480;
+
+        public const int STORAGE_START_ADDR = 0;
+        public const int STORAGE_SIZE = 357_913_941 / 2;
+
+        public const int STACK_MAX_ADDRESS = 0x100_000;
+    }
+    
     public enum InterruptType : int
     {
         stop,

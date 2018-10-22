@@ -32,25 +32,25 @@ namespace VM12
 
     unsafe class VM12
     {
-        public const int RAM_SIZE = 10_483_712; // before gram: 10_485_760
-        public const int GRAM_SIZE = 2048;
-        public const int VRAM_SIZE = 307_200;
-        public const int ROM_SIZE = 5_984_256;
+        public const int RAM_SIZE = Constants.RAM_SIZE; // before gram: 10_485_760
+        public const int GRAM_SIZE = Constants.GRAM_SIZE;
+        public const int VRAM_SIZE = Constants.VRAM_SIZE;
+        public const int ROM_SIZE = Constants.ROM_SIZE;
 
-        public const int RAM_START = 0;
-        public const int GRAM_START = RAM_SIZE;
-        public const int VRAM_START = RAM_SIZE + GRAM_SIZE;
-        public const int ROM_START = RAM_SIZE + GRAM_SIZE + VRAM_SIZE;
+        public const int RAM_START = Constants.RAM_START;
+        public const int GRAM_START = Constants.GRAM_START;
+        public const int VRAM_START = Constants.VRAM_START;
+        public const int ROM_START = Constants.ROM_START;
 
-        public const int MEM_SIZE = RAM_SIZE + GRAM_SIZE + VRAM_SIZE + ROM_SIZE;
+        public const int MEM_SIZE = Constants.MEM_SIZE;
 
-        public const int SCREEN_WIDTH = 640;
-        public const int SCREEN_HEIGHT = 480;
+        public const int SCREEN_WIDTH = Constants.SCREEN_WIDTH;
+        public const int SCREEN_HEIGHT = Constants.SCREEN_HEIGHT;
 
-        public const int STORAGE_START_ADDR = 0;
-        public const int STORAGE_SIZE = 357_913_941 / 2;
+        public const int STORAGE_START_ADDR = Constants.STORAGE_START_ADDR;
+        public const int STORAGE_SIZE = Constants.STORAGE_SIZE;
 
-        public const int STACK_MAX_ADDRESS = 0x100_000;
+        public const int STACK_MAX_ADDRESS = Constants.STACK_MAX_ADDRESS;
 
         public int[] MEM = new int[MEM_SIZE];
         
@@ -183,27 +183,8 @@ namespace VM12
             interruptSet = true;
 
 #if DEBUG
-            InterruptFreq[InterruptTypeToInt(interrupt.Type)]++;
+            InterruptFreq[index]++;
 #endif
-
-            /**
-            if (interruptsEnabled && intrr == null)
-            {
-                //intrr = intrr ?? interrupt;
-                intrr = interrupt;
-                interrupt_event.Set();
-#if DEBUG
-                InterruptFreq[InterruptTypeToInt(interrupt.Type)]++;
-#endif
-            }
-            else
-            {
-#if DEBUG
-                MissedInterruptFreq[InterruptTypeToInt(interrupt.Type)]++;
-#endif
-                MissedInterrupts++;
-            }
-            */
         }
 
         public static int InterruptTypeToInt(InterruptType type)
@@ -236,6 +217,8 @@ namespace VM12
         AutoResetEvent interrupt_event = new AutoResetEvent(false);
 
 #if DEBUG
+        // NOTE: These events should maybe not be properties to avoid the extra level of indirection!
+
         /// <summary>
         /// When the VM breaks it waits for this event
         /// </summary>
@@ -294,18 +277,16 @@ namespace VM12
             ReadStorageData(storageFile);
         }
 #elif DEBUG
-
-        private Dictionary<int, bool[,]> fontCache = new Dictionary<int, bool[,]>();
-
+        
         public volatile bool UseDebugger = false;
         
-        public int[] InterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
+        public long[] InterruptFreq = new long[Enum.GetValues(typeof(InterruptType)).Length];
 
-        public int[] MissedInterruptFreq = new int[Enum.GetValues(typeof(InterruptType)).Length];
+        public long[] MissedInterruptFreq = new long[Enum.GetValues(typeof(InterruptType)).Length];
 
         public long[] instructionFreq = new long[Enum.GetValues(typeof(Opcode)).Length];
 
-        public int[] instructionTimes = new int[Enum.GetValues(typeof(Opcode)).Length];
+        public long[] instructionTimes = new long[Enum.GetValues(typeof(Opcode)).Length];
 
         public long[] romInstructionCounter = new long[MEM_SIZE];
 
@@ -1971,7 +1952,7 @@ namespace VM12
 
         public const int CHAR_WIDTH = 8;
         public const int CHAR_HEIGHT = 12;
-
+        
         public void StartGraphicsCoProssessor()
         {
             // We start executing instructions
@@ -2011,8 +1992,7 @@ namespace VM12
                             GP = VRAM_START + offset;
                             break;
                         case GrapicOps.Line:
-                            GP++;
-                            break;
+                            throw new NotImplementedException();
                         case GrapicOps.Rectangle:
                             {
                                 int color = mem[GP + 1];
@@ -2043,8 +2023,7 @@ namespace VM12
                                 break;
                             }
                         case GrapicOps.Ellipse:
-                            GP++;
-                            break;
+                            throw new NotImplementedException();
                         case GrapicOps.Fontchar:
                             {
                                 int color = mem[GP + 1];
@@ -2086,22 +2065,18 @@ namespace VM12
                                 break;
                             }
                         case GrapicOps.TrueColorSprite:
-                            GP++;
-                            break;
+                            throw new NotImplementedException();
                         case GrapicOps.PalettedSprite:
-                            GP++;
-                            break;
+                            throw new NotImplementedException();
                         case GrapicOps.Fontchar_Mask:
-                            GP++;
-                            break;
+                            throw new NotImplementedException();
                         case GrapicOps.TrueColorSprite_Mask:
-                            GP++;
-                            break;
+                            throw new NotImplementedException();
                         case GrapicOps.PalettedSprite_Mask:
-                            GP++;
-                            break;
+                            throw new NotImplementedException();
                         case GrapicOps.FontcharBuffer:
                             {
+                                // FIMXME: Switch to using a color buffer!
                                 int color = mem[GP + 1];
                                 int char_buffer_addr = mem[GP + 2] << 12 | mem[GP + 3];
                                 int buffer_length = mem[GP + 4] << 12 | mem[GP + 5];
@@ -2158,7 +2133,7 @@ namespace VM12
                     graphicsTime++;
 
                     // If we are at the end loop back
-                    if (GP > (GRAM_START + GRAM_SIZE))
+                    if (GP > Constants.GRAM_END)
                     {
                         GP = GRAM_START;
                     }

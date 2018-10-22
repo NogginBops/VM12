@@ -212,9 +212,7 @@ namespace VM12Asm
         const int ROM_SIZE = 5_984_256;
 
         const short ROM_OFFSET_UPPER_BITS = 0xA4B;
-
-        const int VRAM_OFFSET = 0xA00_000;
-
+        
         const string compiler_generated_warning = "; This is a compiler generated file! Changes to this file will be lost.\n\n";
 
         delegate string TemplateFormater(params object[] values);
@@ -544,9 +542,9 @@ namespace VM12Asm
 
         static StringBuilder procMapFile = new StringBuilder(10_000);
 
-        static int autoVars = VRAM_OFFSET - 1;
+        static int autoVars = Constants.RAM_END;
 
-        const int STACK_SIZE = 0x100_000;
+        const int STACK_SIZE = Constants.STACK_MAX_ADDRESS;
 
         public static void Reset()
         {
@@ -568,7 +566,7 @@ namespace VM12Asm
             autoConstants = new Dictionary<string, AutoConst>();
 
             Warnings.Clear();
-            autoVars = VRAM_OFFSET - 1;
+            autoVars = Constants.RAM_END;
         }
 
         public static void Main(params string[] args)
@@ -989,7 +987,7 @@ namespace VM12Asm
                 Console.WriteLine($"Result ({libFile.UsedInstructions} used words ({((double)libFile.UsedInstructions / ROM_SIZE):P5}))");
             }
 
-            Console.WriteLine($"Allocated {VRAM_OFFSET - 1 - autoVars} ({(((double)VRAM_OFFSET - 1 - autoVars) / (VRAM_OFFSET - 1 - STACK_SIZE)):P5}) words to auto() vars {autoVars - STACK_SIZE} words remaining");
+            Console.WriteLine($"Allocated {Constants.RAM_END - autoVars} ({(((double)Constants.RAM_END - autoVars) / (Constants.RAM_END - STACK_SIZE)):P5}) words to auto() vars {autoVars - STACK_SIZE} words remaining");
 
             total.Stop();
 

@@ -31,22 +31,7 @@ namespace VM12
         DisplayMode mode = DisplayMode.Numbers;
         
         EnumToInt etoi;
-
-        static long[] intArrToLong(int[] ints)
-        {
-            long[] longs = new long[ints.Length];
-            for (int i = 0; i < longs.Length; i++)
-            {
-                longs[i] = ints[i];
-            }
-            return longs;
-        }
-
-        internal Frequency_dialog(int[] frequencies, string title, string column_name, EnumToInt etoi) : this(intArrToLong(frequencies), title, column_name, etoi)
-        {
-
-        }
-
+        
         internal Frequency_dialog(long[] frequencies, string title, string column_name, EnumToInt etoi)
         {
             if (typeof(T).IsEnum == false)

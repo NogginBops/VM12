@@ -9,10 +9,10 @@ namespace T12
     using ConstMap = Dictionary<string, ASTConstDirective>;
     using FunctionMap = Dictionary<string, ASTFunction>;
     using GlobalMap = Dictionary<string, ASTGlobalDirective>;
+    using ImportMap = Dictionary<string, ASTFile>;
     using TypeMap = Dictionary<string, ASTType>;
     using VarList = List<(string Name, int Offset, ASTType Type)>;
     using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
-    using ImportMap = Dictionary<string, ASTFile>;
 
     public struct FunctionConext
     {
@@ -395,17 +395,22 @@ namespace T12
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Greater_than:
-                    throw new NotImplementedException();
                     EmitExpression(builder, condition.Left, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                     EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
+                    // We want to jump past the body if left <= right and not jump if left > right
+                    // -> left - right <= 0
+                    // This is why we use jle and jlel
+
                     if (typeSize == 1)
                     {
-                        builder.AppendLine($"\tjeq {jmpLabel}");
+                        builder.AppendLine($"\tsub");
+                        builder.AppendLine($"\tjle {jmpLabel}");
                     }
                     else if (typeSize == 2)
                     {
-                        builder.AppendLine($"\tjeql {jmpLabel}");
+                        builder.AppendLine($"\tlsub");
+                        builder.AppendLine($"\tjlel {jmpLabel}");
                     }
                     else
                     {
@@ -511,6 +516,43 @@ namespace T12
             }
         }
 
+        private static void LoadSP(StringBuilder builder, int typeSize, string comment = "")
+        {
+            switch (typeSize)
+            {
+                case 1:
+                    builder.AppendLine($"\tload [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    break;
+                case 2:
+                    builder.AppendLine($"\tloadl [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    break;
+                default:
+                    builder.AppendLine($"\t; {comment} ({typeSize})");
+                    for (int i = 0; i < typeSize; i++)
+                    {
+                        // TODO: This could probably be done better
+                        // Duplicate the pointer, load the one word, swap the word with the pointer underneath, increment the pointer
+                        // Only save the pointer if it is not the last value we are loading
+
+                        bool lastValue = i == typeSize - 1;
+
+                        if (lastValue == false)
+                        {
+                            builder.AppendLine("\tldup");
+                        }
+
+                        builder.AppendLine("\tload [SP]");
+
+                        if (lastValue == false)
+                        {
+                            builder.AppendLine("\tslswap slswap\t; Swap the loaded value with the pointer underneath");
+                            builder.AppendLine("\tlinc\t; Increment pointer");
+                        }
+                    }
+                    break;
+            }
+        }
+
         private static void LoadVariable(StringBuilder builder, TraceData trace, VariableRef var, TypeMap typeMap)
         {
             int typeSize = SizeOfType(var.Type, typeMap);
@@ -537,39 +579,7 @@ namespace T12
                 case VariableType.Pointer:
                     // If we are loading a pointer we assume the pointer is on the stack!
                     // We might what to change this!
-                    switch (typeSize)
-                    {
-                        case 1:
-                            builder.AppendLine($"\tload [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
-                            break;
-                        case 2:
-                            builder.AppendLine($"\tloadl [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
-                            break;
-                        default:
-                            builder.AppendLine($"\t; {var.Comment} ({typeSize})");
-                            for (int i = 0; i < typeSize; i++)
-                            {
-                                // TODO: This could probably be done better
-                                // Duplicate the pointer, load the one word, swap the word with the pointer underneath, increment the pointer
-                                // Only save the pointer if it is not the last value we are loading
-
-                                bool lastValue = i == typeSize - 1;
-
-                                if (lastValue == false)
-                                {
-                                    builder.AppendLine("\tldup");
-                                }
-
-                                builder.AppendLine("\tload [SP]");
-
-                                if (lastValue == false)
-                                {
-                                    builder.AppendLine("\tslswap slswap\t; Swap the loaded value with the pointer underneath");
-                                    builder.AppendLine("\tlinc\t; Increment pointer");
-                                }
-                            }
-                            break;
-                    }
+                    LoadSP(builder, typeSize, var.Comment);
                     break;
                 case VariableType.Global:
                     throw new NotImplementedException();
@@ -589,6 +599,22 @@ namespace T12
                 default:
                     Fail(trace, $"Unknown variable type '{var.VariableType}'!");
                     break;
+            }
+        }
+
+        private static void StoreSP(StringBuilder builder, int typeSize, string comment = "")
+        {
+            // It will be hard to implement storing of things larger than 2 words!
+            switch (typeSize)
+            {
+                case 1:
+                    builder.AppendLine($"\tstore [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    break;
+                case 2:
+                    builder.AppendLine($"\tstorel [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    break;
+                default:
+                    throw new NotImplementedException();
             }
         }
 
@@ -620,18 +646,7 @@ namespace T12
                     break;
                 case VariableType.Pointer:
                     // NOTE: Here we assume the pointer is already on the stack
-                    // It will be hard to implement storing of things larger than 2 words!
-                    switch (typeSize)
-                    {
-                        case 1:
-                            builder.AppendLine($"\tstore [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
-                            break;
-                        case 2:
-                            builder.AppendLine($"\tstorel [SP]{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
-                            break;
-                        default:
-                            throw new NotImplementedException();
-                    }
+                    StoreSP(builder, typeSize, var.Comment);
                     break;
                 case VariableType.Global:
                     // What do we do here!?
@@ -658,9 +673,10 @@ namespace T12
                         Fail(type.Trace, $"No type called '{type.TypeName}'!");
 
                     // The type we will have gotten now will be the imported one with the full type info
-
+                    
+                    // FIXME: Do proper checks to ensure that we handle extern type refs 
                     // NOTE: We could check that outType actually is a ASTExternType
-                    return (outType as ASTExternType).Type;
+                    return (outType as ASTExternType)?.Type ?? outType;
                 }
                 else
                 {
@@ -782,17 +798,55 @@ namespace T12
                         // FIXME: If we import multiple files into the same name
 
                         // FIXME: When one file uses a type from another file and that other file is using a type from the first
-
-                        ASTExternType ImportType(ASTType type)
+                        
+                        ASTType ImportType(ASTType type)
                         {
-                            return new ASTExternType(type.Trace, import.ImportName, type);
-                        }
+                            // Fast path for base types
+                            if (type is ASTBaseType) return type;
 
-                        ASTType ImportTypeIfNeeded(ASTType type)
-                        {
+                            Stack<ASTDereferenceableType> indirections = new Stack<ASTDereferenceableType>();
+
+                            ASTType baseType = type;
+                            while (baseType is ASTDereferenceableType dereferenceableType)
+                            {
+                                indirections.Push(dereferenceableType);
+                                baseType = dereferenceableType.DerefType;
+                            }
+
+                            // Fast path for base types
+                            if (baseType is ASTBaseType) return type;
+
+                            ASTType externType = new ASTExternType(type.Trace, import.ImportName, baseType);
+                            
+                            // TODO: Fix this fast path!
                             // FIXME: When two file declare the same struct name!!
-                            if (typeMap.ContainsKey(type.TypeName)) return type;
-                            return new ASTExternType(type.Trace, import.ImportName, type);
+                            // Here the base type is a type we know! This means it is fine to use it just like it is!
+                            //if (typeMap.TryGetValue(externType.TypeName, out ASTType existingType)) return type;
+
+                            // The type to return, with all levels of indirection
+                            ASTType returnType = externType;
+
+                            // Here we imnport the extern type and then add back all levels of indirection to the type!
+                            foreach (var indirType in indirections)
+                            {
+                                switch (indirType)
+                                {
+                                    case ASTPointerType pointerType:
+                                        returnType = new ASTPointerType(pointerType.Trace, returnType);
+                                        break;
+                                    case ASTArrayType arrayType:
+                                        returnType = new ASTArrayType(arrayType.Trace, returnType);
+                                        break;
+                                    case ASTFixedArrayType fixedArrayType:
+                                        returnType = new ASTFixedArrayType(fixedArrayType.Trace, returnType, fixedArrayType.Size);
+                                        break;
+                                    default:
+                                        Fail(type.Trace, $"Unknown indirection '{indirType}'! This is a compiler bug!");
+                                        break;
+                                }
+                            }
+
+                            return returnType;
                         }
 
                         builder.AppendLine($"& {import.ImportName} {Path.ChangeExtension(import.File, ".12asm")}");
@@ -817,7 +871,7 @@ namespace T12
                                     break;
                                 case ASTGlobalDirective globalDirective:
                                     {
-                                        var global = new ASTExternGlobalDirective(globalDirective.Trace, import.ImportName, ImportTypeIfNeeded(globalDirective.Type), globalDirective.Name, globalDirective);
+                                        var global = new ASTExternGlobalDirective(globalDirective.Trace, import.ImportName, ImportType(globalDirective.Type), globalDirective.Name, globalDirective);
                                         globalMap.Add(global.Name, global);
 
                                         builder.AppendLine($"<{globalDirective.Name} = extern> ; {global.Name}");
@@ -837,8 +891,8 @@ namespace T12
 
                         foreach (var func in file.Functions)
                         {
-                            var @params = func.Parameters.Select(p => { p.Type = ImportTypeIfNeeded(p.Type); return p; }).ToList();
-                            var importFunc = new ASTExternFunction(func.Trace, import.ImportName, func.Name, ImportTypeIfNeeded(func.ReturnType), @params, func.Body, func);
+                            var @params = func.Parameters.Select(p => { p.Type = ImportType(p.Type); return p; }).ToList();
+                            var importFunc = new ASTExternFunction(func.Trace, import.ImportName, func.Name, ImportType(func.ReturnType), @params, func.Body, func);
                             functionMap.Add(importFunc.Name, importFunc);
                         }
                         
@@ -1754,7 +1808,7 @@ namespace T12
                 case ASTPointerExpression pointerExpression:
                     {
                         // We use this to deref a pointer that is loaded to the stack
-                        void DerefPointer<T>(T pointerType) where T : ASTType, IDereferenceableType
+                        void DerefPointer<T>(T pointerType) where T : ASTDereferenceableType
                         {
                             ASTType baseType = pointerType.DerefType;
                             
@@ -1840,37 +1894,14 @@ namespace T12
                                         // This is checked so that is exists in TryResolveVariable
                                         var global = globalMap[variable.GlobalName];
 
-                                        if (global.Type is ASTPointerType pointerType)
-                                        {
-                                            // Load the global variable, because we are loading it as a pointer we are using loadl
-                                            builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
-
-                                            // This does the rest!
-                                            DerefPointer(pointerType);
-                                        }
-                                        else if (global.Type is ASTArrayType arrayType)
-                                        {
-                                            // FIXME: Do bounds check!
-                                            // TODO: Handle FixedArray!
-                                            builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
-
-                                            // This does the rest!
-                                            DerefPointer(arrayType);
-                                        }
-                                        else if (global.Type is ASTFixedArrayType fixedArrayType)
-                                        {
-                                            // FIXME: Do bounds check!
-                                            // TODO: Handle FixedArray!
-
-                                            // We are loading a pointer so loadl is fine
-                                            builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
-
-                                            DerefPointer(fixedArrayType);
-                                        }
-                                        else
-                                        {
+                                        if (global.Type is ASTDereferenceableType == false)
                                             Fail(variableExpr.Trace, $"Cannot dereference a non-pointer global '{global.Name}'!");
-                                        }
+
+                                        // Load the global variable, because we are loading it as a pointer we are using loadl
+                                        builder.AppendLine($"\tloadl #{global.Name}\t; {global.Name}[{pointerExpression.Offset}]");
+
+                                        // This does the rest!
+                                        DerefPointer(global.Type as ASTDereferenceableType);
                                         break;
                                     }
                                 case VariableType.Pointer:
@@ -1878,8 +1909,16 @@ namespace T12
                                     Fail(variableExpr.Trace, "This should not happen because TryResolveVariable should not return pointers!");
                                     break;
                                 case VariableType.Constant:
-                                    Fail(variableExpr.Trace, "Cannot dereference constant!");
-                                    break;
+                                    {
+                                        if (variable.Type is ASTDereferenceableType == false)
+                                            Fail(variableExpr.Trace, "Cannot dereference constant!");
+
+                                        // We can dereference constant pointers!
+                                        builder.AppendLine($"\tloadl #{variable.ConstantName}\t; {variable.ConstantName}[{pointerExpression.Offset}]");
+
+                                        DerefPointer(variable.Type as ASTDereferenceableType);
+                                        break;
+                                    }
                                 default:
                                     Fail(variableExpr.Trace, $"Unknown variable type '{variable.VariableType}'!");
                                     break;
@@ -1989,10 +2028,17 @@ namespace T12
                                 // We don't have to do anything to convert a pointer to a dword!
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
-                            else if (fromType == ASTBaseType.DoubleWord && toType == ASTPointerType.Of(ASTBaseType.Void))
+                            else if (fromType == ASTBaseType.DoubleWord && toType is ASTPointerType)
                             {
                                 // We don't have to do anything to convert a dword to a pointer!
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType == ASTBaseType.String && toType == ASTPointerType.Of(ASTBaseType.Word))
+                            {
+                                // TODO: Proper strings!
+                                // Take the string pointer and increment it by two
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                builder.AppendLine($"\tlinc linc");
                             }
                             else
                             {
@@ -2007,7 +2053,10 @@ namespace T12
                         var test = memberExpression;
 
                         ASTType targetType = ResolveType(CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
-                        
+
+                        if (memberExpression.Dereference && (targetType is ASTDereferenceableType == false))
+                            Fail(memberExpression.Trace, $"The type '{targetType}' is not a reference type so we can't dereference it! Use '.' instead of '->'.");
+
                         if (targetType is ASTStructType == false)
                         {
                             if (memberExpression.Dereference && targetType is ASTPointerType pointerType && pointerType.BaseType is ASTStructType)
@@ -2026,6 +2075,7 @@ namespace T12
                         if (memberIndex < 0) Fail(memberExpression.Trace, $"No member called '{memberExpression.MemberName}' in struct '{targetType}'");
 
                         var memberType = ResolveType(members[memberIndex].Type, typeMap);
+                        int memberSize = SizeOfType(memberType, typeMap);
 
                         // Calculate the offset
                         int memberOffset = 0;
@@ -2050,6 +2100,10 @@ namespace T12
                         Stack<string> membersComment = new Stack<string>();
                         
                         ASTMemberExpression target = memberExpression;
+
+                        // TODO: We don't do this optimization for now. It's somewhat complex, easier to do without
+                        // Optimization for when chaining member accesses without dereferencing (i.e. just calc the actual offset)
+                        /**
                         while (target.TargetExpr is ASTMemberExpression next && next.Dereference == false)
                         {
                             ASTType nextType = ResolveType(CalcReturnType(next.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
@@ -2063,6 +2117,7 @@ namespace T12
 
                             target = target.TargetExpr as ASTMemberExpression;
                         }
+                        */
 
                         membersComment.Push($"{target.MemberName}");
                         membersComment.Push($"{target.TargetExpr}");
@@ -2074,76 +2129,157 @@ namespace T12
                             if (TryResolveVariable(varExpr.Name, scope, globalMap, constMap, typeMap, out VariableRef variable) == false)
                                 Fail(varExpr.Trace, $"There is no variable called '{varExpr.Name}'!");
 
-                            if (variable.VariableType == VariableType.Constant)
-                                Fail(varExpr.Trace, "We don't do complex constants!");
+                            // FIXME: Type checking when dereferencing?
 
-                            if (variable.VariableType == VariableType.Pointer)
-                                Fail(varExpr.Trace, "Pointers don't have members! Something is weird here because we should not get pointers from 'TryResolveVariable'...");
-
-                            //FIXME: Can we do this better?
-                            if (variable.VariableType == VariableType.Local)
+                            switch (variable.VariableType)
                             {
-                                VariableRef member = new VariableRef()
-                                {
-                                    VariableType = VariableType.Local,
-                                    LocalAddress = variable.LocalAddress + memberOffset,
-                                    Type = memberType,
-                                    Comment = comment,
-                                };
+                                case VariableType.Local:
+                                    {
+                                        if (target.Dereference)
+                                        {
+                                            // The local variable pointer
+                                            VariableRef member = new VariableRef()
+                                            {
+                                                VariableType = VariableType.Local,
+                                                LocalAddress = variable.LocalAddress,
+                                                Type = memberType,
+                                                Comment = comment,
+                                            };
 
-                                if (typedAssigmnent != null)
-                                {
-                                    // Load the assignment value
-                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    // Store that value into local
-                                    StoreVariable(builder, varExpr.Trace, member, typeMap);
-                                    // AppendTypedStore(builder, $"{variable.Offset + offset}", memberType, typeMap);
-                                }
+                                            // Load the target pointer
+                                            LoadVariable(builder, target.Trace, variable, typeMap);
+                                            // Add the member offset
+                                            builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
+                                            
+                                            if (typedAssigmnent != null)
+                                            {
+                                                // Duplicate the pointer if we are going to produce a result
+                                                if (produceResult) builder.AppendLine("ldup");
+                                                // Load the value to store
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                                // Store the loaded value at the pointer
+                                                StoreSP(builder, memberSize, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                            }
+                                            
+                                            if (produceResult)
+                                            {
+                                                // Load the result from the pointer
+                                                LoadSP(builder, memberSize, comment);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            VariableRef member = new VariableRef()
+                                            {
+                                                VariableType = VariableType.Local,
+                                                LocalAddress = variable.LocalAddress + memberOffset,
+                                                Type = memberType,
+                                                Comment = comment,
+                                            };
 
-                                if (produceResult)
-                                {
-                                    LoadVariable(builder, varExpr.Trace, member, typeMap);
-                                    // AppendTypedLoad(builder, $"{variable.Offset + offset}", memberType, typeMap);
-                                }
-                            }
-                            else if (variable.VariableType == VariableType.Global)
-                            {
-                                VariableRef member = new VariableRef
-                                {
-                                    // NOTE: This might not be the right thing to do...
-                                    VariableType = VariableType.Pointer,
-                                    Type = memberType,
-                                    Comment = comment,
-                                };
+                                            if (typedAssigmnent != null)
+                                            {
+                                                // Load the assignment value
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                                if (typedAssigmnent != null)
-                                {
-                                    // Can we do this?
-                                    builder.AppendLine($"\tloadl #(#{variable.GlobalName} {memberOffset} +)");
-                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                    StoreVariable(builder, varExpr.Trace, member, typeMap);
-                                }
+                                                // Store that value into local
+                                                StoreVariable(builder, varExpr.Trace, member, typeMap);
+                                                // AppendTypedStore(builder, $"{variable.Offset + offset}", memberType, typeMap);
+                                            }
 
-                                if (produceResult)
-                                {
-                                    builder.AppendLine($"\tloadl #(#{variable.GlobalName} {memberOffset} +)");
-                                    LoadVariable(builder, varExpr.Trace, member, typeMap);
-                                }
-                            }
-                            else
-                            {
-                                Fail(varExpr.Trace, $"This should not happen! We have a weird VariableType '{variable.VariableType}'!");
+                                            if (produceResult)
+                                            {
+                                                LoadVariable(builder, varExpr.Trace, member, typeMap);
+                                                // AppendTypedLoad(builder, $"{variable.Offset + offset}", memberType, typeMap);
+
+                                                if (target.Dereference)
+                                                {
+                                                    throw new NotImplementedException("FIXME");
+                                                    // FIXME
+                                                    // Add the member offset
+                                                    // Load the variable
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    }
+                                case VariableType.Global:
+                                    {
+                                        if (target.Dereference)
+                                        {
+
+                                            // Load the global pointer
+                                            builder.AppendLine($"\tloadl #{variable.GlobalName}\t; [{variable.GlobalName}]");
+                                            // Deref that pointer
+                                            LoadSP(builder, SizeOfType(variable.Type, typeMap), $"<< [{variable.GlobalName}]");
+                                            // Add the member offset
+                                            builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
+
+                                            if (typedAssigmnent != null)
+                                            {
+                                                // Duplicate the pointer if we are going to produce a result
+                                                if (produceResult) builder.AppendLine("ldup");
+                                                // Load the value to store
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                                // Store the loaded value at the pointer
+                                                StoreSP(builder, memberSize, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                            }
+
+                                            if (produceResult)
+                                            {
+                                                // Load the result from the pointer
+                                                LoadSP(builder, memberSize, $"[{target.TargetExpr}->{target.MemberName}]");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            VariableRef member = new VariableRef
+                                            {
+                                                // NOTE: This might not be the right thing to do...
+                                                VariableType = VariableType.Pointer,
+                                                Type = memberType,
+                                                Comment = comment,
+                                            };
+
+                                            if (typedAssigmnent != null)
+                                            {
+                                                // Can we do this?
+                                                builder.AppendLine($"\tloadl #(#{variable.GlobalName} {memberOffset} +)");
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                                StoreVariable(builder, varExpr.Trace, member, typeMap);
+                                            }
+
+                                            if (produceResult)
+                                            {
+                                                builder.AppendLine($"\tloadl #(#{variable.GlobalName} {memberOffset} +)");
+                                                LoadVariable(builder, varExpr.Trace, member, typeMap);
+                                            }
+                                        }
+                                        break;
+                                    }
+                                case VariableType.Constant:
+                                    Fail(varExpr.Trace, "We don't do complex constants!");
+                                    break;
+                                case VariableType.Pointer:
+                                    Fail(varExpr.Trace, "Pointers don't have members! Something is weird here because we should not get pointers from 'TryResolveVariable'...");
+                                    break;
+                                default:
+                                    Fail(varExpr.Trace, $"This should not happen! We have a weird VariableType '{variable.VariableType}'!");
+                                    break;
                             }
                         }
                         else
                         {
                             // We don't have a way to optimize this yet...
                             // We'll just emit the whole struct, isolate the member, and possibly assign to it...
-
                             int targetSize = SizeOfType(targetType, typeMap);
-                            int memberSize = SizeOfType(memberType, typeMap);
                             
                             EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+
+                            if (memberExpression.Dereference)
+                            {
+                                throw new NotImplementedException("We don't do this type of member dereferencing yet!");
+                            }
 
                             if (produceResult)
                             {
@@ -2191,8 +2327,12 @@ namespace T12
                             {
                                 case VariableType.Local:
                                     {
-                                        throw new NotImplementedException();
-
+                                        builder.AppendLine($"\t[FP]");
+                                        // Load the number of locals from the frame pointer
+                                        builder.AppendLine($"\t[FP] loadl [SP]\t; Load the number of locals");
+                                        builder.AppendLine($"\tloadl #{variable.LocalAddress}");
+                                        builder.AppendLine($"\tlsub\t; Subtract the local index");
+                                        builder.AppendLine($"\tlsub\t; &{addressOfExpression.Expr}");
                                         break;
                                     }
                                 case VariableType.Global:
