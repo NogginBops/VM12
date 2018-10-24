@@ -35,10 +35,16 @@ namespace Debugging
         private DataGridViewCellStyle SPStyle = new DataGridViewCellStyle();
         private DataGridViewCellStyle FPStyle = new DataGridViewCellStyle();
 
-        private Dictionary<(string proc, int local), string> localsDict = new Dictionary<(string, int), string>();
+        private Dictionary<(string proc, int local), string> generatedDebugInfo = new Dictionary<(string, int), string>();
+
+        private Dictionary<(string proc, int local), string> userDebugInfo = new Dictionary<(string, int), string>();
         
-        FileInfo debugDefinitions = new FileInfo("./Data/debug.df");
-        
+        private Dictionary<(string proc, int local), string> localsDebugInfo = new Dictionary<(string, int), string>();
+
+        private List<DirectoryInfo> debugDefinitionDirectories = new List<DirectoryInfo> { new DirectoryInfo("./Data") };
+
+        private FileInfo editorDefinitions = new FileInfo("./Data/debug.df");
+
         public Stack_view()
         {
             InitializeComponent();
@@ -57,34 +63,62 @@ namespace Debugging
 #if DEBUG
             if (vm12 != null)
             {
-                debugDefinitions = new FileInfo(Path.Combine(vm12.sourceDir.FullName, "Data", "debug.df"));
+                // We start working out of the VM folder
+                debugDefinitionDirectories.Add(new DirectoryInfo(Path.Combine(vm12.sourceDir.FullName, "Data")));
+                editorDefinitions = new FileInfo(Path.Combine(vm12.sourceDir.FullName, "Data", "debug.df"));
             }
 
-            if (debugDefinitions.Exists == false)
+            if (editorDefinitions.Exists == false)
             {
-                if (debugDefinitions.Directory.Exists == false)
+                if (editorDefinitions.Directory.Exists == false)
                 {
-                    debugDefinitions.Directory.Create();
+                    editorDefinitions.Directory.Create();
                 }
 
-                using (debugDefinitions.Create())
+                using (editorDefinitions.Create())
                 {
                     // There is no need to load anything because we just created the file
                 }
             }
             else
             {
-                localsDict.Clear();
+                generatedDebugInfo.Clear();
+                userDebugInfo.Clear();
+                localsDebugInfo.Clear();
+
+                foreach (var dir in debugDefinitionDirectories)
+                {
+                    if (dir.Exists)
+                    {
+                        foreach (var debugDefFile in dir.EnumerateFiles("*.df"))
+                        {
+                            // NOTE: Should we do any smart merging here?
+
+                            ParseDebugData(File.ReadAllLines(debugDefFile.FullName), generatedDebugInfo);
+                        }
+                    }
+                }
 
                 // Open and parse file
-                ParseDebugData(File.ReadAllLines(debugDefinitions.FullName));
+                ParseDebugData(File.ReadAllLines(editorDefinitions.FullName), userDebugInfo);
+
+                foreach (var gDebug in generatedDebugInfo)
+                {
+                    localsDebugInfo[gDebug.Key] = gDebug.Value;
+                }
+
+                // Load the user definitions after the genereted ones as user defs have priority
+                foreach (var uDebug in userDebugInfo)
+                {
+                    localsDebugInfo[uDebug.Key] = uDebug.Value;
+                }
             }
 #endif
         }
 
         Regex command = new Regex("^\\[(\\S+?):(.+)\\]$");
 
-        private void ParseDebugData(string[] lines)
+        private void ParseDebugData(string[] lines, Dictionary<(string proc, int local), string> localsDict)
         {
             string currentProc = null;
             foreach (string line in lines)
@@ -164,17 +198,17 @@ namespace Debugging
         {
             // Save definitions file
             StringBuilder sb = new StringBuilder(1000);
-            foreach (var localDef in localsDict.GroupBy(kvp => kvp.Key.proc))
+            foreach (var userDef in userDebugInfo.GroupBy(kvp => kvp.Key.proc))
             {
                 sb.AppendLine();
-                sb.AppendLine(localDef.Key);
-                foreach (var def in localDef)
+                sb.AppendLine(userDef.Key);
+                foreach (var def in userDef)
                 {
                     sb.AppendLine($"[local:{def.Key.local}|{def.Value}]");
                 }
             }
             
-            File.WriteAllText(debugDefinitions.FullName, sb.ToString());
+            File.WriteAllText(editorDefinitions.FullName, sb.ToString());
         }
 
         private void GenerateStackTrace(StackFrame frame)
@@ -229,7 +263,7 @@ namespace Debugging
 
                             dgvStack.Rows[frame.FP - frame.locals + i].DefaultCellStyle = localStyle;
                             
-                            if (localsDict.TryGetValue((frame.procName, i), out string name))
+                            if (localsDebugInfo.TryGetValue((frame.procName, i), out string name))
                             {
                                 dgvStack.Rows[frame.FP - frame.locals + i].Cells[0].Value = name;
                             }
@@ -283,14 +317,21 @@ namespace Debugging
                 {
                     if (dgvStack.Rows[e.RowIndex].Cells[e.ColumnIndex].FormattedValue.ToString() != e.FormattedValue.ToString())
                     {
-                        string value = e.FormattedValue.ToString();
+                        void SetUserDebugDef((string, int) key, string userValue)
+                        {
+                            userDebugInfo[key] = userValue;
+                            localsDebugInfo[key] = userValue;
+                        }
 
-                        localsDict[(frame.procName, e.RowIndex - (frame.FP - frame.locals))] = value;
+                        string value = e.FormattedValue.ToString();
+                        
+                        // This is a user definition
+                        SetUserDebugDef((frame.procName, e.RowIndex - (frame.FP - frame.locals)), value);
 
                         if (value.EndsWith("_H"))
                         {
                             string newVal = value.ReplaceEnd("_H", "_L");
-                            localsDict[(frame.procName, e.RowIndex - (frame.FP - frame.locals) + 1)] = newVal;
+                            SetUserDebugDef((frame.procName, e.RowIndex - (frame.FP - frame.locals) + 1), newVal);
                             dgvStack.Rows[e.RowIndex + 1].Cells[e.ColumnIndex].Value = newVal;
                         }
 

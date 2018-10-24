@@ -129,7 +129,7 @@ namespace VM12
                     }
                     else if (inf.Extension == ".t12")
                     {
-                        T12.Compiler.Compile(inf);
+                        T12.Compiler.Compile(inf.Directory, inf);
                         
                         FileInfo asmFile = new FileInfo(Path.ChangeExtension(inf.FullName, ".12asm"));
 

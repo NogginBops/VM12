@@ -57,6 +57,7 @@ namespace T12
         And,
         Pipe,
         Caret,
+        DollarSign,
 
         Tilde,
         Exclamationmark,
@@ -96,6 +97,8 @@ namespace T12
         Keyword_True,
         Keyword_False,
 
+        Keyword_Null,
+
         Keyword_Assembly,
         Keyword_Interrupt,
 
@@ -129,7 +132,8 @@ namespace T12
             Type == TokenType.Keyword_String ||
             Type == TokenType.Identifier ||
             Type == TokenType.Open_square_bracket ||
-            Type == TokenType.Asterisk;
+            Type == TokenType.Asterisk ||
+            Type == TokenType.DollarSign;
 
         public bool IsBaseType =>
             Type == TokenType.Keyword_Void ||
@@ -138,6 +142,11 @@ namespace T12
             Type == TokenType.Keyword_Bool ||
             Type == TokenType.Keyword_Char ||
             Type == TokenType.Keyword_String;
+
+        public bool IsTypePrefix =>
+            Type == TokenType.Open_square_bracket ||
+            Type == TokenType.Asterisk ||
+            Type == TokenType.DollarSign;
 
         public bool IsUnaryOp =>
             Type == TokenType.Minus ||
@@ -179,6 +188,7 @@ namespace T12
             Type == TokenType.Double_Word_Litteral ||
             Type == TokenType.Keyword_True ||
             Type == TokenType.Keyword_False ||
+            Type == TokenType.Keyword_Null ||
             Type == TokenType.Char_Litteral ||
             Type == TokenType.String_Litteral;
 
@@ -271,6 +281,7 @@ namespace T12
             ( TokenType.And, new Regex("^&") ),
             ( TokenType.Pipe, new Regex("^\\|") ),
             ( TokenType.Caret, new Regex("^\\^") ),
+            ( TokenType.DollarSign, new Regex("^\\$") ),
 
             ( TokenType.Tilde, new Regex("^~") ),
             ( TokenType.Exclamationmark, new Regex("^!") ),
@@ -306,6 +317,8 @@ namespace T12
 
             ( TokenType.Keyword_True, new Regex("^true\\b") ),
             ( TokenType.Keyword_False, new Regex("^false\\b") ),
+
+            ( TokenType.Keyword_Null, new Regex("^null\\b") ),
 
             ( TokenType.Keyword_Assembly, new Regex("^assembly\\b") ),
             ( TokenType.Keyword_Interrupt, new Regex("^interrupt\\b") ),

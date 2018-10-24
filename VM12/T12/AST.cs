@@ -883,7 +883,7 @@ namespace T12
         {
             var peek = Tokens.Peek();
 
-            if (peek.IsBaseType || peek.Type == TokenType.Asterisk || peek.Type == TokenType.Open_square_bracket)
+            if (peek.IsBaseType || peek.IsTypePrefix)
             {
                 // Here we know its going to ba a variable declaration
                 return ASTDeclaration.Parse(Tokens);
@@ -2718,25 +2718,41 @@ namespace T12
         {
             return TypeName;
         }
-        /*
-        public static bool operator ==(ASTType left, ASTType right) => left?.TypeName == right?.TypeName;
-        public static bool operator !=(ASTType left, ASTType right) => left?.TypeName != right?.TypeName;
-
+        
         public override bool Equals(object obj)
         {
-            var type = obj as ASTType;
-            return type != null &&
-                   TypeName == type.TypeName;
+            return Equals(obj as ASTType);
+        }
+
+        // TODO: Do some sophisticated more checking then just comparing strings...?
+        // NOTE: This does not do the Extern type thing!!
+        public bool Equals(ASTType other)
+        {
+            return other != null &&
+                   TypeName == other.TypeName;
         }
 
         public override int GetHashCode()
         {
             return -448171650 + EqualityComparer<string>.Default.GetHashCode(TypeName);
-            // This is a .net core 2+ only feature
-            //return HashCode.Combine(TypeName);
         }
-        */
-        
+
+        public static bool operator ==(ASTType type1, ASTType type2)
+        {
+            while (type1 is ASTExternType externType1) type1 = externType1.Type;
+            while (type2 is ASTExternType externType2) type2 = externType2.Type;
+
+            return EqualityComparer<ASTType>.Default.Equals(type1, type2);
+        }
+
+        public static bool operator !=(ASTType type1, ASTType type2)
+        {
+            while (type1 is ASTExternType externType1) type1 = externType1.Type;
+            while (type2 is ASTExternType externType2) type2 = externType2.Type;
+
+            return !(type1 == type2);
+        }
+
         public static ASTType Parse(Queue<Token> Tokens)
         {
             if (Tokens.ElementAt(1).Type == TokenType.DoubleColon)
@@ -2745,7 +2761,7 @@ namespace T12
                 var namespaceTok = Tokens.Dequeue();
                 if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected identifier!");
                 string space = namespaceTok.Value;
-                
+
                 // Dequeue '::'
                 Tokens.Dequeue();
 
@@ -2766,6 +2782,60 @@ namespace T12
             var tok = Tokens.Dequeue();
             switch (tok.Type)
             {
+                case TokenType.DollarSign:
+                    {
+                        // This is a function type!
+
+                        List<ASTType> paramTypes = new List<ASTType>();
+
+                        var openParenTok = Tokens.Dequeue();
+                        if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
+
+                        // We peeked so we can handle this loop more uniform by always dequeueing at the start
+                        var peek = Tokens.Peek();
+                        while (peek.Type != TokenType.Close_parenthesis)
+                        {
+                            ASTType type = ASTType.Parse(Tokens);
+
+                            paramTypes.Add(type);
+
+                            // If it's a comma, continue
+                            // If it's a closing bracked, break
+                            // If it's anything else, error
+                            peek = Tokens.Peek();
+
+                            if (peek.Type == TokenType.Close_parenthesis) break;
+                            else if (peek.Type != TokenType.Comma) Fail(peek, $"Unknown token '{peek}', expected comma or ')'");
+
+                            // Dequeue the continuation comma and set peek
+                            Tokens.Dequeue();
+                            peek = Tokens.Peek();
+                        }
+
+                        var closeParenTok = Tokens.Dequeue();
+                        if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, $"Expected ')'!");
+
+                        ASTType returnType = ASTBaseType.Void;
+
+                        var arrowTok = Tokens.Peek();
+                        if (arrowTok.Type == TokenType.Arrow)
+                        {
+                            // We have a return type
+                            // Dequeue the arrow
+                            Tokens.Dequeue();
+
+                            returnType = ASTType.Parse(Tokens);
+                        }
+
+                        var trace = new TraceData
+                        {
+                            File = tok.File,
+                            StartLine = tok.Line,
+                            EndLine = returnType.Trace.EndLine,
+                        };
+
+                        return new ASTFunctionPointerType(trace, paramTypes, returnType);
+                    }
                 case TokenType.Asterisk:
                     {
                         ASTType type = ASTType.Parse(Tokens);
@@ -2774,7 +2844,8 @@ namespace T12
                         {
                             File = tok.File,
                             StartLine = tok.Line,
-                            EndLine = type.Trace.EndLine,
+                            // Use the types line if it exists, NOTE: This should be removed when base types get traces!
+                            EndLine = type.Trace.EndLine == -1 ? tok.Line : type.Trace.EndLine,
                         };
 
                         return new ASTPointerType(trace, type);
@@ -2846,40 +2917,6 @@ namespace T12
                     }
             }
         }
-
-        public override bool Equals(object obj)
-        {
-            return Equals(obj as ASTType);
-        }
-
-        // TODO: Do some sophisticated more checking then just comparing strings...?
-        // NOTE: This does not do the Extern type thing!!
-        public bool Equals(ASTType other)
-        {
-            return other != null &&
-                   TypeName == other.TypeName;
-        }
-
-        public override int GetHashCode()
-        {
-            return -448171650 + EqualityComparer<string>.Default.GetHashCode(TypeName);
-        }
-
-        public static bool operator ==(ASTType type1, ASTType type2)
-        {
-            while (type1 is ASTExternType externType1) type1 = externType1.Type;
-            while (type2 is ASTExternType externType2) type2 = externType2.Type;
-
-            return EqualityComparer<ASTType>.Default.Equals(type1, type2);
-        }
-
-        public static bool operator !=(ASTType type1, ASTType type2)
-        {
-            while (type1 is ASTExternType externType1) type1 = externType1.Type;
-            while (type2 is ASTExternType externType2) type2 = externType2.Type;
-
-            return !(type1 == type2);
-        }
     }
 
     public class ASTBaseType : ASTType
@@ -2923,10 +2960,9 @@ namespace T12
 
     public class ASTPointerType : ASTDereferenceableType
     {
-        public readonly ASTType BaseType;
-
         public const int Size = 2;
 
+        public readonly ASTType BaseType;
         public override ASTType DerefType => BaseType;
 
         public static ASTPointerType Of(ASTType type) => new ASTPointerType(type.Trace, type);
@@ -3044,6 +3080,25 @@ namespace T12
             hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(NamespaceName);
             hashCode = hashCode * -1521134295 + EqualityComparer<ASTType>.Default.GetHashCode(Type);
             return hashCode;
+        }
+    }
+
+    public class ASTFunctionPointerType : ASTType
+    {
+        public const int Size = 2;
+
+        public static ASTFunctionPointerType Of(TraceData trace, ASTFunction function)
+        {
+            return new ASTFunctionPointerType(trace, function.Parameters.Select(p => p.Type).ToList(), function.ReturnType);
+        }
+
+        public readonly List<ASTType> ParamTypes;
+        public readonly ASTType ReturnType;
+
+        public ASTFunctionPointerType(TraceData trace, List<ASTType> paramTypes, ASTType returnType) : base(trace, $"$({string.Join(", ", paramTypes)}) -> {returnType}")
+        {
+            ParamTypes = paramTypes;
+            ReturnType = returnType;
         }
     }
 

@@ -692,7 +692,7 @@ namespace VM12Asm
                 if (Path.GetExtension(fi.FullName) == ".t12")
                 {
                     // We need to invoke the t12 compiler!
-                    T12.Compiler.Compile(fi);
+                    T12.Compiler.Compile(dirInf, fi);
 
                     fi = new FileInfo(Path.ChangeExtension(fi.FullName, ".12asm"));
                 }

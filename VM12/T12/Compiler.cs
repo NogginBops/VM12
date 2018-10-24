@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Diagnostics;
+using System.Text;
 
 namespace T12
 {
@@ -39,19 +40,19 @@ namespace T12
             Console.ReadKey();
         }
 
-        public static void Compile(FileInfo inFile, FileInfo outFile = null)
+        public static void Compile(DirectoryInfo baseDirectory, FileInfo inFile, FileInfo outFile = null)
         {
             if (outFile == null)
             {
                 outFile = new FileInfo(Path.ChangeExtension(inFile.FullName, "12asm"));
             }
             
-            /*string result = */Compile(inFile);
+            /*string result = */Compile(baseDirectory, inFile);
             
             //File.WriteAllText(outFile.FullName, result);
         }
 
-        public static void Compile(FileInfo infile)
+        public static void Compile(DirectoryInfo baseDirectory, FileInfo infile)
         {
             string fileData = File.ReadAllText(infile.FullName);
 
@@ -63,14 +64,20 @@ namespace T12
 
             // TODO: We can generate a debug file with the name of all locals!
 
+            StringBuilder funcDebug = new StringBuilder();
+
             foreach (var file in ast.Files)
             {
-                string result = Emitter.EmitAsem(file.Value.File, ast);
+                var result = Emitter.EmitAsem(file.Value.File, ast);
 
                 // FIXME: Write to file
-                File.WriteAllText(Path.ChangeExtension(file.Value.FileInfo.FullName, ".12asm"), result);
+                File.WriteAllText(Path.ChangeExtension(file.Value.FileInfo.FullName, ".12asm"), result.assembly);
+
+                funcDebug.Append(result.funcDebug);
             }
-            
+
+            File.WriteAllText(Path.Combine(baseDirectory.FullName, "Data", "debug_t12.df"), funcDebug.ToString());
+
             return;
         }
     }

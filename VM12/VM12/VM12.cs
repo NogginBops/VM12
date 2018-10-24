@@ -2126,6 +2126,59 @@ namespace VM12
                                 GP += 10;
                                 break;
                             }
+                        case GrapicOps.FontcharBufferColor:
+                            {
+                                // FIMXME: Switch to using a color buffer!
+                                int char_buffer_addr = mem[GP + 1] << 12 | mem[GP + 2];
+                                int color_buffer_addr = mem[GP + 3] << 12 | mem[GP + 4];
+                                int buffer_length = mem[GP + 5] << 12 | mem[GP + 6];
+                                int vram_addr = mem[GP + 7] << 12 | mem[GP + 8];
+                                int font_addr = mem[GP + 9] << 12 | mem[GP + 10];
+
+                                for (int i = 0; i < buffer_length; i++)
+                                {
+                                    int color = mem[color_buffer_addr++];
+                                    int c = mem[char_buffer_addr++];
+                                    int char_addr = font_addr + (c * CHAR_WIDTH);
+
+                                    bool not_zero = false;
+                                    for (int j = 0; j < 8; j++)
+                                    {
+                                        char_data[j] = mem[char_addr + j];
+                                        not_zero |= char_data[j] != 0;
+                                    }
+
+                                    if (not_zero)
+                                    {
+                                        int draw_addr = vram_addr;
+                                        int mask = 0x800;
+                                        for (int j = 0; j < 12; j++)
+                                        {
+                                            if ((char_data[0] & mask) != 0) mem[draw_addr + 0] = color;
+                                            if ((char_data[1] & mask) != 0) mem[draw_addr + 1] = color;
+                                            if ((char_data[2] & mask) != 0) mem[draw_addr + 2] = color;
+                                            if ((char_data[3] & mask) != 0) mem[draw_addr + 3] = color;
+                                            if ((char_data[4] & mask) != 0) mem[draw_addr + 4] = color;
+                                            if ((char_data[5] & mask) != 0) mem[draw_addr + 5] = color;
+                                            if ((char_data[6] & mask) != 0) mem[draw_addr + 6] = color;
+                                            if ((char_data[7] & mask) != 0) mem[draw_addr + 7] = color;
+
+                                            draw_addr += SCREEN_WIDTH;
+                                            mask >>= 1;
+                                        }
+                                    }
+
+                                    vram_addr += CHAR_WIDTH;
+
+                                    if (vram_addr < VRAM_START || vram_addr >= (VRAM_START + VRAM_SIZE))
+                                    {
+                                        Debugger.Break();
+                                    }
+                                }
+
+                                GP += 11;
+                                break;
+                            }
                         default:
                             throw new InvalidOperationException();
                     }
