@@ -330,7 +330,7 @@ namespace VM12
 
             pbxMain.Invalidate();
 
-            vm12?.Interrupt(new Interrupt(InterruptType.v_Blank, new int[0]));
+            vm12?.Interrupt(new Interrupt(InterruptType.v_blank, new int[0]));
         }
 
         private void VM12Form_FormClosing(object sender, FormClosingEventArgs e)
@@ -552,7 +552,7 @@ namespace VM12
             {
                 long elapsed = hTimer_watch.ElapsedMilliseconds;
                 
-                vm12?.Interrupt(new Interrupt(InterruptType.h_Timer, new int[] { (int) elapsed & 0xFFF }));
+                vm12?.Interrupt(new Interrupt(InterruptType.h_timer, new int[] { (int) elapsed & 0xFFF }));
 
                 hTimer_watch.Restart();
 

@@ -207,6 +207,22 @@ namespace T12
                             targetType = pointerType.BaseType;
                         }
 
+                        // FIXME: This is a hack for now?
+                        // We should implement this for normal arrays too
+                        if (targetType is ASTFixedArrayType fixedArrayType)
+                        {
+                            switch (memberExpression.MemberName)
+                            {
+                                case "length":
+                                    return ASTBaseType.DoubleWord;
+                                case "data":
+                                    return ASTPointerType.Of(fixedArrayType.BaseType);
+                                default:
+                                    Fail(memberExpression.Trace, $"Fixed array type '{targetType}' does not have a memeber '{memberExpression.MemberName}'");
+                                    break;
+                            }
+                        }
+
                         // TODO: Add length and data members to arrays!
                         /*
                         if (targetType is ASTArrayType || targetType is ASTFixedArrayType)
@@ -598,27 +614,57 @@ namespace T12
                     break;
                 default:
                     builder.AppendLine($"\t; {comment} ({typeSize})");
-                    for (int i = 0; i < typeSize; i++)
+
+                    int wordsLeft = typeSize;
+                    while (wordsLeft >= 2)
                     {
-                        // TODO: This could probably be done better
-                        // Duplicate the pointer, load the one word, swap the word with the pointer underneath, increment the pointer
-                        // Only save the pointer if it is not the last value we are loading
+                        wordsLeft -= 2;
 
-                        bool lastValue = i == typeSize - 1;
-
-                        if (lastValue == false)
+                        if (wordsLeft != 0)
                         {
                             builder.AppendLine("\tldup");
                         }
 
-                        builder.AppendLine("\tload [SP]");
+                        builder.AppendLine("\tloadl [SP]");
 
-                        if (lastValue == false)
+                        if (wordsLeft != 0)
                         {
-                            builder.AppendLine("\tslswap slswap\t; Swap the loaded value with the pointer underneath");
-                            builder.AppendLine("\tlinc\t; Increment pointer");
+                            builder.AppendLine("\tlswap\t; Swap the loaded value with the pointer underneath");
+                            builder.AppendLine("\tlinc linc\t; Increment pointer");
                         }
                     }
+
+                    if (typeSize % 2 != 0)
+                    {
+                        builder.AppendLine("\tloadl [SP]");
+                    }
+
+                    //for (int i = 0; i < typeSize / 2; i++)
+                    //{
+                    //    // TODO: This could probably be done better
+                    //    // Duplicate the pointer, load the one word, swap the word with the pointer underneath, increment the pointer
+                    //    // Only save the pointer if it is not the last value we are loading
+
+                    //    bool lastValue = (i * 2) == typeSize;
+
+                    //    if (lastValue == false)
+                    //    {
+                    //        builder.AppendLine("\tldup");
+                    //    }
+
+                    //    builder.AppendLine("\tloadl [SP]");
+
+                    //    if (lastValue == false)
+                    //    {
+                    //        builder.AppendLine("\tlswap\t; Swap the loaded value with the pointer underneath");
+                    //        builder.AppendLine("\tlinc linc\t; Increment pointer");
+                    //    }
+                    //}
+
+                    //if (typeSize % 2 != 0)
+                    //{
+                    //    builder.AppendLine("\tloadl [SP]");
+                    //}
                     break;
             }
         }
@@ -1745,16 +1791,29 @@ namespace T12
                             case ASTBinaryOp.BinaryOperatorType.Equal:
                                 if (type_size == 1)
                                 {
-                                    // TODO: Better handling?
-                                    builder.AppendLine("\txor ; Equals");
+                                    builder.AppendLine("\tsub setz\t; Equals cmp");
                                 }
                                 else if (type_size == 2)
                                 {
-                                    throw new NotImplementedException();
+                                    builder.AppendLine("\tlsub lsetz\t; Equals cmp");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {type_size}");
+                                }
+                                break;
+                            case ASTBinaryOp.BinaryOperatorType.Not_equal:
+                                if (type_size == 1)
+                                {
+                                    builder.AppendLine("\tsub setnz\t; Not equals cmp");
+                                }
+                                else if (type_size == 2)
+                                {
+                                    builder.AppendLine("\tlsub lsetnz\t; Equals cmp");
+                                }
+                                else
+                                {
+                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {type_size}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Less_than:
@@ -1982,6 +2041,69 @@ namespace T12
                         }
                         break;
                     }
+                case ASTVirtualFucntionCall virtualFucntionCall:
+                    {
+                        var targetType = ResolveType(CalcReturnType(virtualFucntionCall.FunctionPointer, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+
+                        if (targetType is ASTFunctionPointerType == false)
+                            Fail(virtualFucntionCall.FunctionPointer.Trace, $"Cannot call non-function pointer type '{targetType}'!");
+
+                        ASTFunctionPointerType functionPointerType = targetType as ASTFunctionPointerType;
+
+                        // Check the parameter types
+                        // Call the pointer
+
+                        if (functionPointerType.ParamTypes.Count != virtualFucntionCall.Arguments.Count)
+                            Fail(virtualFucntionCall.Trace, $"Missmaching number of arguments for type {functionPointerType}! Calling with {virtualFucntionCall.Arguments.Count} expected {functionPointerType.ParamTypes.Count}");
+
+                        List<ASTType> parameters = functionPointerType.ParamTypes;
+
+                        for (int i = 0; i < parameters.Count; i++)
+                        {
+                            ASTType paramType = parameters[i];
+                            ASTType argumentType = CalcReturnType(virtualFucntionCall.Arguments[i], scope, typeMap, functionMap, constMap, globalMap);
+
+                            // Try and cast the arguemnt
+                            if (TryGenerateImplicitCast(virtualFucntionCall.Arguments[i], paramType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
+                                Fail(virtualFucntionCall.Arguments[i].Trace, $"Missmatching types on parameter '{i}', expected '{parameters[i]}' got '{argumentType}'! (Cast error: '{error}')");
+
+                            // We don't need to check the result as it will have the desired type.
+
+                            // NOTE: Should we really modify the AST like this?
+                            // Switch the old argument for the new casted one
+                            virtualFucntionCall.Arguments[i] = typedArg;
+                        }
+
+                        if (virtualFucntionCall.Arguments.Count > 0)
+                            builder.AppendLine($"\t; Args to virtual function call to [{virtualFucntionCall.FunctionPointer}]");
+
+                        // This means adding a result type to expressions
+                        foreach (var arg in virtualFucntionCall.Arguments)
+                        {
+                            EmitExpression(builder, arg, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        }
+
+                        EmitExpression(builder, virtualFucntionCall.FunctionPointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        builder.AppendLine($"\t::[SP]\t; Virtual call to [{virtualFucntionCall.FunctionPointer}]");
+
+                        if (produceResult == false)
+                        {
+                            int retSize = SizeOfType(functionPointerType.ReturnType, typeMap);
+
+                            if (retSize > 0)
+                            {
+                                // TODO: This can be done in a more optimized way
+                                builder.Append("\t");
+                                for (int i = 0; i < retSize; i++)
+                                {
+                                    builder.Append("pop ");
+                                }
+                                builder.AppendLine();
+                            }
+                        }
+
+                        break;
+                    }
                 case ASTPointerExpression pointerExpression:
                     {
                         var test = pointerExpression;
@@ -2116,7 +2238,7 @@ namespace T12
                                 Fail(pointerExpression.Pointer.Trace, $"Cannot dereference non-pointer type '{type}'!");
 
                             var pointerType = type as ASTDereferenceableType;
-
+                            
                             EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
 
                             if (produceResult)
@@ -2235,10 +2357,17 @@ namespace T12
                             }
                             else if (fromType == ASTBaseType.String && toType == ASTPointerType.Of(ASTBaseType.Word))
                             {
+                                // FIXME: Make proper strings! Now we are doing different things for different casts!!
                                 // TODO: Proper strings!
                                 // Take the string pointer and increment it by two
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                                 if (produceResult) builder.AppendLine($"\tlinc linc");
+                            }
+                            else if (fromType == ASTBaseType.String && toType == ASTBaseType.DoubleWord)
+                            {
+                                // FIXME: Make proper strings! Now we are doing different things for different casts!!
+                                // Because a string is just a pointer ATM just emit the expresion
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTPointerType.Of(ASTBaseType.Void) && toType is ASTArrayType arrayType)
                             {
@@ -2272,6 +2401,27 @@ namespace T12
                             {
                                 // FIXME: Do proper dereferencing!!!
                                 targetType = pointerType.BaseType;
+                            }
+                            else if (targetType is ASTFixedArrayType fixedArrayType)
+                            {
+                                switch (memberExpression.MemberName)
+                                {
+                                    case "length":
+                                        {
+                                            // We know the length at compile time! Just put it in there
+                                            if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
+                                            return;
+                                        }
+                                    case "data":
+                                        {
+                                            // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
+                                            EmitExpression(builder, memberExpression.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                            return;
+                                        }
+                                    default:
+                                        Fail(memberExpression.Trace, $"Fixed array type '{targetType}' does not have a memeber '{memberExpression.MemberName}'");
+                                        break;
+                                }
                             }
                             else
                             {
@@ -2393,13 +2543,11 @@ namespace T12
 
                                                 // Store that value into local
                                                 StoreVariable(builder, varExpr.Trace, member, typeMap);
-                                                // AppendTypedStore(builder, $"{variable.Offset + offset}", memberType, typeMap);
                                             }
 
                                             if (produceResult)
                                             {
                                                 LoadVariable(builder, varExpr.Trace, member, typeMap);
-                                                // AppendTypedLoad(builder, $"{variable.Offset + offset}", memberType, typeMap);
 
                                                 if (target.Dereference)
                                                 {
@@ -2479,6 +2627,43 @@ namespace T12
                                     Fail(varExpr.Trace, $"This should not happen! We have a weird VariableType '{variable.VariableType}'!");
                                     break;
                             }
+                        }
+                        else if (target.Dereference == false && target.TargetExpr is ASTPointerExpression pointerExpression && pointerExpression.Assignment == null)
+                        {
+                            // Here we are derefing something and just taking one thing from the result.
+                            // Then we can just get the pointer that points to the member
+                            // We don't do this if we are dereferencing once again becase then we can't just
+                            // add to the pointer
+
+                            // If we are assigning to the pointer this becomes harder, so we just don't do this atm
+
+                            if (pointerExpression.Assignment != null) Fail(pointerExpression.Assignment.Trace, $"Assigning to the pointer expression should not happen here!");
+
+                            var pointerType = CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap);
+
+                            // Load the pointer value
+                            if (pointerType is ASTFixedArrayType fixedArray)
+                            {
+                                // If this is a fixed array, loading it will mean loading the full array, we just wan't a pointer to it
+                                var fixedArrayPointerExpr = new ASTAddressOfExpression(pointerExpression.Trace, pointerExpression);
+                                EmitExpression(builder, fixedArrayPointerExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            }
+                            else
+                            {
+                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            }
+
+                            // If the member has a offset, add that offset
+                            if (memberOffset != 0) builder.AppendLine($"\tloadl #{memberOffset} ladd\t; Offset to member {memberExpression.MemberName}");
+
+                            VariableRef variable = new VariableRef
+                            {
+                                VariableType = VariableType.Pointer,
+                                Type = memberType,
+                                Comment = $"[{memberExpression.MemberName}]",
+                            };
+
+                            LoadVariable(builder, memberExpression.Trace, variable, typeMap);
                         }
                         else
                         {
@@ -2582,7 +2767,19 @@ namespace T12
 
                             var baseType = (pointerType as ASTDereferenceableType).DerefType;
 
-                            EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            // So if the pointer is a fixed size array, and we know the pointer to that array
+                            
+                            // NOTE: Here we do special behaviour for fixed arrays to not load the whole fixed array.
+                            // I don't know if it would actually work without this.... yikes
+                            if (pointerType is ASTFixedArrayType fixedArray)
+                            {
+                                var varExpr = new ASTAddressOfExpression(addressOfExpression.Trace, pointerExpression.Pointer);
+                                EmitExpression(builder, varExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            }
+                            else
+                            {
+                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            }
                             
                             var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
                             // Try to cast the offset to a dword

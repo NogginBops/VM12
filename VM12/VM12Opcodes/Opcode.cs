@@ -31,8 +31,8 @@
     public enum InterruptType : int
     {
         stop,
-        h_Timer = 0xFFF_FF0,
-        v_Blank = 0xFFF_FE0,
+        h_timer = 0xFFF_FF0,
+        v_blank = 0xFFF_FE0,
         keyboard = 0xFFF_FD0,
         mouse = 0xFFF_FC0,
     }
@@ -54,6 +54,19 @@
         Ro_l
     }
     
+    public enum SetMode : int
+    {
+        Z, Nz,
+        C, Cz,
+        Gz, Lz,
+        Ge, Le,
+
+        Z_l, Nz_l,
+        C_l, Cz_l,
+        Gz_l, Lz_l,
+        Ge_l, Le_l,
+    }
+
     public enum GrapicOps : int
     {
         Nop = 0,
@@ -114,7 +127,8 @@
 
         Clz, Ctz,
         Selz, Selgz, Selge, Selc,
-
+        Set,
+        
         Start_coproc, Hlt_coproc, Int_coproc,
         Graf_clear, Graf_fill,
     }

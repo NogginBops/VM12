@@ -74,6 +74,16 @@ namespace T12
                 EndLine = tok.Line,
             };
         }
+
+        public static TraceData From(Token from, Token to)
+        {
+            return new TraceData
+            {
+                File = from.File,
+                StartLine = from.Line,
+                EndLine = to.Line,
+            };
+        }
     }
 
     public abstract class ASTNode
@@ -753,9 +763,9 @@ namespace T12
             {
                 case InterruptType.stop:
                     return "stop";
-                case InterruptType.h_Timer:
+                case InterruptType.h_timer:
                     return "h_timer";
-                case InterruptType.v_Blank:
+                case InterruptType.v_blank:
                     return "v_blank";
                 case InterruptType.keyboard:
                     return "keyboard";
@@ -775,9 +785,9 @@ namespace T12
         {
             switch (type)
             {
-                case InterruptType.h_Timer:
+                case InterruptType.h_timer:
                     return H_TimerParamList;
-                case InterruptType.v_Blank:
+                case InterruptType.v_blank:
                     return V_BlankParamList;
                 case InterruptType.keyboard:
                     return KeyboardParamList;
@@ -1392,7 +1402,10 @@ namespace T12
             var breakTok = Tokens.Dequeue();
             if (breakTok.Type != TokenType.Keyword_Break) Fail(breakTok, "Expected keyword break!");
 
-            var trace = TraceData.From(breakTok);
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected keyword semicolon!");
+
+            var trace = TraceData.From(breakTok, semicolonTok);
 
             return new ASTBreakStatement(trace);
         }
@@ -1407,7 +1420,10 @@ namespace T12
             var continueTok = Tokens.Dequeue();
             if (continueTok.Type != TokenType.Keyword_Continue) Fail(continueTok, "Expected keyword continue!");
 
-            var trace = TraceData.From(continueTok);
+            var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected keyword semicolon!");
+
+            var trace = TraceData.From(continueTok, semicolonTok);
 
             return new ASTContinueStatement(trace);
         }
@@ -1830,8 +1846,8 @@ namespace T12
                 switch (peek.Type)
                 {
                     case TokenType.Open_parenthesis:
-                        Fail(peek, "We have not implemented function pointers yet so this will not mean anything");
-                        return default;
+                        targetExpr = ASTVirtualFucntionCall.Parse(Tokens, targetExpr);
+                        break;
                     case TokenType.Open_square_bracket:
                         targetExpr = ASTPointerExpression.Parse(Tokens, targetExpr);
                         break;
@@ -2453,6 +2469,54 @@ namespace T12
         }
     }
 
+    public class ASTVirtualFucntionCall : ASTExpression
+    {
+        public readonly ASTExpression FunctionPointer;
+        public readonly List<ASTExpression> Arguments;
+
+        public ASTVirtualFucntionCall(TraceData trace, ASTExpression functionPointer, List<ASTExpression> arguments) : base(trace)
+        {
+            FunctionPointer = functionPointer;
+            Arguments = arguments;
+        }
+
+        public static ASTVirtualFucntionCall Parse(Queue<Token> Tokens, ASTExpression target)
+        {
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
+
+            List<ASTExpression> arguments = new List<ASTExpression>();
+
+            // We peeked so we can handle this loop more uniform by always dequeueing at the start
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_parenthesis)
+            {
+                var expr = ASTExpression.Parse(Tokens);
+                arguments.Add(expr);
+
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
+                // Dequeue the comma
+                Tokens.Dequeue();
+
+                peek = Tokens.Peek();
+            }
+
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected ')'");
+
+            var trace = new TraceData
+            {
+                File = openParenTok.File,
+                StartLine = openParenTok.Line,
+                EndLine = closeParenTok.Line,
+            };
+
+            return new ASTVirtualFucntionCall(trace, target, arguments);
+        }
+    }
+
     public class ASTExternFunctionCall : ASTFunctionCall
     {
         public readonly string Namespace;
@@ -2788,33 +2852,39 @@ namespace T12
 
                         List<ASTType> paramTypes = new List<ASTType>();
 
-                        var openParenTok = Tokens.Dequeue();
-                        if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
-
-                        // We peeked so we can handle this loop more uniform by always dequeueing at the start
-                        var peek = Tokens.Peek();
-                        while (peek.Type != TokenType.Close_parenthesis)
+                        var openParenTok = Tokens.Peek();
+                        if (openParenTok.Type == TokenType.Open_parenthesis)
                         {
-                            ASTType type = ASTType.Parse(Tokens);
+                            // We have params, so we need to parse them
 
-                            paramTypes.Add(type);
-
-                            // If it's a comma, continue
-                            // If it's a closing bracked, break
-                            // If it's anything else, error
-                            peek = Tokens.Peek();
-
-                            if (peek.Type == TokenType.Close_parenthesis) break;
-                            else if (peek.Type != TokenType.Comma) Fail(peek, $"Unknown token '{peek}', expected comma or ')'");
-
-                            // Dequeue the continuation comma and set peek
+                            // Dequeue the open paren
                             Tokens.Dequeue();
-                            peek = Tokens.Peek();
+
+                            // We peeked so we can handle this loop more uniform by always dequeueing at the start
+                            var peek = Tokens.Peek();
+                            while (peek.Type != TokenType.Close_parenthesis)
+                            {
+                                ASTType type = ASTType.Parse(Tokens);
+
+                                paramTypes.Add(type);
+
+                                // If it's a comma, continue
+                                // If it's a closing bracked, break
+                                // If it's anything else, error
+                                peek = Tokens.Peek();
+
+                                if (peek.Type == TokenType.Close_parenthesis) break;
+                                else if (peek.Type != TokenType.Comma) Fail(peek, $"Unknown token '{peek}', expected comma or ')'");
+
+                                // Dequeue the continuation comma and set peek
+                                Tokens.Dequeue();
+                                peek = Tokens.Peek();
+                            }
+
+                            var closeParenTok = Tokens.Dequeue();
+                            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, $"Expected ')'!");
                         }
-
-                        var closeParenTok = Tokens.Dequeue();
-                        if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, $"Expected ')'!");
-
+                        
                         ASTType returnType = ASTBaseType.Void;
 
                         var arrowTok = Tokens.Peek();

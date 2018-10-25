@@ -193,9 +193,9 @@ namespace VM12
             {
                 case InterruptType.stop:
                     return 0;
-                case InterruptType.h_Timer:
+                case InterruptType.h_timer:
                     return 1;
-                case InterruptType.v_Blank:
+                case InterruptType.v_blank:
                     return 2;
                 case InterruptType.keyboard:
                     return 3;
@@ -1363,7 +1363,7 @@ namespace VM12
                                     SP--;
                                     break;
                                 case JumpMode.Lz:
-                                    if ((mem[SP] & 0x800) > 0)
+                                    if ((mem[SP] & 0x800) != 0)
                                     {
                                         PC = (mem[++PC] << 12) | (ushort)(mem[++PC]);
                                     }
@@ -1830,6 +1830,74 @@ namespace VM12
                             mem[SP - 1] = carry ? mem[SP] : mem[SP - 1];
                             SP -= 1;
                             PC++;
+                            break;
+                        case Opcode.Set:
+                            SetMode set_mode = (SetMode) mem[PC + 1];
+                            switch (set_mode)
+                            {
+                                case SetMode.Z:
+                                    mem[SP] = mem[SP] == 0 ? 1 : 0;
+                                    break;
+                                case SetMode.Nz:
+                                    mem[SP] = mem[SP] != 0 ? 1 : 0;
+                                    break;
+                                case SetMode.C:
+                                    mem[SP] = carry ? 1 : 0;
+                                    break;
+                                case SetMode.Cz:
+                                    mem[SP] = carry == false ? 1 : 0;
+                                    break;
+                                case SetMode.Gz:
+                                    mem[SP] = (mem[SP] & 0x800) == 0 && mem[SP] != 0 ? 1 : 0;
+                                    break;
+                                case SetMode.Lz:
+                                    mem[SP] = (mem[SP] & 0x800) != 0 ? 1 : 0;
+                                    break;
+                                case SetMode.Ge:
+                                    mem[SP] = (mem[SP] & 0x800) == 0 && mem[SP] >= 0 ? 1 : 0;
+                                    break;
+                                case SetMode.Le:
+                                    mem[SP] = (mem[SP] & 0x800) != 0 || mem[SP] == 0 ? 1 : 0;
+                                    break;
+                                case SetMode.Z_l:
+                                    mem[SP] = (mem[SP] << 12 | mem[SP]) == 0 ? 1 : 0;
+                                    mem[SP - 1] = 0;
+                                    break;
+                                case SetMode.Nz_l:
+                                    mem[SP] = (mem[SP] << 12 | mem[SP]) != 0 ? 1 : 0;
+                                    mem[SP - 1] = 0;
+                                    break;
+                                case SetMode.C_l:
+                                    mem[SP] = carry ? 1 : 0;
+                                    mem[SP - 1] = 0;
+                                    break;
+                                case SetMode.Cz_l:
+                                    mem[SP] = carry == false ? 1 : 0;
+                                    mem[SP - 1] = 0;
+                                    break;
+                                case SetMode.Gz_l:
+                                    int set_gz_l_value = mem[SP] << 12 | mem[SP];
+                                    mem[SP] = (set_gz_l_value & 0x800) == 0 && set_gz_l_value != 0 ? 1 : 0;
+                                    mem[SP - 1] = 0;
+                                    break;
+                                case SetMode.Lz_l:
+                                    int set_lz_l_value = mem[SP] << 12 | mem[SP];
+                                    mem[SP] = (set_lz_l_value & 0x800) != 0 ? 1 : 0;
+                                    mem[SP - 1] = 0;
+                                    break;
+                                case SetMode.Ge_l:
+                                    int set_ge_l_value = mem[SP] << 12 | mem[SP];
+                                    mem[SP] = (set_ge_l_value & 0x800) == 0 && set_ge_l_value >= 0 ? 1 : 0;
+                                    break;
+                                case SetMode.Le_l:
+                                    int set_le_l_value = mem[SP] << 12 | mem[SP];
+                                    mem[SP] = (set_le_l_value & 0x800) != 0 || set_le_l_value == 0 ? 1 : 0;
+                                    mem[SP - 1] = 0;
+                                    break;
+                                default:
+                                    throw new NotImplementedException($"No implementation for '{set_mode}'");
+                            }
+                            PC += 2;
                             break;
                         case Opcode.Graf_clear:
                             int clear_color = mem[SP];

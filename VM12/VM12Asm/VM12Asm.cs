@@ -319,6 +319,26 @@ namespace VM12Asm
             { new Regex(sname("ldiv")), "div.l" },
             { new Regex(sname("lmod")), "mod.l" },
             { new Regex(sname("blitm")), "blit.mask" },
+            
+            { new Regex(sname("setz")),   "set ST.Z" },
+            { new Regex(sname("setnz")),  "set ST.Nz" },
+            { new Regex(sname("setc")),   "set ST.C" },
+            { new Regex(sname("setnc")),  "set ST.Cz" },
+            { new Regex(sname("setgz")),  "set ST.Gz" },
+            { new Regex(sname("setge")),  "set ST.Ge" },
+            { new Regex(sname("setlz")),  "set ST.Lz" },
+            { new Regex(sname("setle")),  "set ST.Le" },
+            { new Regex(sname("lsetz")),  "set ST.Z.l" },
+            { new Regex(sname("lsetnz")), "set ST.Nz.l" },
+            { new Regex(sname("lsetc")),  "set ST.C.l" },
+            { new Regex(sname("lsetnc")), "set ST.Cz.l" },
+            { new Regex(sname("lsetgz")), "set ST.Gz.l" },
+            { new Regex(sname("lsetge")), "set ST.Ge.l" },
+            { new Regex(sname("lsetlz")), "set ST.Lz.l" },
+            { new Regex(sname("lsetle")), "set ST.Le.l" },
+            
+            { new Regex(sname("tzo")), "to.zero.one" },
+            { new Regex(sname("ltzo")), "to.zero.one.l" },
 
             { new Regex(sname("graf_clear")), "graf.clear" },
             { new Regex(sname("graf_fill")), "graf.fill" },
@@ -445,6 +465,8 @@ namespace VM12Asm
             { "selgz", Opcode.Selgz },
             { "selge", Opcode.Selge },
             { "selc", Opcode.Selc },
+            
+            { "set", Opcode.Set },
 
             { "graf.clear", Opcode.Graf_clear },
             { "graf.fill", Opcode.Graf_fill },
@@ -478,6 +500,23 @@ namespace VM12Asm
             { "JM.Eq.l", (int) JumpMode.Eq_l },
             { "JM.Neq.l", (int) JumpMode.Neq_l },
             { "JM.Ro.l", (int) JumpMode.Ro_l },
+
+            { "ST.Z",    (int) SetMode.Z },
+            { "ST.Nz",   (int) SetMode.Nz },
+            { "ST.C",    (int) SetMode.C },
+            { "ST.Cz",   (int) SetMode.Cz },
+            { "ST.Gz",   (int) SetMode.Gz },
+            { "ST.Ge",   (int) SetMode.Ge },
+            { "ST.Lz",   (int) SetMode.Lz },
+            { "ST.Le",   (int) SetMode.Le },
+            { "ST.Z.l",  (int) SetMode.Z_l },
+            { "ST.Nz.l", (int) SetMode.Nz_l },
+            { "ST.C.l",  (int) SetMode.C_l },
+            { "ST.Cz.l", (int) SetMode.Cz_l },
+            { "ST.Gz.l", (int) SetMode.Gz_l },
+            { "ST.Ge.l", (int) SetMode.Ge_l },
+            { "ST.Lz.l", (int) SetMode.Lz_l },
+            { "ST.Le.l", (int) SetMode.Le_l },
         };
 
         private static ConsoleColor conColor = Console.ForegroundColor;
@@ -1914,6 +1953,29 @@ namespace VM12Asm
                                         else
                                         {
                                             Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a label or litteral!");
+                                        }
+                                        break;
+                                    case Opcode.Set:
+                                        instructions.Add((short)current.Opcode);
+                                        
+                                        // Use the next token to figure out the argument
+                                        if (peek.Type == TokenType.Argument)
+                                        {
+                                            SetMode set_mode = (SetMode)arguments[peek.Value];
+                                            if (Enum.IsDefined(typeof(SetMode), set_mode))
+                                            {
+                                                instructions.Add((short)set_mode);
+                                                tokens.MoveNext();
+                                                peek = tokens.Current;
+                                            }
+                                            else
+                                            {
+                                                Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by an argument of type {nameof(SetMode)}! Got: \"{set_mode}\"");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a {nameof(SetMode)}!");
                                         }
                                         break;
                                     case Opcode.Call:
