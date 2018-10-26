@@ -128,7 +128,8 @@
         Clz, Ctz,
         Selz, Selgz, Selge, Selc,
         Set,
-        
+        Brk,
+
         Start_coproc, Hlt_coproc, Int_coproc,
         Graf_clear, Graf_fill,
     }

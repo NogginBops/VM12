@@ -39,20 +39,25 @@ namespace T12
             
             Console.ReadKey();
         }
+        
+        public static bool Compiling { get; private set; }
+        static StringBuilder FuncDebug = new StringBuilder();
+        static DirectoryInfo BaseDirectory;
 
-        public static void Compile(DirectoryInfo baseDirectory, FileInfo inFile, FileInfo outFile = null)
+        public static void StartCompiling(DirectoryInfo baseDirectory)
         {
-            if (outFile == null)
-            {
-                outFile = new FileInfo(Path.ChangeExtension(inFile.FullName, "12asm"));
-            }
-            
-            /*string result = */Compile(baseDirectory, inFile);
-            
-            //File.WriteAllText(outFile.FullName, result);
+            Compiling = true;
+            FuncDebug = new StringBuilder();
+            BaseDirectory = baseDirectory;
         }
 
-        public static void Compile(DirectoryInfo baseDirectory, FileInfo infile)
+        public static void StopCompiling()
+        {
+            Compiling = false;
+            File.WriteAllText(Path.Combine(BaseDirectory.FullName, "Data", "debug_t12.df"), FuncDebug.ToString());
+        }
+
+        public static void Compile(FileInfo infile)
         {
             string fileData = File.ReadAllText(infile.FullName);
 
@@ -63,9 +68,7 @@ namespace T12
             // TODO: Do validaton on the AST
 
             // TODO: We can generate a debug file with the name of all locals!
-
-            StringBuilder funcDebug = new StringBuilder();
-
+            
             foreach (var file in ast.Files)
             {
                 var result = Emitter.EmitAsem(file.Value.File, ast);
@@ -73,11 +76,9 @@ namespace T12
                 // FIXME: Write to file
                 File.WriteAllText(Path.ChangeExtension(file.Value.FileInfo.FullName, ".12asm"), result.assembly);
 
-                funcDebug.Append(result.funcDebug);
+                FuncDebug.Append(result.funcDebug);
             }
-
-            File.WriteAllText(Path.Combine(baseDirectory.FullName, "Data", "debug_t12.df"), funcDebug.ToString());
-
+            
             return;
         }
     }

@@ -26,7 +26,7 @@ namespace Debugging
             private int startAddress;
             private long length;
             
-            public long Length => length;
+            public long Length => length * 2;
 
             public event EventHandler LengthChanged;
             public event EventHandler Changed;

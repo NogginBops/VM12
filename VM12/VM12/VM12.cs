@@ -946,7 +946,7 @@ namespace VM12
                     romInstructionCounter[PC]++;
                     instructionFreq[(int)op]++;
 #if BREAKS
-                    if (breaks[PC])
+                    if (breaks[PC] || op == Opcode.Brk)
                     {
                         interruptsEnabledActual = interruptsEnabled || interruptsEnabledActual;
                         interruptsEnabled = false;
@@ -978,6 +978,7 @@ namespace VM12
 #endif
                     switch (op)
                     {
+                        case Opcode.Brk:
                         case Opcode.Nop:
                             PC++;
                             break;
@@ -2135,7 +2136,47 @@ namespace VM12
                         case GrapicOps.TrueColorSprite:
                             throw new NotImplementedException();
                         case GrapicOps.PalettedSprite:
-                            throw new NotImplementedException();
+                            {
+                                int vram_addr = mem[GP + 1] << 12 | mem[GP + 2];
+                                int sprite = mem[GP + 3] << 12 | mem[GP + 4];
+                                int palette = mem[GP + 5] << 12 | mem[GP + 6];
+                                int stride = mem[GP + 7];
+                                int width = mem[GP + 8];
+                                int height = mem[GP + 9];
+                                
+                                // stride must be a multiple of 3
+                                if (stride % 3 != 0)
+                                {
+                                    throw new InvalidOperationException();
+                                }
+                                
+                                for (int y = 0; y < height; y++)
+                                {
+                                    int sprite_data;
+                                    for (int x = 0; x < width / 3; x++)
+                                    {
+                                        sprite_data = mem[sprite++];
+
+                                        mem[vram_addr++] = mem[palette + ((sprite_data >> 8) & 0xF)];
+                                        mem[vram_addr++] = mem[palette + ((sprite_data >> 4) & 0xF)];
+                                        mem[vram_addr++] = mem[palette + (sprite_data & 0xF)];
+                                    }
+
+                                    // Draw the horizontal pixels not on a 3 multiple boundrary
+                                    for (int i = 0; i < width % 3; i++)
+                                    {
+                                        sprite_data = mem[sprite++];
+                                        mem[vram_addr++] = mem[palette + ((sprite_data >> ((1 - i) * 4)) & 0xFF)];
+                                    }
+                                    
+                                    // The the rest of the stride
+                                    sprite += (stride / 3) - ((width + 2) / 3);
+                                    vram_addr += SCREEN_WIDTH - width;
+                                }
+
+                                GP += 10;
+                                break;
+                            }
                         case GrapicOps.Fontchar_Mask:
                             throw new NotImplementedException();
                         case GrapicOps.TrueColorSprite_Mask:

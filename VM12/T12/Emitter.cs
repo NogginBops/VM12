@@ -360,7 +360,8 @@ namespace T12
             typedLeft = typedLeft ?? condition.Left;
             typedRight = typedRight ?? condition.Right;
 
-            int typeSize = SizeOfType(leftType, typeMap);
+            var resultType = CalcReturnType(typedLeft, scope, typeMap, functionMap, constMap, globalMap);
+            int typeSize = SizeOfType(resultType, typeMap);
             
             switch (condition.OperatorType)
             {
@@ -380,7 +381,7 @@ namespace T12
                     }
                     else
                     {
-                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {resultType} size {typeSize}");
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Not_equal:
@@ -399,7 +400,7 @@ namespace T12
                     }
                     else
                     {
-                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {resultType} size {typeSize}");
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Less_than:
@@ -427,7 +428,7 @@ namespace T12
                     }
                     else
                     {
-                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {resultType} size {typeSize}");
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
@@ -446,7 +447,7 @@ namespace T12
                     }
                     else
                     {
-                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {resultType} size {typeSize}");
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Greater_than:
@@ -469,7 +470,7 @@ namespace T12
                     }
                     else
                     {
-                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {resultType} size {typeSize}");
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Greater_than_or_equal:
@@ -487,7 +488,7 @@ namespace T12
                     }
                     else
                     {
-                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {leftType} size {typeSize}");
+                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {resultType} size {typeSize}");
                     }
                     break;
                 default:
@@ -1189,7 +1190,7 @@ namespace T12
                     for (int i = 0; i < varSize; i++)
                     {
                         // TODO: Do _H and _L for dword args? Or do member names like list.count?
-                        debugBuilder.AppendLine($"[local:{index}|{var.Name}{(varSize > 1 ? $"_{index}" : "")}]");
+                        debugBuilder.AppendLine($"[local:{index}|{var.Name}{(varSize > 1 ? $"_{i}" : "")}]");
                         index++;
                     }
                 }
@@ -1387,6 +1388,8 @@ namespace T12
                     break;
                 case ASTForWithDeclStatement forWithDecl:
                     {
+                        var test = forWithDecl;
+
                         int hash = forWithDecl.GetHashCode();
                         LoopContext newLoopContext = new LoopContext($":post_statement_{hash}", $":for_end_{hash}");
 

@@ -468,6 +468,8 @@ namespace VM12Asm
             
             { "set", Opcode.Set },
 
+            { "brk", Opcode.Brk },
+
             { "graf.clear", Opcode.Graf_clear },
             { "graf.fill", Opcode.Graf_fill },
 
@@ -730,8 +732,13 @@ namespace VM12Asm
 
                 if (Path.GetExtension(fi.FullName) == ".t12")
                 {
+                    if (T12.Compiler.Compiling == false)
+                    {
+                        T12.Compiler.StartCompiling(dirInf);
+                    }
+
                     // We need to invoke the t12 compiler!
-                    T12.Compiler.Compile(dirInf, fi);
+                    T12.Compiler.Compile(fi);
 
                     fi = new FileInfo(Path.ChangeExtension(fi.FullName, ".12asm"));
                 }
@@ -761,6 +768,11 @@ namespace VM12Asm
                         remainingUsings.Push(u.Value);
                     }
                 }
+            }
+
+            if (T12.Compiler.Compiling == true)
+            {
+                T12.Compiler.StopCompiling();
             }
 
             #region AutoStrings
