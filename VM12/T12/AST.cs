@@ -1871,11 +1871,11 @@ namespace T12
 
     public abstract class ASTLitteral : ASTExpression
     {
-        public readonly ASTBaseType Type;
+        public readonly ASTType Type;
 
         public readonly string Value;
 
-        public ASTLitteral(TraceData trace, ASTBaseType type, string value) : base(trace)
+        public ASTLitteral(TraceData trace, ASTType type, string value) : base(trace)
         {
             Type = type;
             Value = value;
@@ -1905,6 +1905,9 @@ namespace T12
                     return ASTCharLitteral.Parse(Tokens);
                 case TokenType.String_Litteral:
                     return ASTStringLitteral.Parse(Tokens);
+                case TokenType.Keyword_Null:
+                    var nullTok = Tokens.Dequeue();
+                    return new ASTNullLitteral(TraceData.From(nullTok));
                 default:
                     Fail(peek, $"Expected litteral, got '{peek}'");
                     return default;
@@ -2035,6 +2038,11 @@ namespace T12
 
             return new ASTStringLitteral(trace, stringTok.Value);
         }
+    }
+
+    public class ASTNullLitteral : ASTLitteral
+    {
+        public ASTNullLitteral(TraceData trace) : base(trace, ASTPointerType.Of(ASTBaseType.Void), "null") { }
     }
 
     #endregion
@@ -2399,6 +2407,37 @@ namespace T12
                 case BinaryOperatorType.Unknown:
                 default:
                     return "UNKNOWN";
+            }
+        }
+
+        public static bool IsBooleanOpType(BinaryOperatorType type)
+        {
+            switch (type)
+            {
+                case BinaryOperatorType.Logical_And:
+                case BinaryOperatorType.Logical_Or:
+                case BinaryOperatorType.Equal:
+                case BinaryOperatorType.Not_equal:
+                case BinaryOperatorType.Less_than:
+                case BinaryOperatorType.Less_than_or_equal:
+                case BinaryOperatorType.Greater_than:
+                case BinaryOperatorType.Greater_than_or_equal:
+                    return true;
+                case BinaryOperatorType.Addition:
+                case BinaryOperatorType.Subtraction:
+                case BinaryOperatorType.Multiplication:
+                case BinaryOperatorType.Division:
+                case BinaryOperatorType.Modulo:
+                case BinaryOperatorType.Bitwise_And:
+                case BinaryOperatorType.Bitwise_Or:
+                case BinaryOperatorType.Bitwise_Xor:
+                case BinaryOperatorType.Bitwise_shift_left:
+                case BinaryOperatorType.Bitwise_shift_right:
+                    return false;
+                case BinaryOperatorType.Unknown:
+                default:
+                    Fail(default, $"Unknown binary operation '{type}'");
+                    return false;
             }
         }
     }

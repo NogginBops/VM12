@@ -98,8 +98,7 @@ namespace T12
                         }
                         else
                         {
-                            Fail(externType.Trace, "");
-                            return default;
+                            return SizeOfType(outType, typeMap);
                         }
                     else
                         return SizeOfType(externType.Type, typeMap);
@@ -146,6 +145,11 @@ namespace T12
                     {
                         ASTType left = CalcReturnType(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
                         ASTType right = CalcReturnType(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
+
+                        if (ASTBinaryOp.IsBooleanOpType(binaryOp.OperatorType))
+                        {
+                            return ASTBaseType.Bool;
+                        }
 
                         if (TryGenerateImplicitCast(binaryOp.Right, left, scope, typeMap, functionMap, constMap, globalMap, out _, out _))
                         {
@@ -266,6 +270,10 @@ namespace T12
             return default;
         }
 
+        // FIXME: Redesign this to be able to consider both expressions we want to cast to each other
+        // Or rather we want a way to describe unary implicit casts and binary implicit casts.
+        // So we can say that an expression must result in a type
+        // Or we can say that two expressions must result in the same type
         private static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
         {
             ASTType exprType = CalcReturnType(expression, scope, typeMap, functionMap, constMap, globalMap);
@@ -941,7 +949,7 @@ namespace T12
 
                             // Fast path for base types
                             if (baseType is ASTBaseType) return type;
-
+                            
                             ASTType externType = new ASTExternType(type.Trace, import.ImportName, baseType);
                             
                             // TODO: Fix this fast path!
@@ -1005,9 +1013,12 @@ namespace T12
                                     break;
                                 case ASTStructDeclarationDirective structDecl:
                                     {
-                                        structDecl = new ASTStructDeclarationDirective(structDecl.Trace, $"{import.ImportName}::{structDecl.Name}", ImportType(structDecl.DeclaredType));
+                                        string name = $"{import.ImportName}::{structDecl.Name}";
 
-                                        EmitDirective(builder, structDecl, typeMap, functionMap, constMap, globalMap, importMap);
+                                        if (typeMap.ContainsKey(name))
+                                            Fail(structDecl.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name!");
+                                        
+                                        typeMap.Add(name, ImportType(structDecl.DeclaredType));
                                         break;
                                     }
                                 default:
@@ -1084,6 +1095,8 @@ namespace T12
 
                         if (typeMap.ContainsKey(name))
                             Fail(structDeclaration.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name!");
+                        
+                        builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
 
                         typeMap.Add(name, structDeclaration.DeclaredType);
                         break;
@@ -1296,13 +1309,14 @@ namespace T12
                         if (returnStatement.ReturnValueExpression != null)
                         {
                             var retType = CalcReturnType(returnStatement.ReturnValueExpression, scope, typeMap, functionMap, constMap, globalMap);
+                            var retExpr = returnStatement.ReturnValueExpression;
 
-                            if (retType != functionConext.ReturnType) Fail(returnStatement.Trace, $"Cannot return expression of type '{retType}' in a function that returns type '{functionConext.ReturnType}'");
-
-                            EmitExpression(builder, returnStatement.ReturnValueExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                            // FIXME: Handle the size of the return type!
-
-                            int retSize = SizeOfType(retType, typeMap);
+                            if (TryGenerateImplicitCast(retExpr, functionConext.ReturnType, scope, typeMap, functionMap, constMap, globalMap, out var typedReturn, out string error) == false)
+                                Fail(returnStatement.Trace, $"Cannot return expression of type '{retType}' in a function that returns type '{functionConext.ReturnType}'");
+                            
+                            EmitExpression(builder, typedReturn, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            
+                            int retSize = SizeOfType(functionConext.ReturnType, typeMap);
                             if (retSize == 1)
                             {
                                 builder.AppendLine("\tret1");
@@ -1798,7 +1812,7 @@ namespace T12
                                 }
                                 else if (type_size == 2)
                                 {
-                                    builder.AppendLine("\tlsub lsetz\t; Equals cmp");
+                                    builder.AppendLine("\tlsub lsetz swap pop\t; Equals cmp");
                                 }
                                 else
                                 {
@@ -1812,7 +1826,7 @@ namespace T12
                                 }
                                 else if (type_size == 2)
                                 {
-                                    builder.AppendLine("\tlsub lsetnz\t; Equals cmp");
+                                    builder.AppendLine("\tlsub lsetnz swap pop\t; Equals cmp");
                                 }
                                 else
                                 {
@@ -2838,6 +2852,9 @@ namespace T12
                 case ASTStringLitteral stringLitteral:
                     // FIXME: Figure out how to do string constants and string structs!
                     builder.AppendLine($"\tload {stringLitteral.Value}");
+                    break;
+                case ASTNullLitteral nullLitteral:
+                    builder.AppendLine($"\tloadl #0\t; null");
                     break;
                 default:
                     Fail(litteral.Trace, $"Unknown litteral type {litteral.GetType()}, this is a compiler bug!");
