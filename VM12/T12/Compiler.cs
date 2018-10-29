@@ -63,7 +63,7 @@ namespace T12
 
             var tokens = Tokenizer.Tokenize(fileData, infile.FullName);
 
-            AST ast = AST.Parse(infile);
+            AST ast = AST.Parse(infile, BaseDirectory);
 
             // TODO: Do validaton on the AST
 

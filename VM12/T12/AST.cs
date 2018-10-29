@@ -17,9 +17,9 @@ namespace T12
             this.Files = files;
         }
 
-        public static AST Parse(FileInfo inFile)
+        public static AST Parse(FileInfo inFile, DirectoryInfo baseDirectory)
         {
-            Dictionary<string, FileInfo> dirFiles = inFile.Directory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
+            Dictionary<string, FileInfo> dirFiles = baseDirectory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
 
             // We can probably do this better!
             // Because we will want to emit comments to the assembly

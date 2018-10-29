@@ -1332,6 +1332,9 @@ namespace T12
                         }
                         else
                         {
+                            if (functionConext.ReturnType != ASTBaseType.Void)
+                                Fail(returnStatement.Trace, $"Cannot return without a value in a function that returns {functionConext.ReturnType}");
+
                             builder.AppendLine("\tret");
                         }
                         break;
