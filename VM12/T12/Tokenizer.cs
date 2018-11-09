@@ -19,6 +19,7 @@ namespace T12
         Close_squre_bracket,
 
         DoubleColon,
+        Contains,
 
         Semicolon,
         Period,
@@ -241,6 +242,7 @@ namespace T12
             ( TokenType.Close_squre_bracket, new Regex("^\\]") ),
 
             ( TokenType.DoubleColon, new Regex("^::") ),
+            ( TokenType.Contains, new Regex("^=><=") ),
 
             ( TokenType.Semicolon, new Regex("^;") ),
             ( TokenType.Period, new Regex("^\\.") ),

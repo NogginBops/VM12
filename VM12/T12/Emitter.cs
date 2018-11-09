@@ -170,11 +170,24 @@ namespace T12
                     {
                         ASTType left = CalcReturnType(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
                         ASTType right = CalcReturnType(conditional.IfFalse, scope, typeMap, functionMap, constMap, globalMap);
-
-                        if (left != right) Fail(conditional.Trace, "Differing return types!");
-
-                        return left;
+                        
+                        if (TryGenerateImplicitCast(conditional.IfFalse, left, scope, typeMap, functionMap, constMap, globalMap, out _, out _))
+                        {
+                            // We where able to cast the right expression to the left one! Great.
+                            return left;
+                        }
+                        else if (TryGenerateImplicitCast(conditional.IfTrue, right, scope, typeMap, functionMap, constMap, globalMap, out _, out _))
+                        {
+                            return right;
+                        }
+                        else
+                        {
+                            Fail(conditional.Trace, $"Cannot return differing types '{left}' and '{right}' from conditional operator!");
+                            return default;
+                        }
                     }
+                case ASTContainsExpression containsExpression:
+                    return ASTBaseType.Bool;
                 case ASTPointerExpression pointerExpression:
                     {
                         var targetType = ResolveType(CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap), typeMap);
@@ -221,6 +234,10 @@ namespace T12
                                     return ASTBaseType.DoubleWord;
                                 case "data":
                                     return ASTPointerType.Of(fixedArrayType.BaseType);
+                                case "end":
+                                    // We return a pointer to void to avoid struct size problems
+                                    // This is the last valid address of the fixed array
+                                    return ASTPointerType.Of(ASTBaseType.Void);
                                 default:
                                     Fail(memberExpression.Trace, $"Fixed array type '{targetType}' does not have a memeber '{memberExpression.MemberName}'");
                                     break;
@@ -482,17 +499,19 @@ namespace T12
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Greater_than_or_equal:
-                    throw new NotImplementedException();
                     EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                     EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-
+                    
+                    // Jump if left < right
                     if (typeSize == 1)
                     {
-                        builder.AppendLine($"\tjeq {jmpLabel}");
+                        builder.AppendLine($"\tsub");
+                        builder.AppendLine($"\tjlz {jmpLabel}");
                     }
                     else if (typeSize == 2)
                     {
-                        builder.AppendLine($"\tjeql {jmpLabel}");
+                        builder.AppendLine($"\tlsub");
+                        builder.AppendLine($"\tjlzl {jmpLabel}");
                     }
                     else
                     {
@@ -500,7 +519,7 @@ namespace T12
                     }
                     break;
                 default:
-                    // We cant do something smart here :(
+                    // We can't do something smart here :(
                     EmitExpression(builder, condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                     builder.AppendLine($"\tjz {jmpLabel}");
                     break;
@@ -846,20 +865,62 @@ namespace T12
 
             return memberOffset;
         }
-
-        /*
-        private static bool TryResolveConstantValue(ASTExpression constExpression, out int constant)
+        
+        private static bool TryConstantFolding(StringBuilder builder, ASTExpression expr, TypeMap typeMap, ConstMap constMap)
         {
-            switch (constExpression)
+            // FIXME: Make this work and use it!
+
+            switch (expr)
             {
-                case ASTNumericLitteral:
-                    break;
+                /*
+                case ASTLitteral litteral:
+                    builder.Append($"{litteral.Value} ");
+                    return true;
+                */
+                case ASTBinaryOp binaryOp:
+                    {
+                        // If both operands are const we can do the binary op
+                        
+
+                        
+                        return false;
+                    }
+                case ASTUnaryOp unaryOp:
+                    {
+                        
+                        return false;
+                    }
+                case ASTConditionalExpression conditionalExpression:
+                    {
+                        return false;
+                    }
+                case ASTContainsExpression containsExpression:
+                    {
+                        return false;
+                    }
+                case ASTExternVariableExpression variableExpression:
+                    {
+                        return false;
+                    }
+                case ASTSizeofTypeExpression sizeofTypeExpression:
+                    {
+                        var sizeOfType = ResolveType(sizeofTypeExpression.Type, typeMap);
+                        int size = SizeOfType(sizeOfType, typeMap);
+
+                        builder.Append($"{size} ");
+                        return true;
+                    }
+                case ASTAddressOfExpression addressOfExpression:
+                    {
+                        // If we are taking the address of a global var we can know the pointer?!
+                        return false;
+                    }
                 default:
-                    break;
+                    Fail(expr.Trace, $"Unknown expression type '{expr.GetType()}'! This is a compiler bug!!");
+                    return false;
             }
         }
-        */
-        
+
         public static Assembly EmitAsem(ASTFile file, AST ast)
         {
             StringBuilder builder = new StringBuilder();
@@ -1077,9 +1138,12 @@ namespace T12
                             if (constType is ASTPointerType)
                                 if (valueType != ASTBaseType.Word && valueType != ASTBaseType.DoubleWord)
                                     Fail(constDirective.Value.Trace, $"Can't convert constant expression of type '{valueType}' to type '{constType}'!");
+
+                            //if (TryConstantFolding(constDirective.Value, typeMap, constMap, out ASTLitteral foldedConst) == false)
+                            //    Fail(constDirective.Value.Trace, $"Cannot assign a non-costant value '{constDirective.Value}' to constant '{constDirective.Name}'");
                             
                             // FIXME: Proper constant folding!!!!!!!
-                            builder.AppendLine($"<{constDirective.Name} = {(constDirective.Value as ASTLitteral).Value}>");
+                            builder.AppendLine($"<{constDirective.Name} = {(constDirective.Value as ASTLitteral).Value.TrimEnd('d', 'D', 'w', 'W')}>");
                         }
                         break;
                     }
@@ -1178,6 +1242,10 @@ namespace T12
 
                 var returnStatement = new ASTReturnStatement(trace, null);
                 func.Body.Add(returnStatement);
+            }
+            else if (func.Body.Last() is ASTReturnStatement == false)
+            {
+                Console.WriteLine($"WARNING: The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know it the function actually returns!");
             }
 
             foreach (var blockItem in func.Body)
@@ -1860,17 +1928,13 @@ namespace T12
                             case ASTBinaryOp.BinaryOperatorType.Greater_than:
                                 if (type_size == 1)
                                 {
-                                    // FIXME: This is really inefficient
-                                    builder.AppendLine("\tsub ; Greater than");
-                                    builder.AppendLine("\tload #0");
-                                    builder.AppendLine("\tswap");
-                                    builder.AppendLine("\tload #1");
-                                    builder.AppendLine("\tswap");
-                                    builder.AppendLine("\tselgz ; If b - a > 0 signed");
+                                    // 1 if left > right
+                                    // left - right > 0
+                                    builder.AppendLine("\tsub setgz\t; Greater than");
                                 }
                                 else if (type_size == 2)
                                 {
-                                    throw new NotImplementedException();
+                                    builder.AppendLine("\tlsub lsetgz swap pop\t; Greater than");
                                 }
                                 else
                                 {
@@ -1923,6 +1987,8 @@ namespace T12
                         int hash = conditional.GetHashCode();
                         // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({hash})");
 
+                        // NOTE: We can do a optimization for words with sel instruction
+
                         var ifTrueType = CalcReturnType(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
                         var ifFalseType = CalcReturnType(conditional.IfFalse, scope, typeMap, functionMap, constMap, globalMap);
 
@@ -1947,6 +2013,65 @@ namespace T12
                         builder.AppendLine($"\t:else_cond_{hash}");
                         EmitExpression(builder, conditional.IfFalse, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                         builder.AppendLine($"\t:post_cond_{hash}");
+                        break;
+                    }
+                case ASTContainsExpression containsExpression:
+                    {
+                        var valueType = ResolveType(CalcReturnType(containsExpression.Value, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+                        var lowerType = ResolveType(CalcReturnType(containsExpression.LowerBound, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+                        var upperType = ResolveType(CalcReturnType(containsExpression.UpperBound, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+
+                        if (valueType is ASTBaseType == false)
+                            Fail(containsExpression.Value.Trace, $"Can only do contains expressions on number types! Got '{valueType}'!");
+
+                        // TODO: Try cast them to each other!!!
+                        if (valueType != lowerType)
+                            Fail(containsExpression.LowerBound.Trace, $"Lower bound must be a number type! Got '{lowerType}'!");
+
+                        if (valueType != upperType)
+                            Fail(containsExpression.UpperBound.Trace, $"Upper bound must be a number type! Got '{upperType}'!");
+
+                        // All types are the same!
+
+                        var value = containsExpression.Value;
+                        var lower = containsExpression.LowerBound;
+                        var upper = containsExpression.UpperBound;
+
+                        int typeSize = SizeOfType(valueType, typeMap);
+                        switch (typeSize)
+                        {
+                            case 1:
+                                // load min
+                                // load value
+                                // over sub swap
+                                // load max 
+                                // swap sub
+                                // inc sub pop
+                                builder.AppendLine($"\t; Contains");
+                                EmitExpression(builder, lower, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, value, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tover sub swap");
+                                EmitExpression(builder, upper, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tswap sub");
+                                builder.AppendLine($"\tinc sub");
+                                if (produceResult) builder.AppendLine($"\tsetc\t; Set to one if the value is contained in the range");
+                                else builder.AppendLine($"\tpop");
+                                break;
+                            case 2:
+                                builder.AppendLine($"\t; Contains");
+                                EmitExpression(builder, lower, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, value, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tlover lsub lswap");
+                                EmitExpression(builder, upper, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tlswap lsub");
+                                builder.AppendLine($"\tlinc lsub pop");
+                                if (produceResult) builder.AppendLine($"\tsetc\t; Set to one if the value is contained in the range");
+                                else builder.AppendLine($"\tpop");
+                                break;
+                            default:
+                                Fail(containsExpression.Trace, $"This is weird because we shouldn't get types over 2 in size here! Got '{valueType}' with size '{typeSize}'!");
+                                break;
+                        }
                         break;
                     }
                 case ASTFunctionCall functionCall:
@@ -2398,6 +2523,12 @@ namespace T12
                                 // They have the same size so we just emit
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
+                            else if (fromType is ASTFixedArrayType fixedArrayType && (toType == ASTPointerType.Of(fixedArrayType.BaseType) || toType == ASTPointerType.Of(ASTBaseType.Void)))
+                            {
+                                // We take the "data" pointer of the fixed array and use that
+                                var data_member = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
+                                EmitExpression(builder, data_member, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
                             else
                             {
                                 Fail(cast.Trace, $"There is no explicit cast from {fromType} to {toType}!");
@@ -2435,7 +2566,19 @@ namespace T12
                                     case "data":
                                         {
                                             // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
-                                            EmitExpression(builder, memberExpression.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                            var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
+                                            EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                            return;
+                                        }
+                                    case "end":
+                                        {
+                                            // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
+                                            // Then add the length - 1 to that pointer
+                                            var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
+                                            EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                            if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
+                                            if (produceResult) builder.AppendLine($"\tloadl #{SizeOfType(fixedArrayType.BaseType, typeMap)}\t; size of type {fixedArrayType.BaseType}");
+                                            if (produceResult) builder.AppendLine($"\tlmul ldec ladd\t; Multiply the length by the size decrement and add to the pointer");
                                             return;
                                         }
                                     default:
@@ -2664,8 +2807,9 @@ namespace T12
                             // Load the pointer value
                             if (pointerType is ASTFixedArrayType fixedArray)
                             {
-                                // If this is a fixed array, loading it will mean loading the full array, we just wan't a pointer to it
-                                var fixedArrayPointerExpr = new ASTAddressOfExpression(pointerExpression.Trace, pointerExpression);
+                                // If this is a fixed array, loading it will mean loading the full array, we just want a pointer to it
+                                // So we load the "data" member
+                                var fixedArrayPointerExpr = new ASTMemberExpression(pointerExpression.Trace, pointerExpression.Pointer, "data", null, false);
                                 EmitExpression(builder, fixedArrayPointerExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                             }
                             else
@@ -2793,8 +2937,8 @@ namespace T12
                             // I don't know if it would actually work without this.... yikes
                             if (pointerType is ASTFixedArrayType fixedArray)
                             {
-                                var varExpr = new ASTAddressOfExpression(addressOfExpression.Trace, pointerExpression.Pointer);
-                                EmitExpression(builder, varExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                var dataMember = new ASTMemberExpression(addressOfExpression.Trace, pointerExpression.Pointer, "data", null, false);
+                                EmitExpression(builder, dataMember, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                             }
                             else
                             {
@@ -2840,23 +2984,25 @@ namespace T12
             switch (litteral)
             {
                 case ASTWordLitteral wordLitteral:
-                    builder.AppendLine($"\tload #{wordLitteral.Value}");
+                    builder.AppendLine($"\tload #{litteral}");
                     break;
                 case ASTDoubleWordLitteral dwordLitteral:
-                    builder.AppendLine($"\tloadl #{dwordLitteral.Value.Substring(0, dwordLitteral.Value.Length - 1)}");
+                    builder.AppendLine($"\tloadl #{litteral}");
+                    break;
+                case ASTCharLitteral charLitteral:
+                    builder.AppendLine($"\tload {litteral}");
+                    break;
+                case ASTStringLitteral stringLitteral:
+                    builder.AppendLine($"\tload {litteral}");
                     break;
                 case ASTBoolLitteral boolLitteral:
                     // NOTE: Should we load the constants instead?
+                    // We have moved to litterals just needing ToString to be valid for emitting,
+                    // Bools don't follow this for now but should probably be changed
                     builder.AppendLine($"\tload #{(boolLitteral.BoolValue ? 1 : 0)}\t; {(boolLitteral.BoolValue ? "true" : "false")}");
                     break;
-                case ASTCharLitteral charLitteral:
-                    builder.AppendLine($"\tload {charLitteral.Value}");
-                    break;
-                case ASTStringLitteral stringLitteral:
-                    // FIXME: Figure out how to do string constants and string structs!
-                    builder.AppendLine($"\tload {stringLitteral.Value}");
-                    break;
                 case ASTNullLitteral nullLitteral:
+                    // The same goes for null as for bool, its not directly emittable for now!
                     builder.AppendLine($"\tloadl #0\t; null");
                     break;
                 default:

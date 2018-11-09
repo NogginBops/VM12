@@ -1488,7 +1488,7 @@ namespace T12
             return ParseConditional(Tokens);
         }
 
-        // The tenth level of precedence (?:)
+        // The tenth level of precedence (?:) (=><=:)
         public static ASTExpression ParseConditional(Queue<Token> Tokens)
         {
             var expr = ParseLogicalOr(Tokens);
@@ -1514,6 +1514,27 @@ namespace T12
                 };
 
                 expr = new ASTConditionalExpression(trace, expr, ifTrue, ifFalse);
+            }
+            else if (peek.Type == TokenType.Contains)
+            {
+                // Dequeue the contains token
+                Tokens.Dequeue();
+
+                var lowerBound = ASTExpression.Parse(Tokens);
+
+                var colonTok = Tokens.Dequeue();
+                if (colonTok.Type != TokenType.Colon) Fail(colonTok, "Expected a colon!");
+
+                var upperBound = ASTExpression.Parse(Tokens);
+
+                var trace = new TraceData
+                {
+                    File = expr.Trace.File,
+                    StartLine = expr.Trace.StartLine,
+                    EndLine = upperBound.Trace.EndLine,
+                };
+
+                expr = new ASTContainsExpression(trace, expr, lowerBound, upperBound);
             }
 
             return expr;
@@ -1874,7 +1895,7 @@ namespace T12
         public readonly ASTType Type;
 
         public readonly string Value;
-
+        
         public ASTLitteral(TraceData trace, ASTType type, string value) : base(trace)
         {
             Type = type;
@@ -1980,6 +2001,18 @@ namespace T12
             var trace = TraceData.From(tok);
 
             return new ASTDoubleWordLitteral(trace, tok.Value, value);
+        }
+
+        public override string ToString()
+        {
+            if (Value.EndsWith("d"))
+            {
+                return Value.Substring(0, Value.Length - 1);
+            }
+            else
+            {
+                return base.ToString();
+            }
         }
     }
 
@@ -2456,6 +2489,20 @@ namespace T12
         }
     }
     
+    public class ASTContainsExpression : ASTExpression
+    {
+        public readonly ASTExpression Value;
+        public readonly ASTExpression LowerBound;
+        public readonly ASTExpression UpperBound;
+
+        public ASTContainsExpression(TraceData trace, ASTExpression value, ASTExpression lowerBound, ASTExpression upperBound) : base(trace)
+        {
+            Value = value;
+            LowerBound = lowerBound;
+            UpperBound = upperBound;
+        }
+    }
+
     public class ASTFunctionCall : ASTExpression
     {
         public readonly string FunctionName;
