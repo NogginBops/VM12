@@ -32,8 +32,11 @@ namespace T12
             var file = ASTFile.Parse(Tokens);
             files.Add(inFile.Name, (file, inFile));
 
-            foreach (var import in file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>())
+            List<ASTImportDirective> imports = file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>().ToList();
+
+            while (imports.Count > 0)
             {
+                var import = imports.First();
                 if (files.ContainsKey(import.File) == false)
                 {
                     // We have not parsed this file yet
@@ -45,7 +48,9 @@ namespace T12
                     var tokens = Tokenizer.Tokenize(File.ReadAllText(importFile.FullName), importFile.FullName);
                     tokens = new Queue<Token>(tokens.Where(tok => tok.Type != TokenType.Comment));
                     files.Add(importFile.Name, (ASTFile.Parse(tokens), importFile));
+                    imports.AddRange(files[importFile.Name].File.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>());
                 }
+                imports.Remove(import);
             }
             
             return new AST(files);

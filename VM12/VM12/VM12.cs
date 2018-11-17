@@ -1861,11 +1861,11 @@ namespace VM12
                                     mem[SP] = (mem[SP] & 0x800) != 0 || mem[SP] == 0 ? 1 : 0;
                                     break;
                                 case SetMode.Z_l:
-                                    mem[SP] = (mem[SP] << 12 | mem[SP]) == 0 ? 1 : 0;
+                                    mem[SP] = (mem[SP - 1] << 12 | mem[SP]) == 0 ? 1 : 0;
                                     mem[SP - 1] = 0;
                                     break;
                                 case SetMode.Nz_l:
-                                    mem[SP] = (mem[SP] << 12 | mem[SP]) != 0 ? 1 : 0;
+                                    mem[SP] = (mem[SP - 1] << 12 | mem[SP]) != 0 ? 1 : 0;
                                     mem[SP - 1] = 0;
                                     break;
                                 case SetMode.C_l:
@@ -1877,22 +1877,22 @@ namespace VM12
                                     mem[SP - 1] = 0;
                                     break;
                                 case SetMode.Gz_l:
-                                    int set_gz_l_value = mem[SP] << 12 | mem[SP];
-                                    mem[SP] = (set_gz_l_value & 0x800) == 0 && set_gz_l_value != 0 ? 1 : 0;
+                                    int set_gz_l_value = mem[SP - 1] << 12 | mem[SP];
+                                    mem[SP] = (set_gz_l_value & 0x800_000) == 0 && set_gz_l_value != 0 ? 1 : 0;
                                     mem[SP - 1] = 0;
                                     break;
                                 case SetMode.Lz_l:
-                                    int set_lz_l_value = mem[SP] << 12 | mem[SP];
-                                    mem[SP] = (set_lz_l_value & 0x800) != 0 ? 1 : 0;
+                                    int set_lz_l_value = mem[SP - 1] << 12 | mem[SP];
+                                    mem[SP] = (set_lz_l_value & 0x800_000) != 0 ? 1 : 0;
                                     mem[SP - 1] = 0;
                                     break;
                                 case SetMode.Ge_l:
-                                    int set_ge_l_value = mem[SP] << 12 | mem[SP];
-                                    mem[SP] = (set_ge_l_value & 0x800) == 0 && set_ge_l_value >= 0 ? 1 : 0;
+                                    int set_ge_l_value = mem[SP - 1] << 12 | mem[SP];
+                                    mem[SP] = (set_ge_l_value & 0x800_000) == 0 && set_ge_l_value >= 0 ? 1 : 0;
                                     break;
                                 case SetMode.Le_l:
-                                    int set_le_l_value = mem[SP] << 12 | mem[SP];
-                                    mem[SP] = (set_le_l_value & 0x800) != 0 || set_le_l_value == 0 ? 1 : 0;
+                                    int set_le_l_value = mem[SP - 1] << 12 | mem[SP];
+                                    mem[SP] = (set_le_l_value & 0x800_000) != 0 || set_le_l_value == 0 ? 1 : 0;
                                     mem[SP - 1] = 0;
                                     break;
                                 default:
@@ -1911,13 +1911,14 @@ namespace VM12
                             {
                                 CoProssessor = new Thread(StartCoProssess);
                                 CoProssessor.IsBackground = true;
+                                CoProssessor.Name = "VM12CoProc";
                                 CoProssessor.Start();
                             }
                             PC++;
                             break;
                         case Opcode.Hlt_coproc:
                             CoProcessHaltSignal.Set();
-                            while (CoProssessor?.IsAlive ?? false);
+                            while (CoProssessor?.IsAlive ?? false) CoProcessInterrupt.Set();
                             CoProssessor = null;
                             PC++;
                             break;

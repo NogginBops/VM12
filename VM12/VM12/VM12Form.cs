@@ -592,7 +592,8 @@ namespace VM12
                 // FIXME: autoConsts should not be public
                 Dictionary<string, VM12.AutoConst> autoCosnts = vm12.autoConsts;
                 
-                int metadata_addr = autoCosnts.TryGetValue("metadata", out VM12.AutoConst m_addr) ? m_addr.Addr : throw new Exception();
+                // FIXME: Handle the case where there is no heap compiled or we can't find the autoconsts!
+                int metadata_addr = autoCosnts.TryGetValue("heap_metadata", out VM12.AutoConst m_addr) ? m_addr.Addr : throw new Exception();
                 int heap_addr = autoCosnts.TryGetValue("heap", out VM12.AutoConst h_addr) ? h_addr.Addr : throw new Exception();
 
                 HeapView.Heap heap_struct;

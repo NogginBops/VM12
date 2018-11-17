@@ -388,6 +388,8 @@ namespace T12
             var resultType = CalcReturnType(typedLeft, scope, typeMap, functionMap, constMap, globalMap);
             int typeSize = SizeOfType(resultType, typeMap);
             
+            // TODO: We can optimize even more if one of the operands is a constant zero!!
+
             switch (condition.OperatorType)
             {
                 case ASTBinaryOp.BinaryOperatorType.Equal:
@@ -1519,9 +1521,16 @@ namespace T12
                         builder.AppendLine($"\t; While loop {whileStatement.Condition} {hash}");
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
 
-                        EmitExpression(builder, whileStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                        builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
-
+                        if (whileStatement.Condition is ASTBinaryOp binaryCond)
+                        {
+                            GenerateOptimizedBinaryOpJump(builder, binaryCond, newLoopContext.EndLabel, scope, varList, typeMap, functionMap, constMap, globalMap);
+                        }
+                        else
+                        {
+                            EmitExpression(builder, whileStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
+                        }
+                        
                         EmitStatement(builder, whileStatement.Body, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\tjmp {newLoopContext.ContinueLabel}");
@@ -1539,6 +1548,7 @@ namespace T12
                         EmitStatement(builder, doWhile.Body, scope, varList, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
+                        // Here we need to invert the condition before we try and do an optimized jump!
                         EmitExpression(builder, doWhile.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tjnz :do_while_{hash}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
@@ -2327,6 +2337,9 @@ namespace T12
                                         // Load the local variable. Here we are loading a pointer, so we know we should loadl
                                         builder.AppendLine($"\tloadl {variable.LocalAddress}\t; [{variableExpr.Name}]");
 
+                                        // FIXME: We are losing the line number here
+                                        // so DerefPointer can't give us a proper error message
+
                                         // This does the rest!
                                         DerefPointer(variable.Type as ASTDereferenceableType);
                                         break;
@@ -2508,7 +2521,20 @@ namespace T12
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                                 if (produceResult) builder.AppendLine($"\tlinc linc");
                             }
+                            else if (fromType == ASTBaseType.String && toType == ASTPointerType.Of(ASTBaseType.DoubleWord))
+                            {
+                                // FIXME! FIXME! FIXME! FIXME! FIXME!
+                                // For now we just cast to the raw pointer and not the data pointer
+                                // This is because it is convenient in code while we don't have proper strings
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
                             else if (fromType == ASTBaseType.String && toType == ASTBaseType.DoubleWord)
+                            {
+                                // FIXME: Make proper strings! Now we are doing different things for different casts!!
+                                // Because a string is just a pointer ATM just emit the expresion
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType is ASTPointerType && toType == ASTBaseType.String)
                             {
                                 // FIXME: Make proper strings! Now we are doing different things for different casts!!
                                 // Because a string is just a pointer ATM just emit the expresion
