@@ -584,8 +584,10 @@ namespace VM12Asm
         static StringBuilder procMapFile = new StringBuilder(10_000);
 
         static int autoVars = Constants.RAM_END;
-
+        
         const int STACK_SIZE = Constants.STACK_MAX_ADDRESS;
+
+        static int t12Files = 0;
 
         public static void Reset()
         {
@@ -615,6 +617,8 @@ namespace VM12Asm
 
             Warnings.Clear();
             autoVars = Constants.RAM_END;
+
+            t12Files = 0;
         }
 
         public static void Main(params string[] args)
@@ -743,6 +747,13 @@ namespace VM12Asm
                     {
                         T12.Compiler.StartCompiling(dirInf);
                     }
+
+                    if (verbose)
+                    {
+                        Console.WriteLine($"Compiling t12 file '{fi.Name}'.");
+                    }
+
+                    t12Files++;
 
                     // We need to invoke the t12 compiler!
                     T12.Compiler.Compile(fi);
@@ -1057,6 +1068,7 @@ namespace VM12Asm
 
             string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");
+            Console.WriteLine($"T12: {T12.Compiler.CompiledFiles} files, {T12.Compiler.CompiledLines} lines compiled to {T12.Compiler.ResultLines} lines 12asm");
             Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms {pplines} lines");
             Console.WriteLine($"Parse: {parse_ms:F4} ms {lines} lines");
             Console.WriteLine($"Assembly: {assembly_ms:F4} ms {files.Count} files, {libFile.Metadata.Length} procs, {lines} lines or {tokens} tokens");

@@ -16,5 +16,17 @@ namespace Util
             IEnumerable<FileInfo> files = dir.EnumerateFiles("*", SearchOption.AllDirectories);
             return files.Where(f => extensions.Contains(f.Extension));
         }
+
+        public static int CountLines(this string str)
+        {
+            int count = 0;
+            int position = 0;
+            while ((position = str.IndexOf('\n', position)) != -1)
+            {
+                count++;
+                position++;
+            }
+            return count;
+        }
     }
 }

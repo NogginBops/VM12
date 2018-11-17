@@ -27,7 +27,7 @@ namespace T12
             Queue<Token> Tokens = Tokenizer.Tokenize(fileData, inFile.FullName);
             Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
             
-            Dictionary<string, (ASTFile File, FileInfo FileInfo)> files = new Dictionary<string, (ASTFile File, FileInfo FileInfo)>();
+            Dictionary<string, (ASTFile File, FileInfo FileInfo)> files = new Dictionary<string, (ASTFile File, FileInfo FileInfo)>(Compiler.CurrentAST.Files);
 
             var file = ASTFile.Parse(Tokens);
             files.Add(inFile.Name, (file, inFile));
@@ -44,11 +44,16 @@ namespace T12
                         // TODO: Better error thing here!
                         throw new FileNotFoundException($"Could not import '{import.ImportName}', did not find file '{import.File}'!");
 
+
                     // Parse the file!
-                    var tokens = Tokenizer.Tokenize(File.ReadAllText(importFile.FullName), importFile.FullName);
+                    string importedFileData = File.ReadAllText(importFile.FullName);
+                    var tokens = Tokenizer.Tokenize(importedFileData, importFile.FullName);
                     tokens = new Queue<Token>(tokens.Where(tok => tok.Type != TokenType.Comment));
                     files.Add(importFile.Name, (ASTFile.Parse(tokens), importFile));
                     imports.AddRange(files[importFile.Name].File.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>());
+
+                    Compiler.CompiledFiles += 1;
+                    Compiler.CompiledLines += importedFileData.CountLines();
                 }
                 imports.Remove(import);
             }
@@ -1030,8 +1035,6 @@ namespace T12
                     return ASTContinueStatement.Parse(Tokens);
                 case TokenType.Open_brace:
                     return ASTCompoundStatement.Parse(Tokens);
-                case TokenType.Keyword_Assembly:
-                    return ASTInlineAssemblyStatement.Parse(Tokens);
                 default:
                     return ASTExpressionStatement.Parse(Tokens);
             }
@@ -1434,50 +1437,6 @@ namespace T12
         }
     }
 
-    public class ASTInlineAssemblyStatement : ASTStatement
-    {
-        public readonly List<ASTStringLitteral> Assembly;
-
-        public ASTInlineAssemblyStatement(TraceData trace, List<ASTStringLitteral> assembly) : base(trace)
-        {
-            Assembly = assembly;
-        }
-
-        public static new ASTInlineAssemblyStatement Parse(Queue<Token> Tokens)
-        {
-            var assemTok = Tokens.Dequeue();
-            if (assemTok.Type != TokenType.Keyword_Assembly) Fail(assemTok, "Expected assembly!");
-
-            var openParenthesis = Tokens.Dequeue();
-            if (openParenthesis.Type != TokenType.Open_parenthesis) Fail(openParenthesis, "Expected '('");
-
-            List<ASTStringLitteral> assembly = new List<ASTStringLitteral>();
-            while (Tokens.Peek().Type != TokenType.Close_parenthesis)
-            {
-                if (Tokens.Peek().Type != TokenType.String_Litteral)
-                    Fail(Tokens.Peek(), $"Assembly statements can only contain assembly strings! Got {Tokens.Peek()}");
-
-                var string_lit = ASTStringLitteral.Parse(Tokens);
-                assembly.Add(string_lit);
-            }
-
-            var closeParenthesis = Tokens.Dequeue();
-            if (closeParenthesis.Type != TokenType.Close_parenthesis) Fail(closeParenthesis, "Expected ')'");
-
-            var semicolonTok = Tokens.Dequeue();
-            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
-
-            var trace = new TraceData
-            {
-                File = assemTok.File,
-                StartLine = assemTok.Line,
-                EndLine = semicolonTok.Line,
-            };
-
-            return new ASTInlineAssemblyStatement(trace, assembly);
-        }
-    }
-
     #endregion
 
     #region Expressions
@@ -1842,6 +1801,11 @@ namespace T12
                 }
 
                 return ParsePostfix(Tokens, expr);
+            }
+            else if (peek.Type == TokenType.Keyword_Assembly)
+            {
+                // Here we want to parse the assembly expression
+                return ASTInlineAssemblyExpression.Parse(Tokens);
             }
             else if (peek.Type == TokenType.Keyword_Cast)
             {
@@ -2773,7 +2737,62 @@ namespace T12
             return new ASTAddressOfExpression(trace, expr);
         }
     }
+    
+    public class ASTInlineAssemblyExpression : ASTExpression
+    {
+        public readonly List<ASTStringLitteral> Assembly;
+        public readonly ASTType ResultType;
 
+        public ASTInlineAssemblyExpression(TraceData trace, List<ASTStringLitteral> assembly, ASTType resultType) : base(trace)
+        {
+            Assembly = assembly;
+            ResultType = resultType;
+        }
+
+        public static new ASTInlineAssemblyExpression Parse(Queue<Token> Tokens)
+        {
+            var assemTok = Tokens.Dequeue();
+            if (assemTok.Type != TokenType.Keyword_Assembly) Fail(assemTok, "Expected assembly!");
+
+            var openParenthesis = Tokens.Dequeue();
+            if (openParenthesis.Type != TokenType.Open_parenthesis) Fail(openParenthesis, "Expected '('");
+
+            // NOTE: We might want to require colons?
+            List<ASTStringLitteral> assembly = new List<ASTStringLitteral>();
+            while (Tokens.Peek().Type != TokenType.Close_parenthesis)
+            {
+                if (Tokens.Peek().Type != TokenType.String_Litteral)
+                    Fail(Tokens.Peek(), $"Assembly statements can only contain assembly strings! Got {Tokens.Peek()}");
+
+                var string_lit = ASTStringLitteral.Parse(Tokens);
+                assembly.Add(string_lit);
+            }
+
+            var closeParenthesis = Tokens.Dequeue();
+            if (closeParenthesis.Type != TokenType.Close_parenthesis) Fail(closeParenthesis, "Expected ')'");
+
+            ASTType retType = ASTBaseType.Void;
+
+            if (Tokens.Peek().Type == TokenType.Arrow)
+            {
+                // Dequeue arrow
+                Tokens.Dequeue();
+
+                // Parse a type and then we are done
+                retType = ASTType.Parse(Tokens);
+            }
+            
+            var trace = new TraceData
+            {
+                File = assemTok.File,
+                StartLine = assemTok.Line,
+                EndLine = retType is ASTBaseType == false ? retType.Trace.EndLine : closeParenthesis.Line, // Base types have no usefull trace!
+            };
+
+            return new ASTInlineAssemblyExpression(trace, assembly, retType);
+        }
+    }
+    
     #region Casts
 
     public abstract class ASTCastExpression : ASTExpression

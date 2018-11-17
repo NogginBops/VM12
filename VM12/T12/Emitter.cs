@@ -62,6 +62,18 @@ namespace T12
                 throw new InvalidOperationException($"Error in file '{Path.GetFileName(trace.File)}' on lines {trace.StartLine}-{trace.EndLine}: '{error}'");
             }
         }
+
+        private static void Warning(TraceData trace, string warning)
+        {
+            if (trace.StartLine == trace.EndLine)
+            {
+                Console.WriteLine($"WARNING ({Path.GetFileName(trace.File)}:{trace.StartLine}): '{warning}'");
+            }
+            else
+            {
+                Console.WriteLine($"WARNING ({Path.GetFileName(trace.File)}:{trace.StartLine}-{trace.EndLine}): '{warning}'");
+            }
+        }
         
         // TODO: Should we really include the trace?
         private static ASTType TypeOfVariable(TraceData trace, string variableName, VarMap scope, TypeMap typeMap)
@@ -213,6 +225,15 @@ namespace T12
 
                         return function.ReturnType;
                     }
+                case ASTVirtualFucntionCall virtualFucntionCall:
+                    {
+                        var funcPointerType = CalcReturnType(virtualFucntionCall.FunctionPointer, scope, typeMap, functionMap, constMap, globalMap);
+
+                        if (funcPointerType is ASTFunctionPointerType == false)
+                            Fail(virtualFucntionCall.FunctionPointer.Trace, $"Type '{funcPointerType}' is not a function pointer and cannot be called as such!");
+
+                        return (funcPointerType as ASTFunctionPointerType).ReturnType;
+                    }
                 case ASTMemberExpression memberExpression:
                     {
                         var targetType = ResolveType(CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
@@ -279,6 +300,9 @@ namespace T12
                 case ASTAddressOfExpression addressOfExpression:
                     // Address of resturns a pointer to the type of the expression.
                     return ASTPointerType.Of(CalcReturnType(addressOfExpression.Expr, scope, typeMap, functionMap, constMap, globalMap));
+                case ASTInlineAssemblyExpression assemblyExpression:
+                    // Just trust that the programmer is right.
+                    return assemblyExpression.ResultType;
                 default:
                     Fail(expression.Trace, $"Unknown expression type {expression}, this is a compiler bug!");
                     break;
@@ -1247,7 +1271,7 @@ namespace T12
             }
             else if (func.Body.Last() is ASTReturnStatement == false)
             {
-                Console.WriteLine($"WARNING: The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know it the function actually returns!");
+                Warning(func.Trace, $"The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know it the function actually returns!");
             }
 
             foreach (var blockItem in func.Body)
@@ -1560,12 +1584,6 @@ namespace T12
                     break;
                 case ASTBreakStatement breakStatement:
                     builder.AppendLine($"\tjmp {loopContext.EndLabel}");
-                    break;
-                case ASTInlineAssemblyStatement assemblyStatement:
-                    foreach (var line in assemblyStatement.Assembly)
-                    {
-                        builder.AppendLine($"\t{line.Contents}");
-                    }
                     break;
                 default:
                     Fail(statement.Trace, $"Could not emit code for statement {statement}, this is a compiler bug!");
@@ -2572,15 +2590,22 @@ namespace T12
                         if (memberExpression.Dereference && (targetType is ASTDereferenceableType == false))
                             Fail(memberExpression.Trace, $"The type '{targetType}' is not a reference type so we can't dereference it! Use '.' instead of '->'.");
 
+                        var structType = targetType;
+
                         if (targetType is ASTStructType == false)
                         {
-                            if (memberExpression.Dereference && targetType is ASTPointerType pointerType && pointerType.BaseType is ASTStructType)
+                            if (memberExpression.Dereference && targetType is ASTDereferenceableType derefType)
                             {
-                                // FIXME: Do proper dereferencing!!!
-                                targetType = pointerType.BaseType;
+                                structType = derefType.DerefType;
+                                if (structType is ASTStructType == false)
+                                {
+                                    Fail(structType.Trace, $"Type '{structType}' does not have any members! Looking for member '{memberExpression.MemberName}'.");
+                                }
                             }
-                            else if (targetType is ASTFixedArrayType fixedArrayType)
+                            else if (structType is ASTFixedArrayType fixedArrayType)
                             {
+                                // Implement fixed array members
+                                // All of these branches should end here!
                                 switch (memberExpression.MemberName)
                                 {
                                     case "length":
@@ -2618,9 +2643,9 @@ namespace T12
                             }
                         }
 
-                        var members = (targetType as ASTStructType).Members;
+                        var members = (structType as ASTStructType).Members;
                         int memberIndex = members.FindIndex(m => m.Name == memberExpression.MemberName);
-                        if (memberIndex < 0) Fail(memberExpression.Trace, $"No member called '{memberExpression.MemberName}' in struct '{targetType}'");
+                        if (memberIndex < 0) Fail(memberExpression.Trace, $"No member called '{memberExpression.MemberName}' in struct '{structType}'");
 
                         var memberType = ResolveType(members[memberIndex].Type, typeMap);
                         int memberSize = SizeOfType(memberType, typeMap);
@@ -2697,7 +2722,7 @@ namespace T12
                                             // Load the target pointer
                                             LoadVariable(builder, target.Trace, variable, typeMap);
                                             // Add the member offset
-                                            builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
+                                            if (memberOffset != 0) builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
                                             
                                             if (typedAssigmnent != null)
                                             {
@@ -2862,22 +2887,44 @@ namespace T12
                             int targetSize = SizeOfType(targetType, typeMap);
                             
                             EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
-
-                            if (memberExpression.Dereference)
-                            {
-                                throw new NotImplementedException("We don't do this type of member dereferencing yet!");
-                            }
-
+                            
                             if (produceResult)
                             {
-                                for (int i = 0; i < memberOffset; i++)
+                                // Load the pointer we just got!
+                                if (memberExpression.Dereference)
                                 {
-                                    builder.AppendLine($"\tpop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
-                                }
+                                    // Add the member offset to the pointer we just got!
+                                    if (memberOffset != 0) builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
 
-                                for (int i = memberOffset + memberSize; i < targetSize; i++)
+                                    // We are derefing a pointer to the member!
+                                    VariableRef variable = new VariableRef
+                                    {
+                                        VariableType = VariableType.Pointer,
+                                        Type = memberType,
+                                        Comment = comment,
+                                    };
+
+                                    LoadVariable(builder, memberExpression.Trace, variable, typeMap);
+                                }
+                                else
                                 {
-                                    builder.AppendLine($"\tswap pop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
+                                    // TODO: We want to optimize this as much as possible!
+                                    // Basically we never want to get here as this means we have dereferenced something
+                                    // where we could have just calculated another offset and gotten the correct pointer
+                                    // so we don't need to pop anything
+                                    if (targetSize != memberSize)
+                                        Warning(memberExpression.Trace, $"Non-optimized case when accessing member '{memberExpression.MemberName}'. Struct type: '{targetType}' Member type: '{memberType}'");
+
+                                    // If the value we have loaded is a big struct we need to isolate the member we want!
+                                    for (int i = 0; i < memberOffset; i++)
+                                    {
+                                        builder.AppendLine($"\tpop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
+                                    }
+
+                                    for (int i = memberOffset + memberSize; i < targetSize; i++)
+                                    {
+                                        builder.AppendLine($"\tswap pop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
+                                    }
                                 }
                             }
                         }
@@ -2999,6 +3046,29 @@ namespace T12
                         }
                         break;
                     }
+                case ASTInlineAssemblyExpression assemblyStatement:
+                    foreach (var line in assemblyStatement.Assembly)
+                    {
+                        builder.AppendLine($"\t{line.Contents}");
+                    }
+
+                    if (produceResult == false)
+                    {
+                        var resultType = ResolveType(assemblyStatement.ResultType, typeMap);
+                        int resultSize = SizeOfType(resultType, typeMap);
+
+                        if (resultSize > 0)
+                        {
+                            Warning(assemblyStatement.Trace, $"We are not using the result of this inline assembly expression! It's recomended to manually clean up in an assenbly statement! Result type: '{resultType}'");
+
+                            builder.AppendLine("\t; Pop inline assembly result");
+                            for (int i = 0; i < resultSize; i++)
+                            {
+                                builder.AppendLine("\tpop");
+                            }
+                        }
+                    }
+                    break;
                 default:
                     Fail(expression.Trace, $"Unknown expression type {expression}, this is a compiler bug!");
                     break;
