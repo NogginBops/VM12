@@ -121,11 +121,10 @@ namespace VM12
                 {
                     if (inf.Extension == ".12asm")
                     {
+                        VM12Asm.VM12Asm.Reset();
                         VM12Asm.VM12Asm.Main("-src", inf.FullName, "-dst", Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
 
                         inf = new FileInfo(Path.ChangeExtension(inf.FullName, "12exe"));
-
-                        VM12Asm.VM12Asm.Reset();
                     }
                     else if (inf.Extension == ".t12")
                     {
@@ -135,11 +134,10 @@ namespace VM12
 
                         FileInfo asmFile = new FileInfo(Path.ChangeExtension(inf.FullName, ".12asm"));
 
+                        VM12Asm.VM12Asm.Reset();
                         VM12Asm.VM12Asm.Main("-src", asmFile.FullName, "-dst", Path.GetFileNameWithoutExtension(asmFile.Name), "-e", "-o");
 
                         inf = new FileInfo(Path.ChangeExtension(asmFile.FullName, "12exe"));
-
-                        VM12Asm.VM12Asm.Reset();
                     }
                     
                     short[] rom = new short[VM12.ROM_SIZE];
@@ -158,7 +156,9 @@ namespace VM12
                                 data[i] = br.ReadInt16();
                             }
 
+#if DEBUG_BINFORMAT
                             Console.WriteLine($"Reading a block from pos {pos} with length {length} with fist value {data[0]} and last value {data[data.Length - 1]}");
+#endif
 
                             Array.Copy(data, 0, rom, pos, length);
                         }

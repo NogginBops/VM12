@@ -866,8 +866,10 @@ namespace VM12
                         WriteStorage(chunk_data, addr);
                     }
 
+#if DEBUG_DISK_STORAGE
                     Console.WriteLine($"Read chunk {addr}");
                     Console.WriteLine(String.Join(",", chunk));
+#endif
                 }
             }
         }
@@ -2003,8 +2005,10 @@ namespace VM12
 
                         writer.Write(data);
 
+#if DEBUG_DISK_STORAGE
                         Console.WriteLine($"Write chunk {addr}");
                         Console.WriteLine(string.Join(",", data));
+#endif
                     }
                 }
             }

@@ -594,7 +594,6 @@ namespace VM12Asm
             verbose_lit = false;
             verbose_expr = false;
             verbose_token = false;
-
             dump_mem = false;
 
             pplines = 0;
@@ -602,9 +601,17 @@ namespace VM12Asm
             lines = 0;
             tokens = 0;
 
-            globalConstants = new Dictionary<string, Constant>();
+            globalMacros.Clear();
 
-            autoConstants = new Dictionary<string, AutoConst>();
+            globalConstants.Clear();
+            autoConstants.Clear();
+            sizeOfProcUse.Clear();
+            endOfProcUse.Clear();
+
+            autoStrings.Clear();
+            autoStringIndex = 0;
+            autoStringsFile.Clear();
+            procMapFile.Clear();
 
             Warnings.Clear();
             autoVars = Constants.RAM_END;
@@ -1127,7 +1134,9 @@ namespace VM12Asm
                         {
                             // Write block
 
+#if DEBUG_BINFORMAT
                             Console.WriteLine($"Writing block at pos {pos} and length {length} with fist value {libFile.Instructions[pos]} and last value {libFile.Instructions[pos + length - 1]}");
+#endif
 
                             bw.Write(pos);
                             bw.Write(length);
@@ -1452,6 +1461,8 @@ namespace VM12Asm
                 Match c;
                 if ((c = using_statement.Match(line)).Success)
                 {
+                    // FIXME: If two usings specify a different name
+                    // we are going to compile that file twice!
                     usings[c.Groups[1].Value] = c.Groups[2].Value;
                 }
                 else if ((c = constant.Match(line)).Success)
