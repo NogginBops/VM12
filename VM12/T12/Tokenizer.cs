@@ -104,8 +104,7 @@ namespace T12
         Keyword_Interrupt,
 
         Identifier,
-        Word_Litteral,
-        Double_Word_Litteral,
+        Numeric_Litteral,
         Char_Litteral,
         String_Litteral,
 
@@ -185,8 +184,7 @@ namespace T12
             Type == TokenType.CaretEqual;
 
         public bool IsLitteral => 
-            Type == TokenType.Word_Litteral ||
-            Type == TokenType.Double_Word_Litteral ||
+            Type == TokenType.Numeric_Litteral ||
             Type == TokenType.Keyword_True ||
             Type == TokenType.Keyword_False ||
             Type == TokenType.Keyword_Null ||
@@ -327,8 +325,7 @@ namespace T12
 
             ( TokenType.Identifier, new Regex("^[a-zA-Z]\\w*") ),
             // TODO: We can do better dword litterals
-            ( TokenType.Double_Word_Litteral, new Regex("^[0-9]+(D|d)") ),
-            ( TokenType.Word_Litteral, new Regex("^[0-9]+(W|w)?") ),
+            ( TokenType.Numeric_Litteral, new Regex("^(0b[0-1_]+|8x[0-7]+|0x[0-9a-fA-F_]+|[0-9_]+(W|w|D|d)?)") ),
             ( TokenType.Char_Litteral, new Regex("^'.'") ),
             ( TokenType.String_Litteral, new Regex("^\\\"(?:\\\\.|[^\"\\\\])*\\\"") ),
         };

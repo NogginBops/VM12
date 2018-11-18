@@ -1881,10 +1881,8 @@ namespace T12
             var peek = Tokens.Peek();
             switch (peek.Type)
             {
-                case TokenType.Word_Litteral:
-                    return ASTWordLitteral.Parse(Tokens);
-                case TokenType.Double_Word_Litteral:
-                    return ASTDoubleWordLitteral.Parse(Tokens);
+                case TokenType.Numeric_Litteral:
+                    return ASTNumericLitteral.Parse(Tokens);
                 case TokenType.Keyword_True:
                     var trueTok = Tokens.Dequeue();
                     return new ASTBoolLitteral(TraceData.From(trueTok), true);
@@ -1919,10 +1917,62 @@ namespace T12
             var peek = Tokens.Peek();
             switch (peek.Type)
             {
-                case TokenType.Word_Litteral:
-                    return ASTWordLitteral.Parse(Tokens);
-                case TokenType.Double_Word_Litteral:
-                    return ASTDoubleWordLitteral.Parse(Tokens);
+                case TokenType.Numeric_Litteral:
+                    // Remove any underscores
+                    string number = peek.Value.Replace("_", "");
+
+                    int value;
+                    try
+                    {
+                        if (number.StartsWith("0x"))
+                        {
+                            value = Convert.ToInt32(number.Substring(2), 16);
+                        }
+                        else if (number.StartsWith("8x"))
+                        {
+                            value = Convert.ToInt32(number.Substring(2), 8);
+                        }
+                        else if (number.StartsWith("0b"))
+                        {
+                            value = Convert.ToInt32(number.Substring(2), 2);
+                        }
+                        else
+                        {
+                            number = number.TrimEnd('d', 'D', 'w', 'W');
+                            // Try normal parsing!
+                            value = Convert.ToInt32(number, 10);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Fail(peek, $"Could not parse number '{peek.Value}'. Got error '{e.Message}'.");
+                        return default;
+                    }
+
+                    // Dequeue the token we have just parsed
+                    Tokens.Dequeue();
+
+                    TraceData trace = TraceData.From(peek);
+
+                    if (value > ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE)
+                    {
+                        Fail(peek, $"Numeric litteral is larger than '{ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE}' and does not fit in a double word!");
+                        return default;
+                    }
+                    else if (value > ASTWordLitteral.WORD_MAX_VALUE || peek.Value.EndsWith("d") || peek.Value.EndsWith("D"))
+                    {
+                        if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
+                        {
+                            Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
+                            return default;
+                        }
+
+                        return new ASTDoubleWordLitteral(trace, peek.Value, value);
+                    }
+                    else
+                    {
+                        return new ASTWordLitteral(trace, peek.Value, value);
+                    }
                 default:
                     Fail(peek, $"Expected numeric litteral! Got {peek}");
                     return default;
@@ -1939,8 +1989,8 @@ namespace T12
         public static new ASTWordLitteral Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
-            if (tok.Type != TokenType.Word_Litteral) Fail(tok, "Expected word litteral!");
-
+            if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
+            
             if (int.TryParse(tok.Value, out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
             
             if (value > WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is to big for a word litteral!");
@@ -1960,7 +2010,7 @@ namespace T12
         public static new ASTDoubleWordLitteral Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
-            if (tok.Type != TokenType.Double_Word_Litteral) Fail(tok, "Expected dword litteral!");
+            if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
 
             // Parse without the end letter!
             if (int.TryParse(tok.Value.Substring(0, tok.Value.Length - 1), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
@@ -3034,7 +3084,7 @@ namespace T12
                     {
                         // Parse and make the current type the base for an array
                         var peek = Tokens.Peek();
-                        if (peek.Type == TokenType.Word_Litteral || peek.Type == TokenType.Double_Word_Litteral)
+                        if (peek.Type == TokenType.Numeric_Litteral)
                         {
                             var numLit = ASTNumericLitteral.Parse(Tokens);
 

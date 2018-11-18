@@ -362,7 +362,14 @@ namespace T12
             }
             else
             {
-                if (exprType is ASTBaseType && targetType is ASTBaseType)
+                if (exprType is ASTBaseType && targetType == ASTBaseType.Bool)
+                {
+                    // This is a special case for converting too bool as many things can do that
+                    result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
+                    error = default;
+                    return true;
+                }
+                else if (exprType is ASTBaseType && targetType is ASTBaseType)
                 {
                     int exprSize = (exprType as ASTBaseType).Size;
                     int targetSize = (targetType as ASTBaseType).Size;
@@ -376,7 +383,7 @@ namespace T12
                     else
                     {
                         result = default;
-                        error = "This cast would lead to loss of information, do an explicit cast!";
+                        error = "This cast would lead to loss of information or the types are not implicitly compatible, do an explicit cast!";
                         return false;
                     }
                 }
@@ -2445,7 +2452,31 @@ namespace T12
                     }
                 case ASTImplicitCast cast:
                     {
-                        if (cast.FromType.Size == cast.ToType.Size)
+                        if (cast.ToType == ASTBaseType.Bool)
+                        {
+                            // Special cases for bool conversions
+
+                            if (cast.FromType == ASTBaseType.Void)
+                            {
+                                Fail(cast.Trace, $"Cannot cast expression of type '{ASTBaseType.Void}' to '{ASTBaseType.Bool}'!");
+                            }
+                            else if (cast.FromType == ASTBaseType.Word || cast.FromType == ASTBaseType.Char)
+                            {
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                if (produceResult) builder.AppendLine($"\tsetnz ; cast from {cast.FromType} to bool");
+                            }
+                            else if (cast.FromType == ASTBaseType.DoubleWord || cast.FromType == ASTBaseType.String)
+                            {
+                                // FIXME: STRING: This will not work for new strings!!!
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                if (produceResult) builder.AppendLine($"\tor setnz ; cast from {cast.FromType} to bool");
+                            }
+                            else
+                            {
+                                Fail(cast.Trace, $"Unknown implicit cast to bool from type '{cast.FromType}'! This is weird!");
+                            }
+                        }
+                        else if (cast.FromType.Size == cast.ToType.Size)
                         {
                             // Do nothing fancy, they have the same size
                             EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
@@ -2511,13 +2542,15 @@ namespace T12
                                 // These will have the same size just emit the expression
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
-                            else if (fromType == ASTBaseType.Word && toType is ASTPointerType)
+                            else if (fromType is ASTFunctionPointerType && toType == ASTPointerType.Of(ASTBaseType.Void))
                             {
-                                if (produceResult) builder.AppendLine($"\tload #0\t; Cast from '{fromType}' to '{toType}'");
+                                // NOTE: This might not be the best as we can confuse functions for structs!
+                                // These will have the same size just emit the expression
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
-                            else if (fromType == ASTBaseType.Word && toType is ASTFunctionPointerType)
+                            else if (fromType == ASTBaseType.Word && toType is ASTPointerType)
                             {
+                                // FIXME: How should we do with sign!!!
                                 if (produceResult) builder.AppendLine($"\tload #0\t; Cast from '{fromType}' to '{toType}'");
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
