@@ -976,7 +976,7 @@ namespace T12
                 if (ast.Files.TryGetValue(import.File, out var importFile) == false)
                     Fail(import.Trace, $"Could not find import file '{import.File}'!");
                 
-                importMap.Add(import.ImportName, importFile.File);
+                importMap.Add(import.File, importFile.File);
             }
 
             foreach (var directive in file.Directives)
@@ -1020,7 +1020,7 @@ namespace T12
                     }
                 case ASTImportDirective import:
                     {
-                        if (importMap.TryGetValue(import.ImportName, out ASTFile file) == false)
+                        if (importMap.TryGetValue(import.File, out ASTFile file) == false)
                             Fail(import.Trace, $"Could not resolve import of type '{import.ImportName}' and file '{import.File}'!");
 
                         // FIXME: If we import multiple files into the same name
@@ -1077,7 +1077,10 @@ namespace T12
                             return returnType;
                         }
 
-                        builder.AppendLine($"& {import.ImportName} {Path.ChangeExtension(import.File, ".12asm")}");
+                        builder.AppendLine($"& {import.ImportName ?? import.File.Replace(".t12", "")} {Path.ChangeExtension(import.File, ".12asm")}");
+
+                        // We set this if we import this 'as' something
+                        bool importWithNamespace = import.ImportName != null;
 
                         bool visible = false;
                         foreach (var direct in file.Directives)
@@ -1099,20 +1102,47 @@ namespace T12
                                     break;
                                 case ASTGlobalDirective globalDirective:
                                     {
-                                        var global = new ASTExternGlobalDirective(globalDirective.Trace, import.ImportName, ImportType(globalDirective.Type), globalDirective.Name, globalDirective);
-                                        globalMap.Add(global.Name, global);
+                                        if (importWithNamespace)
+                                        {
+                                            var global = new ASTExternGlobalDirective(globalDirective.Trace, import.ImportName, ImportType(globalDirective.Type), globalDirective.Name, globalDirective);
+                                            globalMap.Add(global.Name, global);
+                                            builder.AppendLine($"<{globalDirective.Name} = extern> ; {global.Name}");
+                                        }
+                                        else
+                                        {
+                                            if (globalMap.TryGetValue(globalDirective.Name, out var value))
+                                                Fail(import.Trace, $"Could not import global '{globalDirective.Name}' from '{import.File}'. There already is a global called '{globalDirective.Name}' in this filescope imported from file '{Path.GetFileName(value.Trace.File)}'.");
 
-                                        builder.AppendLine($"<{globalDirective.Name} = extern> ; {global.Name}");
+                                            // Add the directive as is was our own
+                                            globalMap[globalDirective.Name] = globalDirective;
+
+                                            // Then we just include it as extern
+                                            builder.AppendLine($"<{globalDirective.Name} = extern> ; {globalDirective.Name}");
+                                        }
                                     }
                                     break;
                                 case ASTStructDeclarationDirective structDecl:
                                     {
-                                        string name = $"{import.ImportName}::{structDecl.Name}";
+                                        if (importWithNamespace)
+                                        {
+                                            string name = $"{import.ImportName}::{structDecl.Name}";
 
-                                        if (typeMap.ContainsKey(name))
-                                            Fail(structDecl.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name!");
+                                            if (typeMap.ContainsKey(name))
+                                                Fail(import.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name!");
+
+                                            typeMap.Add(name, ImportType(structDecl.DeclaredType));
+                                        }
+                                        else
+                                        {
+                                            if (typeMap.TryGetValue(structDecl.Name, out var value))
+                                                Fail(import.Trace, $"Could not import struct '{structDecl.Name}' from '{import.File}'. There already is one in '{Path.GetFileName(value.Trace.File)}'.");
+                                            
+                                            // We just add the type to the type map and call it done.
+                                            // NOTE: There could be something weird going on with types
+                                            // that this struct uses that get imported only in the second file.
+                                            typeMap.Add(structDecl.Name, structDecl.DeclaredType);
+                                        }
                                         
-                                        typeMap.Add(name, ImportType(structDecl.DeclaredType));
                                         break;
                                     }
                                 default:
@@ -1122,9 +1152,20 @@ namespace T12
 
                         foreach (var func in file.Functions)
                         {
-                            var @params = func.Parameters.Select(p => { p.Type = ImportType(p.Type); return p; }).ToList();
-                            var importFunc = new ASTExternFunction(func.Trace, import.ImportName, func.Name, ImportType(func.ReturnType), @params, func.Body, func);
-                            functionMap.Add(importFunc.Name, importFunc);
+                            if (importWithNamespace)
+                            {
+                                var @params = func.Parameters.Select(p => { p.Type = ImportType(p.Type); return p; }).ToList();
+                                var importFunc = new ASTExternFunction(func.Trace, import.ImportName, func.Name, ImportType(func.ReturnType), @params, func.Body, func);
+                                functionMap.Add(importFunc.Name, importFunc);
+                            }
+                            else
+                            {
+                                if (functionMap.TryGetValue(func.Name, out var value))
+                                    Fail(import.Trace, $"Cannot import function '{func.Name}' from '{import.File}'. There already is one in '{value.Trace.File}'.");
+
+                                // Just add the function no modification.
+                                functionMap.Add(func.Name, func);
+                            }
                         }
                         
                         break;
@@ -1182,7 +1223,10 @@ namespace T12
                     }
                 case ASTGlobalDirective globalDirective:
                     {
-                        globalMap[globalDirective.Name] = globalDirective;
+                        if (globalMap.TryGetValue(globalDirective.Name, out var value))
+                            Fail(globalDirective.Trace, $"Cannot declare global '' as there already exists a global with that name. {(value.Trace.File != globalDirective.Trace.File ? $"Imported from '{value.Trace.File}'" : "")}");
+
+                        globalMap.Add(globalDirective.Name, globalDirective);
                         builder.AppendLine($"<{globalDirective.Name} = auto({SizeOfType(globalDirective.Type, typeMap)})> ; {globalDirective.Type}");
                         break;
                     }
@@ -1190,8 +1234,8 @@ namespace T12
                     {
                         string name = structDeclaration.Name;
 
-                        if (typeMap.ContainsKey(name))
-                            Fail(structDeclaration.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name!");
+                        if (typeMap.TryGetValue(name, out var value))
+                            Fail(structDeclaration.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name! {(value.Trace.File != structDeclaration.Trace.File ? $"Imported from file '{value.Trace.File}'" : "")}");
                         
                         builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
 
@@ -1388,7 +1432,6 @@ namespace T12
                             };
 
                             StoreVariable(builder, variableDeclaration.Trace, var, typeMap);
-                            // AppendTypedStore(builder, $"{varOffset}\t; [{varName}]", variableDeclaration.Type, typeMap);
                         }
                         break;
                     }
@@ -1402,8 +1445,9 @@ namespace T12
         {
             switch (statement)
             {
-                case ASTEmptyStatement _:
+                case ASTEmptyStatement emptyStatement:
                     builder.AppendLine("\tnop");
+                    Warning(emptyStatement.Trace, "Possibly not intended empty statement!");
                     break;
                 case ASTReturnStatement returnStatement:
                     {

@@ -311,11 +311,13 @@ namespace T12
                 peek = Tokens.Peek();
             }
 
-            string importName = "";
+            string importName = null;
             
             var endTok = Tokens.Dequeue();
             if (endTok.Type == TokenType.Keyword_As)
             {
+                importName = "";
+
                 peek = Tokens.Peek();
                 while (peek.Type != TokenType.Semicolon)
                 {
@@ -328,7 +330,8 @@ namespace T12
             }
             else
             {
-                importName = Path.GetFileNameWithoutExtension(file);
+                // Here we want to import all things directly into our filespace
+                //importName = Path.GetFileNameWithoutExtension(file);
             }
 
             var trace = new TraceData
