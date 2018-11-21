@@ -614,7 +614,7 @@ namespace T12
                             StartLine = structTok.Line,
                             EndLine = semicolonTok.Line,
                         };
-
+                        
                         return new ASTStructDeclarationDirective(trace, name, type);
                     }
                 case TokenType.Open_brace:
@@ -3259,7 +3259,7 @@ namespace T12
     public class ASTTypeRef : ASTType
     {
         public readonly string Name;
-
+        
         public ASTTypeRef(TraceData trace, string name) : base(trace, name)
         {
             Name = name;

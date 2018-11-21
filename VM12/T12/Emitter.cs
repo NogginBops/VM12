@@ -320,11 +320,18 @@ namespace T12
             ASTType exprType = CalcReturnType(expression, scope, typeMap, functionMap, constMap, globalMap);
 
             // NOTE: Should we always resolve? Will this result in unexpected casts?
-            
+
             // TODO: Add optimization for sizeof(x) being casted to dword!
 
             if (exprType == targetType)
             {
+                result = expression;
+                error = default;
+                return true;
+            }
+            else if (exprType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out ASTType actType) && actType is ASTBaseType)
+            {
+                // If the type is an alias to a base type
                 result = expression;
                 error = default;
                 return true;
@@ -882,6 +889,51 @@ namespace T12
             return type;
         }
 
+        private struct StructMember
+        {
+            /// <summary>
+            /// The ASTStructType this member is a part of.
+            /// </summary>
+            public ASTStructType In;
+            public ASTType Type;
+            public int Size;
+            public int Index;
+            public int Offset;
+        }
+        
+        private static bool TryGetStructMember(ASTStructType structType, string memberName, TypeMap typeMap, out StructMember member)
+        {
+            var members = structType.Members;
+            int memberIndex = members.FindIndex(m => m.Name == memberName);
+
+            if (memberIndex < 0)
+            {
+                member = default;
+                return false;
+            }
+
+            var memberType = members[memberIndex].Type;
+            int memberSize = SizeOfType(memberType, typeMap);
+
+            // Calculate the offset
+            int memberOffset = 0;
+            for (int i = 0; i < memberIndex; i++)
+            {
+                memberOffset += SizeOfType(members[i].Type, typeMap);
+            }
+
+            member = new StructMember
+            {
+                In = structType,
+                Type = memberType,
+                Size = memberSize,
+                Index = memberIndex,
+                Offset = memberOffset,
+            };
+
+            return true;
+        }
+
         private static int MemberOffset(ASTStructType type, string memberName,  TypeMap typeMap, out ASTType memberType)
         {
             int memberIndex = type.Members.FindIndex(m => m.Name == memberName);
@@ -951,6 +1003,25 @@ namespace T12
                 default:
                     Fail(expr.Trace, $"Unknown expression type '{expr.GetType()}'! This is a compiler bug!!");
                     return false;
+            }
+        }
+
+        private static ASTType DerefType(TraceData trace, ASTType pointerType)
+        {
+            if (pointerType is ASTDereferenceableType derefType)
+            {
+                if (derefType.DerefType is ASTStructType == false)
+                {
+                    Fail(trace, $"Type '{derefType.DerefType}' does not have any members!");
+                    return default;
+                }
+
+                return derefType.DerefType;
+            }
+            else
+            {
+                Fail(trace, $"The type '{pointerType}' is not a reference type so we can't dereference it! Use '.' instead of '->'.");
+                return default;
             }
         }
 
@@ -1174,6 +1245,10 @@ namespace T12
                     {
                         // Create a new ASTFunction without body
                         ASTFunction func = new ASTFunction(externFunc.Trace, externFunc.FunctionName, externFunc.ReturnType, externFunc.Parameters, null);
+
+                        if (functionMap.TryGetValue(externFunc.FunctionName, out var function))
+                            Fail(externFunc.Trace, $"There already exists a function called '{externFunc.FunctionName}'! {(function.Trace.File != externFunc.Trace.File ? $"Defined in '{Path.GetFileName(function.Trace.File)}'!" : "")}");
+                        
                         // Add that function to the function map
                         functionMap.Add(externFunc.FunctionName, func);
                         break;
@@ -1238,7 +1313,7 @@ namespace T12
                             Fail(structDeclaration.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name! {(value.Trace.File != structDeclaration.Trace.File ? $"Imported from file '{value.Trace.File}'" : "")}");
                         
                         builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
-
+                        
                         typeMap.Add(name, structDeclaration.DeclaredType);
                         break;
                     }
@@ -2208,7 +2283,7 @@ namespace T12
 
                             // Try and cast the arguemnt
                             if (TryGenerateImplicitCast(functionCall.Arguments[i], targetType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
-                                Fail(functionCall.Arguments[i].Trace, $"Missmatching types on parameter '{parameters[i].Name}' ({i}), expected '{parameters[i].Type}' got '{argumentType}'! (Cast error: '{error}')");
+                                Fail(functionCall.Arguments[i].Trace, $"Missmatching types on parameter '{parameters[i].Name}' ({i}) when calling function '{functionCall.FunctionName}', expected '{parameters[i].Type}' got '{argumentType}'! (Cast error: '{error}')");
 
                             // We don't need to check the result as it will have the desired type.
 
@@ -2558,7 +2633,7 @@ namespace T12
                         {
                             // There was no implicit way to do it.
                             // How do we cast structs?
-
+                            
                             if (ResolveType(fromType, typeMap) == ResolveType(toType, typeMap))
                             {
                                 // They are the same type behind the scenes, so we just don't do anything
@@ -2661,86 +2736,68 @@ namespace T12
                 case ASTMemberExpression memberExpression:
                     {
                         var test = memberExpression;
-
+                        
                         ASTType targetType = ResolveType(CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
-
-                        if (memberExpression.Dereference && (targetType is ASTDereferenceableType == false))
-                            Fail(memberExpression.Trace, $"The type '{targetType}' is not a reference type so we can't dereference it! Use '.' instead of '->'.");
-
+                        
                         var structType = targetType;
-
-                        if (targetType is ASTStructType == false)
+                        
+                        // If we are dereferencing, figure out what type we are dealing with.
+                        if (memberExpression.Dereference)
                         {
-                            if (memberExpression.Dereference && targetType is ASTDereferenceableType derefType)
+                            // DerefType will handle error messages.
+                            structType = DerefType(memberExpression.Trace, targetType);
+                        }
+
+                        // If the type is a fixed array we handle the cases here
+                        if (structType is ASTFixedArrayType fixedArrayType)
+                        {
+                            // All of these branches should end here!
+                            switch (memberExpression.MemberName)
                             {
-                                structType = derefType.DerefType;
-                                if (structType is ASTStructType == false)
-                                {
-                                    Fail(structType.Trace, $"Type '{structType}' does not have any members! Looking for member '{memberExpression.MemberName}'.");
-                                }
-                            }
-                            else if (structType is ASTFixedArrayType fixedArrayType)
-                            {
-                                // Implement fixed array members
-                                // All of these branches should end here!
-                                switch (memberExpression.MemberName)
-                                {
-                                    case "length":
-                                        {
-                                            // We know the length at compile time! Just put it in there
-                                            if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
-                                            return;
-                                        }
-                                    case "data":
-                                        {
-                                            // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
-                                            var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
-                                            EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
-                                            return;
-                                        }
-                                    case "end":
-                                        {
-                                            // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
-                                            // Then add the length - 1 to that pointer
-                                            var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
-                                            EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
-                                            if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
-                                            if (produceResult) builder.AppendLine($"\tloadl #{SizeOfType(fixedArrayType.BaseType, typeMap)}\t; size of type {fixedArrayType.BaseType}");
-                                            if (produceResult) builder.AppendLine($"\tlmul ldec ladd\t; Multiply the length by the size decrement and add to the pointer");
-                                            return;
-                                        }
-                                    default:
-                                        Fail(memberExpression.Trace, $"Fixed array type '{targetType}' does not have a memeber '{memberExpression.MemberName}'");
-                                        break;
-                                }
-                            }
-                            else
-                            {
-                                Fail(memberExpression.TargetExpr.Trace, $"Type {targetType} does not have any members!");
+                                case "length":
+                                    {
+                                        // We know the length at compile time! Just put it in there
+                                        if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
+                                        return;
+                                    }
+                                case "data":
+                                    {
+                                        // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
+                                        var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
+                                        EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                        return;
+                                    }
+                                case "end":
+                                    {
+                                        // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
+                                        // Then add the length - 1 to that pointer
+                                        var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
+                                        EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                        if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
+                                        if (produceResult) builder.AppendLine($"\tloadl #{SizeOfType(fixedArrayType.BaseType, typeMap)}\t; size of type {fixedArrayType.BaseType}");
+                                        if (produceResult) builder.AppendLine($"\tlmul ldec ladd\t; Multiply the length by the size decrement and add to the pointer");
+                                        return;
+                                    }
+                                default:
+                                    Fail(memberExpression.Trace, $"Fixed array type '{targetType}' does not have a memeber '{memberExpression.MemberName}'");
+                                    break;
                             }
                         }
 
-                        var members = (structType as ASTStructType).Members;
-                        int memberIndex = members.FindIndex(m => m.Name == memberExpression.MemberName);
-                        if (memberIndex < 0) Fail(memberExpression.Trace, $"No member called '{memberExpression.MemberName}' in struct '{structType}'");
-
-                        var memberType = ResolveType(members[memberIndex].Type, typeMap);
-                        int memberSize = SizeOfType(memberType, typeMap);
-
-                        // Calculate the offset
-                        int memberOffset = 0;
-                        for (int i = 0; i < memberIndex; i++)
-                        {
-                            memberOffset += SizeOfType(members[i].Type, typeMap);
-                        }
+                        // If we get here and structType is not a struct we fail
+                        if (structType is ASTStructType == false)
+                            Fail(memberExpression.TargetExpr.Trace, $"Type '{structType}' does not have members!");
+                        
+                        if (TryGetStructMember(structType as ASTStructType, memberExpression.MemberName, typeMap, out StructMember member) == false)
+                            Fail(memberExpression.Trace, $"No member '{memberExpression.MemberName}' in struct '{structType}'!");
                         
                         ASTExpression typedAssigmnent = null;
                         if (memberExpression.Assignment != null)
                         {
-                            var retType = ResolveType(CalcReturnType(memberExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+                            var retType = CalcReturnType(memberExpression.Assignment, scope, typeMap, functionMap, constMap, globalMap);
 
-                            if (TryGenerateImplicitCast(memberExpression.Assignment, memberType, scope, typeMap, functionMap, constMap, globalMap, out typedAssigmnent, out var error) == false)
-                                Fail(memberExpression.Assignment.Trace, $"Can't generate implicit cast from type '{retType}' to type '{memberType}'! (Cast error: {error})");
+                            if (TryGenerateImplicitCast(memberExpression.Assignment, member.Type, scope, typeMap, functionMap, constMap, globalMap, out typedAssigmnent, out var error) == false)
+                                Fail(memberExpression.Assignment.Trace, $"Can't generate implicit cast from type '{retType}' to type '{member.Type}'! (Cast error: {error})");
                         }
 
                         // We look at the expression we should get the memeber from
@@ -2776,6 +2833,8 @@ namespace T12
 
                         if (target.TargetExpr is ASTVariableExpression varExpr)
                         {
+                            // This is an optimization for when we know where the variable is comming from
+
                             if (TryResolveVariable(varExpr.Name, scope, globalMap, constMap, functionMap, typeMap, out VariableRef variable) == false)
                                 Fail(varExpr.Trace, $"There is no variable called '{varExpr.Name}'!");
 
@@ -2785,21 +2844,21 @@ namespace T12
                             {
                                 case VariableType.Local:
                                     {
+                                        // The local variable pointer
+                                        VariableRef memberRef = new VariableRef()
+                                        {
+                                            VariableType = VariableType.Local,
+                                            LocalAddress = variable.LocalAddress + (target.Dereference == false ? member.Offset : 0),
+                                            Type = member.Type,
+                                            Comment = comment,
+                                        };
+
                                         if (target.Dereference)
                                         {
-                                            // The local variable pointer
-                                            VariableRef member = new VariableRef()
-                                            {
-                                                VariableType = VariableType.Local,
-                                                LocalAddress = variable.LocalAddress,
-                                                Type = memberType,
-                                                Comment = comment,
-                                            };
-
                                             // Load the target pointer
                                             LoadVariable(builder, target.Trace, variable, typeMap);
                                             // Add the member offset
-                                            if (memberOffset != 0) builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
+                                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
                                             
                                             if (typedAssigmnent != null)
                                             {
@@ -2808,38 +2867,31 @@ namespace T12
                                                 // Load the value to store
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
-                                                StoreSP(builder, memberSize, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                                StoreSP(builder, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
                                             }
                                             
                                             if (produceResult)
                                             {
                                                 // Load the result from the pointer
-                                                LoadSP(builder, memberSize, comment);
+                                                LoadSP(builder, member.Size, comment);
                                             }
                                         }
                                         else
                                         {
-                                            VariableRef member = new VariableRef()
-                                            {
-                                                VariableType = VariableType.Local,
-                                                LocalAddress = variable.LocalAddress + memberOffset,
-                                                Type = memberType,
-                                                Comment = comment,
-                                            };
-
                                             if (typedAssigmnent != null)
                                             {
                                                 // Load the assignment value
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
                                                 // Store that value into local
-                                                StoreVariable(builder, varExpr.Trace, member, typeMap);
+                                                StoreVariable(builder, varExpr.Trace, memberRef, typeMap);
                                             }
 
                                             if (produceResult)
                                             {
-                                                LoadVariable(builder, varExpr.Trace, member, typeMap);
+                                                LoadVariable(builder, varExpr.Trace, memberRef, typeMap);
 
+                                                // What is this? This case is already handled above?
                                                 if (target.Dereference)
                                                 {
                                                     throw new NotImplementedException("FIXME");
@@ -2861,7 +2913,7 @@ namespace T12
                                             // Deref that pointer
                                             LoadSP(builder, SizeOfType(variable.Type, typeMap), $"<< [{variable.GlobalName}]");
                                             // Add the member offset
-                                            builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
+                                            builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
 
                                             if (typedAssigmnent != null)
                                             {
@@ -2870,37 +2922,37 @@ namespace T12
                                                 // Load the value to store
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
-                                                StoreSP(builder, memberSize, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                                StoreSP(builder, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
                                             }
 
                                             if (produceResult)
                                             {
                                                 // Load the result from the pointer
-                                                LoadSP(builder, memberSize, $"[{target.TargetExpr}->{target.MemberName}]");
+                                                LoadSP(builder, member.Size, $"[{target.TargetExpr}->{target.MemberName}]");
                                             }
                                         }
                                         else
                                         {
-                                            VariableRef member = new VariableRef
+                                            VariableRef memberRef = new VariableRef
                                             {
                                                 // NOTE: This might not be the right thing to do...
                                                 VariableType = VariableType.Pointer,
-                                                Type = memberType,
+                                                Type = member.Type,
                                                 Comment = comment,
                                             };
 
                                             if (typedAssigmnent != null)
                                             {
                                                 // Can we do this?
-                                                builder.AppendLine($"\tloadl #(#{variable.GlobalName} {memberOffset} +)");
+                                                builder.AppendLine($"\tloadl #(#{variable.GlobalName} {member.Offset} +)");
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                                StoreVariable(builder, varExpr.Trace, member, typeMap);
+                                                StoreVariable(builder, varExpr.Trace, memberRef, typeMap);
                                             }
 
                                             if (produceResult)
                                             {
-                                                builder.AppendLine($"\tloadl #(#{variable.GlobalName} {memberOffset} +)");
-                                                LoadVariable(builder, varExpr.Trace, member, typeMap);
+                                                builder.AppendLine($"\tloadl #(#{variable.GlobalName} {member.Offset} +)");
+                                                LoadVariable(builder, varExpr.Trace, memberRef, typeMap);
                                             }
                                         }
                                         break;
@@ -2921,6 +2973,8 @@ namespace T12
                         }
                         else if (target.Dereference == false && target.TargetExpr is ASTPointerExpression pointerExpression && pointerExpression.Assignment == null)
                         {
+                            // NOTE: Why are we doing this optimization? Is it worth it?
+
                             // Here we are derefing something and just taking one thing from the result.
                             // Then we can just get the pointer that points to the member
                             // We don't do this if we are dereferencing once again becase then we can't just
@@ -2946,12 +3000,12 @@ namespace T12
                             }
 
                             // If the member has a offset, add that offset
-                            if (memberOffset != 0) builder.AppendLine($"\tloadl #{memberOffset} ladd\t; Offset to member {memberExpression.MemberName}");
+                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; Offset to member {memberExpression.MemberName}");
 
                             VariableRef variable = new VariableRef
                             {
                                 VariableType = VariableType.Pointer,
-                                Type = memberType,
+                                Type = member.Type,
                                 Comment = $"[{memberExpression.MemberName}]",
                             };
 
@@ -2971,13 +3025,13 @@ namespace T12
                                 if (memberExpression.Dereference)
                                 {
                                     // Add the member offset to the pointer we just got!
-                                    if (memberOffset != 0) builder.AppendLine($"\tloadl #{memberOffset} ladd\t; {target.MemberName} offset");
+                                    if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
 
                                     // We are derefing a pointer to the member!
                                     VariableRef variable = new VariableRef
                                     {
                                         VariableType = VariableType.Pointer,
-                                        Type = memberType,
+                                        Type = member.Type,
                                         Comment = comment,
                                     };
 
@@ -2989,16 +3043,16 @@ namespace T12
                                     // Basically we never want to get here as this means we have dereferenced something
                                     // where we could have just calculated another offset and gotten the correct pointer
                                     // so we don't need to pop anything
-                                    if (targetSize != memberSize)
-                                        Warning(memberExpression.Trace, $"Non-optimized case when accessing member '{memberExpression.MemberName}'. Struct type: '{targetType}' Member type: '{memberType}'");
+                                    if (targetSize != member.Size)
+                                        Warning(memberExpression.Trace, $"Non-optimized case when accessing member '{memberExpression.MemberName}'. Struct type: '{targetType}' Member type: '{member.Type}'");
 
                                     // If the value we have loaded is a big struct we need to isolate the member we want!
-                                    for (int i = 0; i < memberOffset; i++)
+                                    for (int i = 0; i < member.Offset; i++)
                                     {
                                         builder.AppendLine($"\tpop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
                                     }
 
-                                    for (int i = memberOffset + memberSize; i < targetSize; i++)
+                                    for (int i = member.Offset + member.Size; i < targetSize; i++)
                                     {
                                         builder.AppendLine($"\tswap pop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
                                     }
@@ -3033,7 +3087,7 @@ namespace T12
                         {
                             if (TryResolveVariable(variableExpression.Name, scope, globalMap, constMap, functionMap, typeMap, out var variable) == false)
                                 Fail(addressOfExpression.Expr.Trace, $"No variable called '{variableExpression.Name}'!");
-                            
+
                             switch (variable.VariableType)
                             {
                                 case VariableType.Local:
@@ -3082,7 +3136,7 @@ namespace T12
                             var baseType = (pointerType as ASTDereferenceableType).DerefType;
 
                             // So if the pointer is a fixed size array, and we know the pointer to that array
-                            
+
                             // NOTE: Here we do special behaviour for fixed arrays to not load the whole fixed array.
                             // I don't know if it would actually work without this.... yikes
                             if (pointerType is ASTFixedArrayType fixedArray)
@@ -3094,7 +3148,7 @@ namespace T12
                             {
                                 EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                             }
-                            
+
                             var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
                             // Try to cast the offset to a dword
                             if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
@@ -3117,6 +3171,53 @@ namespace T12
 
                             // This will be the address where the element is stored
                         }
+                        else if (addressOfExpression.Expr is ASTMemberExpression memberExpression)
+                        {
+                            var targetType = ResolveType(CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+
+                            // This is the type we should search for members in
+                            var structType = memberExpression.Dereference ? DerefType(memberExpression.Trace, targetType) : targetType;
+
+                            if (structType is ASTStructType == false)
+                                Fail(memberExpression.Trace, $"Type '{structType}' does not have any members!");
+
+                            if (TryGetStructMember(structType as ASTStructType, memberExpression.MemberName, typeMap, out StructMember member) == false)
+                                Fail(memberExpression.Trace, $"No member '{memberExpression.MemberName}' in struct '{structType}'!");
+
+                            if (produceResult) builder.AppendLine($"\t; Address of '{memberExpression}'");
+
+                            if (memberExpression.Dereference)
+                            {
+                                // Here we load the pointer and add the member offset.
+                                EmitExpression(builder, memberExpression.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else
+                            {
+                                // Here we take the address of the expression and add the member offset
+                                var structAddr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
+                                EmitExpression(builder, structAddr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+
+                            // We have the base pointer, so we just add the member offset
+                            if (produceResult)
+                            {
+                                builder.AppendLine($"\tloadl #{member.Offset} ; {memberExpression}");
+                                builder.AppendLine($"\tladd");
+                            }
+                        }
+                        else if (addressOfExpression.Expr is ASTUnaryOp unaryOp)
+                        {
+                            if (unaryOp.OperatorType == ASTUnaryOp.UnaryOperationType.Dereference)
+                            {
+                                // Here we want the address of the thing that the expression is pointing to.
+                                // Which is just the value of the expression.
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else
+                            {
+                                Fail(addressOfExpression.Trace, $"Cannot take address of a unary operator that is not a dereference! Op type: '{unaryOp.OperatorType}'");
+                            }
+                        }
                         else
                         {
                             Fail(addressOfExpression.Trace, $"Unsupported or invalid type for address of: '{addressOfExpression.Expr}'");
@@ -3124,28 +3225,30 @@ namespace T12
                         break;
                     }
                 case ASTInlineAssemblyExpression assemblyStatement:
-                    foreach (var line in assemblyStatement.Assembly)
                     {
-                        builder.AppendLine($"\t{line.Contents}");
-                    }
-
-                    if (produceResult == false)
-                    {
-                        var resultType = ResolveType(assemblyStatement.ResultType, typeMap);
-                        int resultSize = SizeOfType(resultType, typeMap);
-
-                        if (resultSize > 0)
+                        foreach (var line in assemblyStatement.Assembly)
                         {
-                            Warning(assemblyStatement.Trace, $"We are not using the result of this inline assembly expression! It's recomended to manually clean up in an assenbly statement! Result type: '{resultType}'");
+                            builder.AppendLine($"\t{line.Contents}");
+                        }
 
-                            builder.AppendLine("\t; Pop inline assembly result");
-                            for (int i = 0; i < resultSize; i++)
+                        if (produceResult == false)
+                        {
+                            var resultType = ResolveType(assemblyStatement.ResultType, typeMap);
+                            int resultSize = SizeOfType(resultType, typeMap);
+
+                            if (resultSize > 0)
                             {
-                                builder.AppendLine("\tpop");
+                                Warning(assemblyStatement.Trace, $"We are not using the result of this inline assembly expression! It's recomended to manually clean up in an assenbly statement! Result type: '{resultType}'");
+
+                                builder.AppendLine("\t; Pop inline assembly result");
+                                for (int i = 0; i < resultSize; i++)
+                                {
+                                    builder.AppendLine("\tpop");
+                                }
                             }
                         }
+                        break;
                     }
-                    break;
                 default:
                     Fail(expression.Trace, $"Unknown expression type {expression}, this is a compiler bug!");
                     break;

@@ -2622,7 +2622,7 @@ namespace VM12Asm
             }
             else if (constants.TryGetValue(litteral, out constant))
             {
-                value = ParseNumber(file, line, constant.value);
+                value = ParseLitteral(file, line, constant.value, raw, constants);
             }
             else if (globalConstants.TryGetValue(litteral, out constant))
             {
