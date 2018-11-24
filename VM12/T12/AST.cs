@@ -17,10 +17,8 @@ namespace T12
             this.Files = files;
         }
 
-        public static AST Parse(FileInfo inFile, DirectoryInfo baseDirectory)
+        public static AST Parse(FileInfo inFile, Dictionary<string, FileInfo> dirFiles)
         {
-            Dictionary<string, FileInfo> dirFiles = baseDirectory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
-
             // We can probably do this better!
             // Because we will want to emit comments to the assembly
             string fileData = File.ReadAllText(inFile.FullName);
@@ -1447,6 +1445,9 @@ namespace T12
     public abstract class ASTExpression : ASTNode
     {
         public ASTExpression(TraceData trace) : base(trace) { }
+
+        // NOTE: Is there a way to avoid doing this crazy call chain to parse all of this?
+        // It might actually increase performance (tokenizer should be fixed first though)
 
         public static ASTExpression Parse(Queue<Token> Tokens)
         {

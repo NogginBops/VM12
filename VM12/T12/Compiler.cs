@@ -45,6 +45,7 @@ namespace T12
         public static bool Compiling { get; private set; }
         static StringBuilder FuncDebug = new StringBuilder();
         static DirectoryInfo BaseDirectory;
+        static Dictionary<string, FileInfo> DirectoryFiles;
         public static int CompiledFiles = 0;
         public static int CompiledLines = 0;
         public static int ResultLines = 0;
@@ -61,6 +62,8 @@ namespace T12
             Compiling = true;
             FuncDebug = new StringBuilder();
             BaseDirectory = baseDirectory;
+            DirectoryFiles = baseDirectory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
+
             CompiledFiles = 0;
             CompiledLines = 0;
             ResultLines = 0;
@@ -72,6 +75,8 @@ namespace T12
             Compiling = false;
             File.WriteAllText(Path.Combine(BaseDirectory.FullName, "Data", "debug_t12.df"), FuncDebug.ToString());
             CurrentAST = null;
+            BaseDirectory = null;
+            DirectoryFiles = null;
         }
 
         public static void Compile(FileInfo infile)
@@ -89,7 +94,7 @@ namespace T12
 
             var tokens = Tokenizer.Tokenize(fileData, infile.FullName);
 
-            AST ast = AST.Parse(infile, BaseDirectory);
+            AST ast = AST.Parse(infile, DirectoryFiles);
             
             // TODO: Do validaton on the AST
             

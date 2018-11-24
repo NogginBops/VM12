@@ -28,5 +28,16 @@ namespace Util
             }
             return count;
         }
+        
+        public static bool IsOnly(this string str, int startat, char[] letters)
+        {
+            for (int i = startat; i < str.Length; i++)
+            {
+                if (letters.Contains(str[i]) == false) return false;
+            }
+
+            return true;
+        }
+
     }
 }

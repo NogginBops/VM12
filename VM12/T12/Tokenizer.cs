@@ -107,11 +107,6 @@ namespace T12
         Numeric_Litteral,
         Char_Litteral,
         String_Litteral,
-
-        // DWord_Litteral,
-        // Bool_Litteral,
-
-        // String_Litteral,
     }
     
     public struct Token
@@ -121,6 +116,9 @@ namespace T12
 
         public readonly string File;
         public readonly int Line;
+
+        public readonly int CharIndex;
+        public readonly int CharLength;
         
         // NOTE: This is not 100% to be true, change name?
         public bool IsType =>
@@ -210,12 +208,14 @@ namespace T12
             Type == TokenType.Period ||
             Type == TokenType.Arrow;
 
-        public Token(TokenType Type, string Value, string file, int line)
+        public Token(TokenType Type, string Value, string file, int line, int startIndex, int charLength)
         {
             this.Type = Type;
             this.Value = Value;
             this.File = file;
             this.Line = line;
+            this.CharIndex = startIndex;
+            this.CharLength = charLength;
         }
 
         public override string ToString()
@@ -226,121 +226,152 @@ namespace T12
 
     public class Tokenizer
     {
-        private static List<(TokenType Type, Regex Regex)> TokenRegexes = new List<(TokenType, Regex)>
+        private static readonly List<(TokenType Type, Regex Regex)> TokenRegexes = new List<(TokenType, Regex)>
         {
-            ( TokenType.Comment, new Regex("^\\/\\/.*") ),
+            ( TokenType.Comment, new Regex("\\G\\/\\/.*") ),
 
-            ( TokenType.Open_brace, new Regex("^{") ),
-            ( TokenType.Close_brace, new Regex("^}") ),
+            ( TokenType.Open_brace, new Regex("\\G{") ),
+            ( TokenType.Close_brace, new Regex("\\G}") ),
 
-            ( TokenType.Open_parenthesis, new Regex("^\\(") ),
-            ( TokenType.Close_parenthesis, new Regex("^\\)") ),
+            ( TokenType.Open_parenthesis, new Regex("\\G\\(") ),
+            ( TokenType.Close_parenthesis, new Regex("\\G\\)") ),
 
-            ( TokenType.Open_square_bracket, new Regex("^\\[") ),
-            ( TokenType.Close_squre_bracket, new Regex("^\\]") ),
+            ( TokenType.Open_square_bracket, new Regex("\\G\\[") ),
+            ( TokenType.Close_squre_bracket, new Regex("\\G\\]") ),
 
-            ( TokenType.DoubleColon, new Regex("^::") ),
-            ( TokenType.Contains, new Regex("^=><=") ),
+            ( TokenType.DoubleColon, new Regex("\\G::") ),
+            ( TokenType.Contains, new Regex("\\G=><=") ),
 
-            ( TokenType.Semicolon, new Regex("^;") ),
-            ( TokenType.Period, new Regex("^\\.") ),
-            ( TokenType.Comma, new Regex("^,") ),
-            ( TokenType.Colon, new Regex("^:") ),
-            ( TokenType.Numbersign, new Regex("^#") ),
-            ( TokenType.Arrow, new Regex("^->") ),
+            ( TokenType.Semicolon, new Regex("\\G;") ),
+            ( TokenType.Period, new Regex("\\G\\.") ),
+            ( TokenType.Comma, new Regex("\\G,") ),
+            ( TokenType.Colon, new Regex("\\G:") ),
+            ( TokenType.Numbersign, new Regex("\\G#") ),
+            ( TokenType.Arrow, new Regex("\\G->") ),
 
-            ( TokenType.ShiftLeft, new Regex("^<<") ),
-            ( TokenType.ShiftRight, new Regex("^>>") ),
+            ( TokenType.ShiftLeft, new Regex("\\G<<") ),
+            ( TokenType.ShiftRight, new Regex("\\G>>") ),
 
-            ( TokenType.DoubleAnd, new Regex("^&&") ),
-            ( TokenType.DoublePipe, new Regex("^\\|\\|") ),
-            ( TokenType.DoubleEqual, new Regex("^==") ),
-            ( TokenType.NotEqual, new Regex("^!=") ),
+            ( TokenType.DoubleAnd, new Regex("\\G&&") ),
+            ( TokenType.DoublePipe, new Regex("\\G\\|\\|") ),
+            ( TokenType.DoubleEqual, new Regex("\\G==") ),
+            ( TokenType.NotEqual, new Regex("\\G!=") ),
 
-            ( TokenType.Less_than_or_equal, new Regex("^<=") ),
-            ( TokenType.Greater_than_or_equal, new Regex("^>=") ),
-            ( TokenType.Open_angle_bracket, new Regex("^<") ),
-            ( TokenType.Close_angle_bracket, new Regex("^>") ),
+            ( TokenType.Less_than_or_equal, new Regex("\\G<=") ),
+            ( TokenType.Greater_than_or_equal, new Regex("\\G>=") ),
+            ( TokenType.Open_angle_bracket, new Regex("\\G<") ),
+            ( TokenType.Close_angle_bracket, new Regex("\\G>") ),
 
-            ( TokenType.Equal, new Regex("^=") ),
-            ( TokenType.PlusEqual, new Regex("^\\+=") ),
-            ( TokenType.MinusEqual, new Regex("^\\-=") ),
-            ( TokenType.AsteriskEqual, new Regex("^\\*=") ),
-            ( TokenType.SlashEqual, new Regex("^\\/=") ),
-            ( TokenType.PercentEqual, new Regex("^%=") ),
-            ( TokenType.AndEqual, new Regex("^&=") ),
-            ( TokenType.PipeEqual, new Regex("^\\|=") ),
-            ( TokenType.CaretEqual, new Regex("^\\^=") ),
+            ( TokenType.Equal, new Regex("\\G=") ),
+            ( TokenType.PlusEqual, new Regex("\\G\\+=") ),
+            ( TokenType.MinusEqual, new Regex("\\G\\-=") ),
+            ( TokenType.AsteriskEqual, new Regex("\\G\\*=") ),
+            ( TokenType.SlashEqual, new Regex("\\G\\/=") ),
+            ( TokenType.PercentEqual, new Regex("\\G%=") ),
+            ( TokenType.AndEqual, new Regex("\\G&=") ),
+            ( TokenType.PipeEqual, new Regex("\\G\\|=") ),
+            ( TokenType.CaretEqual, new Regex("\\G\\^=") ),
 
-            ( TokenType.Plus, new Regex("^\\+") ),
-            ( TokenType.Minus, new Regex("^\\-") ),
-            ( TokenType.Asterisk, new Regex("^\\*") ),
-            ( TokenType.Slash, new Regex("^\\/") ),
-            ( TokenType.Percent, new Regex("^%") ),
+            ( TokenType.Plus, new Regex("\\G\\+") ),
+            ( TokenType.Minus, new Regex("\\G\\-") ),
+            ( TokenType.Asterisk, new Regex("\\G\\*") ),
+            ( TokenType.Slash, new Regex("\\G\\/") ),
+            ( TokenType.Percent, new Regex("\\G%") ),
 
-            ( TokenType.And, new Regex("^&") ),
-            ( TokenType.Pipe, new Regex("^\\|") ),
-            ( TokenType.Caret, new Regex("^\\^") ),
-            ( TokenType.DollarSign, new Regex("^\\$") ),
+            ( TokenType.And, new Regex("\\G&") ),
+            ( TokenType.Pipe, new Regex("\\G\\|") ),
+            ( TokenType.Caret, new Regex("\\G\\^") ),
+            ( TokenType.DollarSign, new Regex("\\G\\$") ),
 
-            ( TokenType.Tilde, new Regex("^~") ),
-            ( TokenType.Exclamationmark, new Regex("^!") ),
-            ( TokenType.Questionmark, new Regex("^\\?") ),
+            ( TokenType.Tilde, new Regex("\\G~") ),
+            ( TokenType.Exclamationmark, new Regex("\\G!") ),
+            ( TokenType.Questionmark, new Regex("\\G\\?") ),
             
-            ( TokenType.Keyword_Void, new Regex("^void\\b") ),
-            ( TokenType.Keyword_Word, new Regex("^word\\b") ),
-            ( TokenType.Keyword_DWord, new Regex("^dword\\b") ),
-            ( TokenType.Keyword_Bool, new Regex("^bool\\b") ),
-            ( TokenType.Keyword_Char, new Regex("^char\\b") ),
-            ( TokenType.Keyword_String, new Regex("^string\\b") ),
-            ( TokenType.Keyword_Return, new Regex("^return\\b") ),
-            ( TokenType.Keyword_If, new Regex("^if\\b") ),
-            ( TokenType.Keyword_Else, new Regex("^else\\b") ),
-            ( TokenType.Keyword_For, new Regex("^for\\b") ),
-            ( TokenType.Keyword_While, new Regex("^while\\b") ),
-            ( TokenType.Keyword_Do, new Regex("^do\\b") ),
-            ( TokenType.Keyword_Break, new Regex("^break\\b") ),
-            ( TokenType.Keyword_Continue, new Regex("^continue\\b") ),
-            ( TokenType.Keyword_Cast, new Regex("^cast\\b") ),
-            ( TokenType.Keyword_Namespace, new Regex("^namespace\\b") ),
-            ( TokenType.Keyword_Sizeof, new Regex("^sizeof\\b") ),
+            ( TokenType.Keyword_Void, new Regex("\\Gvoid\\b") ),
+            ( TokenType.Keyword_Word, new Regex("\\Gword\\b") ),
+            ( TokenType.Keyword_DWord, new Regex("\\Gdword\\b") ),
+            ( TokenType.Keyword_Bool, new Regex("\\Gbool\\b") ),
+            ( TokenType.Keyword_Char, new Regex("\\Gchar\\b") ),
+            ( TokenType.Keyword_String, new Regex("\\Gstring\\b") ),
+            ( TokenType.Keyword_Return, new Regex("\\Greturn\\b") ),
+            ( TokenType.Keyword_If, new Regex("\\Gif\\b") ),
+            ( TokenType.Keyword_Else, new Regex("\\Gelse\\b") ),
+            ( TokenType.Keyword_For, new Regex("\\Gfor\\b") ),
+            ( TokenType.Keyword_While, new Regex("\\Gwhile\\b") ),
+            ( TokenType.Keyword_Do, new Regex("\\Gdo\\b") ),
+            ( TokenType.Keyword_Break, new Regex("\\Gbreak\\b") ),
+            ( TokenType.Keyword_Continue, new Regex("\\Gcontinue\\b") ),
+            ( TokenType.Keyword_Cast, new Regex("\\Gcast\\b") ),
+            ( TokenType.Keyword_Namespace, new Regex("\\Gnamespace\\b") ),
+            ( TokenType.Keyword_Sizeof, new Regex("\\Gsizeof\\b") ),
 
-            ( TokenType.Keyword_Public, new Regex("^public\\b") ),
-            ( TokenType.Keyword_Private, new Regex("^private\\b") ),
-            ( TokenType.Keyword_Use, new Regex("^use\\b") ),
-            ( TokenType.Keyword_Import, new Regex("^import\\b") ),
-            ( TokenType.Keyword_As, new Regex("^as\\b") ),
-            ( TokenType.Keyword_Extern, new Regex("^extern\\b") ),
-            ( TokenType.Keyword_Const, new Regex("^const\\b") ),
-            ( TokenType.Keyword_Global, new Regex("^global\\b") ),
-            ( TokenType.Keyword_Struct, new Regex("^struct\\b") ),
+            ( TokenType.Keyword_Public, new Regex("\\Gpublic\\b") ),
+            ( TokenType.Keyword_Private, new Regex("\\Gprivate\\b") ),
+            ( TokenType.Keyword_Use, new Regex("\\Guse\\b") ),
+            ( TokenType.Keyword_Import, new Regex("\\Gimport\\b") ),
+            ( TokenType.Keyword_As, new Regex("\\Gas\\b") ),
+            ( TokenType.Keyword_Extern, new Regex("\\Gextern\\b") ),
+            ( TokenType.Keyword_Const, new Regex("\\Gconst\\b") ),
+            ( TokenType.Keyword_Global, new Regex("\\Gglobal\\b") ),
+            ( TokenType.Keyword_Struct, new Regex("\\Gstruct\\b") ),
 
-            ( TokenType.Keyword_True, new Regex("^true\\b") ),
-            ( TokenType.Keyword_False, new Regex("^false\\b") ),
+            ( TokenType.Keyword_True, new Regex("\\Gtrue\\b") ),
+            ( TokenType.Keyword_False, new Regex("\\Gfalse\\b") ),
 
-            ( TokenType.Keyword_Null, new Regex("^null\\b") ),
+            ( TokenType.Keyword_Null, new Regex("\\Gnull\\b") ),
 
-            ( TokenType.Keyword_Assembly, new Regex("^assembly\\b") ),
-            ( TokenType.Keyword_Interrupt, new Regex("^interrupt\\b") ),
+            ( TokenType.Keyword_Assembly, new Regex("\\Gassembly\\b") ),
+            ( TokenType.Keyword_Interrupt, new Regex("\\Ginterrupt\\b") ),
 
-            ( TokenType.Identifier, new Regex("^[a-zA-Z]\\w*") ),
+            ( TokenType.Identifier, new Regex("\\G[a-zA-Z]\\w*") ),
             // TODO: We can do better dword litterals
-            ( TokenType.Numeric_Litteral, new Regex("^(0b[0-1_]+|8x[0-7]+|0x[0-9a-fA-F_]+|[0-9_]+(W|w|D|d)?)") ),
-            ( TokenType.Char_Litteral, new Regex("^'.'") ),
-            ( TokenType.String_Litteral, new Regex("^\\\"(?:\\\\.|[^\"\\\\])*\\\"") ),
+            ( TokenType.Numeric_Litteral, new Regex("\\G(0b[0-1_]+|8x[0-7]+|0x[0-9a-fA-F_]+|[0-9_]+(W|w|D|d)?)") ),
+            ( TokenType.Char_Litteral, new Regex("\\G'.'") ),
+            // TODO: Fix this?
+            ( TokenType.String_Litteral, new Regex("\\G\\\"(?:\\\\.|[^\"\\\\])*\\\"") ),
         };
 
         public static Queue<Token> Tokenize(string code, string file)
         {
             var tokens = new Queue<Token>();
-
+            
             int line = 1;
-
-            while (string.IsNullOrWhiteSpace(code) == false)
+            //while (string.IsNullOrWhiteSpace(code) == false)
+            //{
+            //    tokens.Enqueue(MatchToken(file, code, ref line, out code));
+            //}
+            
+            int index = 0;
+            while (index < code.Length)
             {
-                tokens.Enqueue(MatchToken(file, code, ref line, out code));
+                // Eat all whitespace
+                while (char.IsWhiteSpace(code[index]))
+                {
+                    if (code[index] == '\n')
+                    {
+                        line++;
+                    }
+
+                    index++;
+
+                    if (index >= code.Length)
+                    {
+                        // Here we have read till the end of the file!
+                        goto ret;
+                    }
+                }
+
+                // TODO: We want a optimization for things we know we can just string compare to know!
+
+                var (match, type) = FindFirstMatch(code, index);
+                
+                Token tok = new Token(type, match.Value, file, line, index, index + match.Length - 1);
+                index += match.Length;
+
+                tokens.Enqueue(tok);
             }
 
+            ret:
             return tokens;
         }
 
@@ -359,9 +390,7 @@ namespace T12
 
                 return default;
             }
-
-            //text = text.TrimStart();
-
+            
             int skip = 0;
             while (char.IsWhiteSpace(text[skip]))
             {
@@ -378,7 +407,22 @@ namespace T12
             var (match, type) = FindFirstMatch();
             
             remaining = text.Substring(match.Length);
-            return new Token(type, match.Value, file, line);
+            return new Token(type, match.Value, file, line, 0, match.Length);
+        }
+
+        private static (Match, TokenType) FindFirstMatch(string data, int startat)
+        {
+            foreach (var expr in TokenRegexes)
+            {
+                // FIXME: The 
+                Match m = expr.Regex.Match(data, startat);
+                if (m.Success)
+                {
+                    return (m, expr.Type);
+                }
+            }
+
+            return default;
         }
     }
 }
