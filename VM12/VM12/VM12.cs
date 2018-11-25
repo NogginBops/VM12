@@ -141,13 +141,16 @@ namespace VM12
 
             if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
 
+            Console.WriteLine($"Reading from address {address}:");
             fixed (byte* storage_data = S[s_index])
             {
                 for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
                 {
                     data[i] = storage_data[group_index + i * 2] << 12 | storage_data[group_index + i * 2 + 1];
+                    Console.Write($"{data[i]:X}, ");
                 }
             }
+            Console.WriteLine();
         }
 
         private static byte[,] GetChunk(int address, out int offset)

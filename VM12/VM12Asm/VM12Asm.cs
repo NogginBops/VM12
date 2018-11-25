@@ -1490,7 +1490,7 @@ namespace VM12Asm
                     {
                         if (value.Equals("extern"))
                         {
-                            Error(file, line_num, $"Exporing extern constant '{c.Groups[1].Value}'");
+                            Error(file, line_num, $"Exporting extern constant '{c.Groups[1].Value}'");
                         }
 
                         if (globalConstants.ContainsKey(c.Groups[1].Value))

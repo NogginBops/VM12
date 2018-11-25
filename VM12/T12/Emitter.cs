@@ -329,7 +329,7 @@ namespace T12
                 error = default;
                 return true;
             }
-            else if (exprType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out ASTType actType) && actType is ASTBaseType)
+            else if (exprType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out ASTType actType) && actType is ASTBaseType baseType && targetType == baseType)
             {
                 // If the type is an alias to a base type
                 result = expression;
@@ -2540,8 +2540,25 @@ namespace T12
                                 Fail(pointerExpression.Pointer.Trace, $"Cannot dereference non-pointer type '{type}'!");
 
                             var pointerType = type as ASTDereferenceableType;
-                            
-                            EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+
+                            if (pointerType is ASTFixedArrayType fixedArray)
+                            {
+                                // If this is a fixed array we don't want to load the entire array.
+                                if (pointerExpression.Pointer is ASTUnaryOp unaryOp && unaryOp.OperatorType == ASTUnaryOp.UnaryOperationType.Dereference)
+                                {
+                                    // This is a special case where we can load the pointer really easy. 
+                                    // We just load the pointer to the fixedArray before dereferencing.
+                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                }
+                                else
+                                {
+                                    Fail(pointerExpression.Pointer.Trace, $"We don't support indexing fixed arrays like this atm!");
+                                }
+                            }
+                            else
+                            {
+                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
 
                             if (produceResult)
                             {
@@ -2634,9 +2651,23 @@ namespace T12
                             // There was no implicit way to do it.
                             // How do we cast structs?
                             
+                            // FIXME: Make implicit casting nicer, this way we don't have to explicitly cast all the time
+                            // FIXME: CLEAN THIS MESS UP!!!
+
                             if (ResolveType(fromType, typeMap) == ResolveType(toType, typeMap))
                             {
                                 // They are the same type behind the scenes, so we just don't do anything
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out var actType) && actType == ASTBaseType.DoubleWord && toType == ASTPointerType.Of(ASTBaseType.Void))
+                            {
+                                // FIXME: THIS IS REALLY SPECIFIC!!!
+                                // We need to fix the rules for explicit casting!!
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType == ASTBaseType.Word && toType == ASTBaseType.Char)
+                            {
+                                // They have the same size!
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
                             // TODO: Should we hardcode these casts? The list is getting pretty long, I don't think we should hard code them like this...
