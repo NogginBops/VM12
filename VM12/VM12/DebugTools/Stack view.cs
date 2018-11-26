@@ -317,17 +317,29 @@ namespace Debugging
                 {
                     if (dgvStack.Rows[e.RowIndex].Cells[e.ColumnIndex].FormattedValue.ToString() != e.FormattedValue.ToString())
                     {
-                        void SetUserDebugDef((string, int) key, string userValue)
+                        void SetUserDebugDef((string, int) localKey, string userValue)
                         {
-                            userDebugInfo[key] = userValue;
-                            localsDebugInfo[key] = userValue;
+                            userDebugInfo[localKey] = userValue;
+                            localsDebugInfo[localKey] = userValue;
                         }
 
                         string value = e.FormattedValue.ToString();
-                        
-                        // This is a user definition
-                        SetUserDebugDef((frame.procName, e.RowIndex - (frame.FP - frame.locals)), value);
 
+                        (string, int) key = (frame.procName, e.RowIndex - (frame.FP - frame.locals));
+
+                        if (value.Length == 0)
+                        {
+                            // The user has removed the value
+                            userDebugInfo.Remove(key);
+                            localsDebugInfo[key] = generatedDebugInfo[key];
+                            dgvStack.EditingControl.Text = localsDebugInfo[key];
+                        }
+                        else
+                        {
+                            // This is a user definition
+                            SetUserDebugDef((frame.procName, e.RowIndex - (frame.FP - frame.locals)), value);
+                        }
+                        
                         if (value.EndsWith("_H"))
                         {
                             string newVal = value.ReplaceEnd("_H", "_L");

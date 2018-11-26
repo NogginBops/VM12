@@ -109,114 +109,144 @@ namespace VM12
             pbxMain.InterpolationMode = scaleMode;
         }
         
-        private void LoadProgram()
+        private void CompileAndRunProgram(FileInfo programFile)
         {
-            OpenFileDialog dialog = new OpenFileDialog();
-
-            if (dialog.ShowDialog() == DialogResult.OK)
+            if (programFile.Extension == ".12asm")
             {
-                FileInfo inf = new FileInfo(dialog.FileName);
-                
-                Task.Run(() =>
+                VM12Asm.VM12Asm.Reset();
+                VM12Asm.VM12Asm.Main("-src", programFile.FullName, "-dst", Path.GetFileNameWithoutExtension(programFile.Name), "-e", "-o");
+
+                programFile = new FileInfo(Path.ChangeExtension(programFile.FullName, "12exe"));
+            }
+            else if (programFile.Extension == ".t12")
+            {
+                T12.Compiler.StartCompiling(programFile.Directory);
+                T12.Compiler.Compile(programFile);
+                T12.Compiler.StopCompiling();
+
+                FileInfo asmFile = new FileInfo(Path.ChangeExtension(programFile.FullName, ".12asm"));
+
+                VM12Asm.VM12Asm.Reset();
+                VM12Asm.VM12Asm.Main("-src", asmFile.FullName, "-dst", Path.GetFileNameWithoutExtension(asmFile.Name), "-e", "-o");
+
+                programFile = new FileInfo(Path.ChangeExtension(asmFile.FullName, "12exe"));
+            }
+
+            short[] rom = new short[VM12.ROM_SIZE];
+
+            using (BinaryReader br = new BinaryReader(File.OpenRead(programFile.FullName)))
+            {
+                while (br.BaseStream.Position < br.BaseStream.Length)
                 {
-                    if (inf.Extension == ".12asm")
-                    {
-                        VM12Asm.VM12Asm.Reset();
-                        VM12Asm.VM12Asm.Main("-src", inf.FullName, "-dst", Path.GetFileNameWithoutExtension(inf.Name), "-e", "-o");
+                    int pos = br.ReadInt32();
+                    int length = br.ReadInt32();
 
-                        inf = new FileInfo(Path.ChangeExtension(inf.FullName, "12exe"));
+
+                    short[] data = new short[length];
+                    for (int i = 0; i < length; i++)
+                    {
+                        data[i] = br.ReadInt16();
                     }
-                    else if (inf.Extension == ".t12")
-                    {
-                        T12.Compiler.StartCompiling(inf.Directory);
-                        T12.Compiler.Compile(inf);
-                        T12.Compiler.StopCompiling();
-
-                        FileInfo asmFile = new FileInfo(Path.ChangeExtension(inf.FullName, ".12asm"));
-
-                        VM12Asm.VM12Asm.Reset();
-                        VM12Asm.VM12Asm.Main("-src", asmFile.FullName, "-dst", Path.GetFileNameWithoutExtension(asmFile.Name), "-e", "-o");
-
-                        inf = new FileInfo(Path.ChangeExtension(asmFile.FullName, "12exe"));
-                    }
-                    
-                    short[] rom = new short[VM12.ROM_SIZE];
-
-                    using (BinaryReader br = new BinaryReader(File.OpenRead(inf.FullName)))
-                    {
-                        while (br.BaseStream.Position < br.BaseStream.Length)
-                        {
-                            int pos = br.ReadInt32();
-                            int length = br.ReadInt32();
-
-
-                            short[] data = new short[length];
-                            for (int i = 0; i < length; i++)
-                            {
-                                data[i] = br.ReadInt16();
-                            }
 
 #if DEBUG_BINFORMAT
                             Console.WriteLine($"Reading a block from pos {pos} with length {length} with fist value {data[0]} and last value {data[data.Length - 1]}");
 #endif
 
-                            Array.Copy(data, 0, rom, pos, length);
-                        }
+                    Array.Copy(data, 0, rom, pos, length);
+                }
 
-                        /*
-                        for (int i = 0; i < rom.Length; i++)
-                        {
-                            rom[i] = br.ReadInt16();
-                        }
-                        */
-                    }
+                /*
+                for (int i = 0; i < rom.Length; i++)
+                {
+                    rom[i] = br.ReadInt16();
+                }
+                */
+            }
 
-                    if (vm12 != null && vm12.Running)
-                    {
-                        vm12.Stop();
-                    }
+            if (vm12 != null && vm12.Running)
+            {
+                vm12.Stop();
+            }
 
-                    FileInfo storageFile = new FileInfo(Path.Combine(inf.DirectoryName, "Store.dsk"));
-                    if (storageFile.Exists == false)
-                    {
-                        storageFile.Create();
-                    }
+            FileInfo storageFile = new FileInfo(Path.Combine(programFile.DirectoryName, "Store.dsk"));
+            if (storageFile.Exists == false)
+            {
+                storageFile.Create();
+            }
 
 #if DEBUG
-                    FileInfo metadataFile = new FileInfo(Path.Combine(inf.DirectoryName, Path.GetFileNameWithoutExtension(inf.FullName) + ".12meta"));
-                    
-                    vm12 = new VM12(rom, metadataFile, storageFile);
+            FileInfo metadataFile = new FileInfo(Path.Combine(programFile.DirectoryName, Path.GetFileNameWithoutExtension(programFile.FullName) + ".12meta"));
 
-                    vm12.HitBreakpoint += Vm12_HitBreakpoint;
-                    debugger.SetVM(vm12);
+            vm12 = new VM12(rom, metadataFile, storageFile);
+
+            vm12.HitBreakpoint += Vm12_HitBreakpoint;
+            debugger.SetVM(vm12);
 #else
                     vm12 = new VM12(rom, storageFile);
 #endif
 
-                    // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!
-                    Thread thread = new Thread(() => { vm12.Start(); vm12 = null; })
-                    {
-                        Name = "VM12",
-                        IsBackground = true,
-                    };
+            // Just use a flag to tell the interrupts to not fire, we want to keep the debug data!
+            Thread thread = new Thread(() => { vm12.Start(); vm12 = null; })
+            {
+                Name = "VM12",
+                IsBackground = true,
+            };
 
-                    thread.Start();
-                    
-                    StartTime = ((DateTimeOffset)DateTime.Now).ToUnixTimeSeconds();
+            thread.Start();
 
-                    hTimer?.Interrupt();
-                    hTimer = new Thread(hTime_Thread)
-                    {
-                        Name = "hTimer",
-                        IsBackground = true,
-                    };
-                    
-                    hTimer.Start();
-                    
-                });
+            StartTime = ((DateTimeOffset)DateTime.Now).ToUnixTimeSeconds();
+
+            hTimer?.Interrupt();
+            hTimer = new Thread(hTime_Thread)
+            {
+                Name = "hTimer",
+                IsBackground = true,
+            };
+
+            hTimer.Start();
+        }
+        
+        private void LoadProgram()
+        {
+            // NOTE: This could be moved to the constructor,
+            // because we really only want to read the cli arguments once
+            string[] args = Environment.GetCommandLineArgs();
+
+            FileInfo program = null;
+
+            // If there is a file specified in the commandline
+            if (args.Length > 1 && File.Exists(args[1]))
+            {
+                program = new FileInfo(args[1]);
+            }
+            else
+            {
+                OpenFileDialog dialog = new OpenFileDialog();
+
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    program = new FileInfo(dialog.FileName);
+                }
+            }
+
+            if (program != null)
+            {
+                Task.Run(() => CompileAndRunProgram(program));
             }
         }
 
+        private void OpenFileDialogAndLoadProgram()
+        {
+            OpenFileDialog dialog = new OpenFileDialog();
+
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                FileInfo program = new FileInfo(dialog.FileName);
+
+                CompileAndRunProgram(program);
+            }
+        }
+        
         private void Vm12_HitBreakpoint(object sender, EventArgs e)
         {
 #if DEBUG
@@ -418,7 +448,7 @@ namespace VM12
 
         private void openToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            LoadProgram();
+            OpenFileDialogAndLoadProgram();
         }
 
         int lastPosX;

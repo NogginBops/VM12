@@ -2459,6 +2459,10 @@ namespace T12
 
                                 StoreVariable(builder, pointerExpression.Trace, pointerRef, typeMap);
                             }
+                            
+                            // FIXME!!
+                            // TODO: What if we should not produce a result and we are not assigning?
+                            // It looks like we are leaving things on the stack!
 
                             if (produceResult)
                             {
@@ -2548,7 +2552,7 @@ namespace T12
                                 {
                                     // This is a special case where we can load the pointer really easy. 
                                     // We just load the pointer to the fixedArray before dereferencing.
-                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                                 }
                                 else
                                 {
@@ -2557,13 +2561,12 @@ namespace T12
                             }
                             else
                             {
-                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                             }
-
-                            if (produceResult)
-                            {
-                                DerefPointer(pointerType);
-                            }
+                            
+                            // TODO: We could change things so we never have to discard data.
+                            // We always want to load the pointer, this will handle discarding it.
+                            DerefPointer(pointerType);
                         }
                         break;
                     }
@@ -2714,7 +2717,7 @@ namespace T12
                                 // We don't have to do anything to convert a dword to a function pointer!
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
                             }
-                            else if (fromType == ASTBaseType.String && toType == ASTPointerType.Of(ASTBaseType.Word))
+                            else if (fromType == ASTBaseType.String && (toType == ASTPointerType.Of(ASTBaseType.Word) || toType == ASTPointerType.Of(ASTBaseType.Char)))
                             {
                                 // FIXME: Make proper strings! Now we are doing different things for different casts!!
                                 // TODO: Proper strings!
