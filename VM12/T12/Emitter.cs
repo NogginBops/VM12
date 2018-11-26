@@ -2897,7 +2897,7 @@ namespace T12
                                             if (typedAssigmnent != null)
                                             {
                                                 // Duplicate the pointer if we are going to produce a result
-                                                if (produceResult) builder.AppendLine("ldup");
+                                                if (produceResult) builder.AppendLine("\tldup");
                                                 // Load the value to store
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer

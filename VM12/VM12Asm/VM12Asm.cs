@@ -2118,6 +2118,10 @@ namespace VM12Asm
 
                     delayed_const_uses[proc.Key] = local_delayed_const_uses;
 
+                    // We can't use assembledProcs because the key compares file too...
+                    if (metadata.ContainsKey(proc.Value.name))
+                        Warning(file.Value.Raw, proc.Value.line, $"Redefining proc '{proc.Value}'!");
+
                     assembledProcs[proc.Value] = instructions;
 
                     procmeta.size = instructions.Count;

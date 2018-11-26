@@ -2190,7 +2190,69 @@ namespace VM12
                         case GrapicOps.TrueColorSprite_Mask:
                             throw new NotImplementedException();
                         case GrapicOps.PalettedSprite_Mask:
-                            throw new NotImplementedException();
+                            {
+                                int vram_addr = mem[GP + 1] << 12 | mem[GP + 2];
+                                int sprite = mem[GP + 3] << 12 | mem[GP + 4];
+                                int palette = mem[GP + 5] << 12 | mem[GP + 6];
+                                int mask = mem[GP + 7] << 12 | mem[GP + 8];
+                                int stride = mem[GP + 9];
+                                int width = mem[GP + 10];
+                                int height = mem[GP + 11];
+
+                                // stride must be a multiple of 3
+                                if (stride % 3 != 0)
+                                {
+                                    throw new InvalidOperationException();
+                                }
+
+                                int mask_counter = 0;
+                                for (int y = 0; y < height; y++)
+                                {
+                                    bool is_masked()
+                                    {
+                                        bool ret = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00;
+                                        
+                                        return ret;
+                                    }
+
+                                    int sprite_data;
+                                    for (int x = 0; x < width / 3; x++)
+                                    {
+                                        sprite_data = mem[sprite++];
+
+                                        mem[vram_addr] = 
+                                            ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + ((sprite_data >> 8) & 0xF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + ((sprite_data >> 4) & 0xF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + (sprite_data & 0xF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                    }
+
+                                    // Draw the horizontal pixels not on a 3 multiple boundrary
+                                    for (int i = 0; i < width % 3; i++)
+                                    {
+                                        sprite_data = mem[sprite++];
+                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + ((sprite_data >> ((1 - i) * 4)) & 0xFF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                    }
+
+                                    // The the rest of the stride
+                                    sprite += (stride / 3) - ((width + 2) / 3);
+                                    vram_addr += SCREEN_WIDTH - width;
+                                }
+
+                                GP += 12;
+                                break;
+                            }
                         case GrapicOps.FontcharBuffer:
                             {
                                 // FIMXME: Switch to using a color buffer!
