@@ -266,19 +266,7 @@ namespace T12
                         }
 
                         // TODO: Add length and data members to arrays!
-                        /*
-                        if (targetType is ASTArrayType || targetType is ASTFixedArrayType)
-                        {
-                            var arrayType = targetType as ASTArrayType;
-                            var fixedArrayType = targetType as ASTFixedArrayType;
-                            
-                            
-                            if (memberExpression.MemberName == "length")
-                                return ASTBaseType.DoubleWord;
-                            else if (memberExpression.MemberName == "data")
-                                return ASTPointerType.Of(arrayType?.BaseType ?? fixedArrayType?.BaseType);
-                        }
-                        else */
+
                         if (targetType is ASTStructType)
                         {
                             var (type, name) = (targetType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
@@ -2416,6 +2404,7 @@ namespace T12
                                 Fail(pointerType.Trace, "Cannot deference void pointer! Cast to a valid pointer type!");
 
                             var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
+
                             // Try to cast the offset to a dword
                             if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
                                 Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
@@ -2424,6 +2413,7 @@ namespace T12
                             EmitExpression(builder, dwordOffset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
                             int baseTypeSize = SizeOfType(baseType, typeMap);
+
                             // Multiply by pointer base type size!
                             if (baseTypeSize > 1)
                             {
@@ -2431,6 +2421,9 @@ namespace T12
 
                                 builder.AppendLine($"\tlmul");
                             }
+                            
+                            // Add the offset to the pointer
+                            builder.AppendLine($"\tladd");
 
                             VariableRef pointerRef = new VariableRef()
                             {
@@ -2438,9 +2431,6 @@ namespace T12
                                 Type = baseType,
                                 Comment = $"{pointerExpression.Pointer}[{pointerExpression.Offset}]",
                             };
-                            
-                            // Add the offset to the pointer
-                            builder.AppendLine($"\tladd");
                             
                             if (pointerExpression.Assignment != null)
                             {
@@ -3051,45 +3041,57 @@ namespace T12
                             // We'll just emit the whole struct, isolate the member, and possibly assign to it...
                             int targetSize = SizeOfType(targetType, typeMap);
                             
-                            EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
-                            
-                            if (produceResult)
+                            EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+
+                            if (memberExpression.Dereference)
                             {
-                                // Load the pointer we just got!
-                                if (memberExpression.Dereference)
+                                // Add the member offset to the pointer we just got!
+                                if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
+
+                                // We are derefing a pointer to the member!
+                                VariableRef pointerRef = new VariableRef
                                 {
-                                    // Add the member offset to the pointer we just got!
-                                    if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
+                                    VariableType = VariableType.Pointer,
+                                    Type = member.Type,
+                                    Comment = comment,
+                                };
+                                
+                                if (typedAssigmnent != null)
+                                {
+                                    // Duplicate the pointer
+                                    if (produceResult) builder.AppendLine("\tldup");
 
-                                    // We are derefing a pointer to the member!
-                                    VariableRef variable = new VariableRef
-                                    {
-                                        VariableType = VariableType.Pointer,
-                                        Type = member.Type,
-                                        Comment = comment,
-                                    };
+                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
 
-                                    LoadVariable(builder, memberExpression.Trace, variable, typeMap);
+                                    StoreVariable(builder, memberExpression.Trace, pointerRef, typeMap);
                                 }
-                                else
+
+                                if (produceResult)
                                 {
-                                    // TODO: We want to optimize this as much as possible!
-                                    // Basically we never want to get here as this means we have dereferenced something
-                                    // where we could have just calculated another offset and gotten the correct pointer
-                                    // so we don't need to pop anything
-                                    if (targetSize != member.Size)
-                                        Warning(memberExpression.Trace, $"Non-optimized case when accessing member '{memberExpression.MemberName}'. Struct type: '{targetType}' Member type: '{member.Type}'");
+                                    LoadVariable(builder, memberExpression.Trace, pointerRef, typeMap);
+                                }
+                            }
+                            else
+                            {
+                                Fail(memberExpression.Trace, $"FIXME: I was really tired and didn't feel like fixing this code path...");
+                                // NOTE: Remember to pop the pointer if we should not produce a result, or something similar
 
-                                    // If the value we have loaded is a big struct we need to isolate the member we want!
-                                    for (int i = 0; i < member.Offset; i++)
-                                    {
-                                        builder.AppendLine($"\tpop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
-                                    }
+                                // TODO: We want to optimize this as much as possible!
+                                // Basically we never want to get here as this means we have dereferenced something
+                                // where we could have just calculated another offset and gotten the correct pointer
+                                // so we don't need to pop anything
+                                if (targetSize != member.Size)
+                                    Warning(memberExpression.Trace, $"Non-optimized case when accessing member '{memberExpression.MemberName}'. Struct type: '{targetType}' Member type: '{member.Type}'");
 
-                                    for (int i = member.Offset + member.Size; i < targetSize; i++)
-                                    {
-                                        builder.AppendLine($"\tswap pop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
-                                    }
+                                // If the value we have loaded is a big struct we need to isolate the member we want!
+                                for (int i = 0; i < member.Offset; i++)
+                                {
+                                    builder.AppendLine($"\tpop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
+                                }
+
+                                for (int i = member.Offset + member.Size; i < targetSize; i++)
+                                {
+                                    builder.AppendLine($"\tswap pop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
                                 }
                             }
                         }
