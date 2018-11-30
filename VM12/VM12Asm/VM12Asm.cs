@@ -26,6 +26,11 @@ namespace VM12Asm
             public string name;
             public string[] lines;
             public string[] args;
+
+            public override string ToString()
+            {
+                return $"{name}({string.Join(", ", args)})";
+            }
         }
 
         struct Token

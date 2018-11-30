@@ -412,6 +412,14 @@ namespace T12
                     int exprSize = (exprType as ASTBaseType).Size;
                     int targetSize = (targetType as ASTBaseType).Size;
 
+                    // FIXME!!!
+                    // Special case for word to char implicit cast...
+                    if (exprType == ASTBaseType.Word && targetType == ASTBaseType.Char)
+                    {
+                        result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
+                        error = default;
+                        return true;
+                    }
                     if (exprSize < targetSize)
                     {
                         result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
@@ -528,18 +536,22 @@ namespace T12
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
-                    throw new NotImplementedException();
-
                     EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                     EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
+                    // We want to jump past the body if left > right and not jump if left <= right
+                    // -> left - right > 0
+                    // This is why we use jgz and jgzl
+
                     if (typeSize == 1)
                     {
-                        builder.AppendLine($"\tjeq {jmpLabel}");
+                        builder.AppendLine($"\tsub");
+                        builder.AppendLine($"\tjgz {jmpLabel}");
                     }
                     else if (typeSize == 2)
                     {
-                        builder.AppendLine($"\tjeql {jmpLabel}");
+                        builder.AppendLine($"\tlsub");
+                        builder.AppendLine($"\tjgzl {jmpLabel}");
                     }
                     else
                     {
@@ -1888,12 +1900,7 @@ namespace T12
                                 builder.AppendLine("\tnot");
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Logical_negation:
-                                // FIXME: Make this better, we can probably avoid the swaps
-                                builder.AppendLine("\tload #0");
-                                builder.AppendLine("\tswap");
-                                builder.AppendLine("\tload #1");
-                                builder.AppendLine("\tswap");
-                                builder.AppendLine("\tselz");
+                                builder.AppendLine("\tsetz");
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Dereference:
                                 if (type is ASTPointerType == false) Fail(unaryOp.Trace, $"Cannot dereference non-pointer type '{type}'!");
@@ -2106,6 +2113,7 @@ namespace T12
                                 }
                                 else if (type_size == 2)
                                 {
+                                    // FIXME!!
                                     throw new NotImplementedException();
                                 }
                                 else
@@ -2353,8 +2361,13 @@ namespace T12
                         }
                         else
                         {
+                            // NOTE: Should we have a comment here?
+                            // We could do something like:
+                            //    proc_name(expr, expr)
+                            // And do to string on all arguments
+
                             // Just call the function
-                            builder.AppendLine($"\t::{functionLabel}\t; {funcCallIndex}");
+                            builder.AppendLine($"\t::{functionLabel}\t; {functionCall.FunctionName} {funcCallIndex}");
                         }
                         
                         if (produceResult == false)
