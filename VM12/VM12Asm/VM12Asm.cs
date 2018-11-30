@@ -540,6 +540,8 @@ namespace VM12Asm
         static int lines = 0;
         static int tokens = 0;
 
+        private static readonly Encoding charEncoding = Encoding.GetEncoding(437);
+
         static List<Macro> globalMacros = new List<Macro>();
 
         static Dictionary<string, Constant> globalConstants = new Dictionary<string, Constant>();
@@ -2677,7 +2679,7 @@ namespace VM12Asm
             short[] data = null;
             try
             {
-                data = Array.ConvertAll(Encoding.ASCII.GetBytes(litteral.Substring(1, litteral.Length - 2)), b => (short)b);
+                data = Array.ConvertAll(charEncoding.GetBytes(litteral.Substring(1, litteral.Length - 2)), b => (short)b);
                 Array.Reverse(data);
                 if (!raw)
                 {
