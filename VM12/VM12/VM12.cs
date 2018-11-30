@@ -2208,13 +2208,6 @@ namespace VM12
                                 int mask_counter = 0;
                                 for (int y = 0; y < height; y++)
                                 {
-                                    bool is_masked()
-                                    {
-                                        bool ret = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00;
-                                        
-                                        return ret;
-                                    }
-
                                     int sprite_data;
                                     for (int x = 0; x < width / 3; x++)
                                     {

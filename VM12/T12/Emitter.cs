@@ -21,6 +21,49 @@ namespace T12
         public AST ast;
     }
 
+    public class Context
+    {
+        public readonly FunctionConext FunctionConext;
+        public readonly LoopContext LoopContext;
+
+        // This is not final to make it easier to increment the values.
+        // This breaks the immulabillity of this object but oh well...
+        public LabelContext LabelContext;
+
+        public Context(FunctionConext functionConext, LoopContext loopContext, LabelContext labelContext)
+        {
+            this.FunctionConext = functionConext;
+            this.LoopContext = loopContext;
+            this.LabelContext = labelContext;
+        }
+
+        public Context With(FunctionConext functionConext)
+        {
+            return new Context(functionConext, this.LoopContext, this.LabelContext);
+        }
+
+        public Context With(LoopContext loopContext)
+        {
+            return new Context(this.FunctionConext, loopContext, this.LabelContext);
+        }
+
+        public Context With(LabelContext labelContext)
+        {
+            return new Context(this.FunctionConext, this.LoopContext, labelContext);
+        }
+    }
+
+    public struct LabelContext
+    {
+        public int IfLabels;
+        public int ConditionalLabels;
+        public int BoundsLabels;
+        public int WhileLabel;
+        public int DoWhileLabel;
+        public int ForLabel;
+        public int FunctionCalls;
+    }
+
     public struct FunctionConext
     {
         public readonly string FunctionName;
@@ -394,7 +437,7 @@ namespace T12
         /// <summary>
         /// This method will generate the most optimized jump based on the type of the binary operation condition.
         /// </summary>
-        private static void GenerateOptimizedBinaryOpJump(StringBuilder builder, ASTBinaryOp condition, string jmpLabel, VarMap scope, VarList varList, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        private static void GenerateOptimizedBinaryOpJump(StringBuilder builder, ASTBinaryOp condition, string jmpLabel, VarMap scope, VarList varList, TypeMap typeMap, Context context, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             var leftType = CalcReturnType(condition.Left, scope, typeMap, functionMap, constMap, globalMap);
             var rightType = CalcReturnType(condition.Right, scope, typeMap, functionMap, constMap, globalMap);
@@ -419,8 +462,8 @@ namespace T12
             switch (condition.OperatorType)
             {
                 case ASTBinaryOp.BinaryOperatorType.Equal:
-                    EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                     // We use jneq and jneql here because we want to not jump and execute the body if they are equal.
 
@@ -438,8 +481,8 @@ namespace T12
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Not_equal:
-                    EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                     // We use jeq and jeql here because we want to not jump and execute the body if they are not equal.
 
@@ -462,8 +505,8 @@ namespace T12
                     // right - left > 0
                     // If the result is positive left was strictly less than right
                     
-                    EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                     // We want to jump past the body if left >= right and not jump if left < right
                     // -> left - right >= 0
@@ -487,8 +530,8 @@ namespace T12
                 case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
                     throw new NotImplementedException();
 
-                    EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                     if (typeSize == 1)
                     {
@@ -504,8 +547,8 @@ namespace T12
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Greater_than:
-                    EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                     // We want to jump past the body if left <= right and not jump if left > right
                     // -> left - right <= 0
@@ -527,8 +570,8 @@ namespace T12
                     }
                     break;
                 case ASTBinaryOp.BinaryOperatorType.Greater_than_or_equal:
-                    EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                    EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                     
                     // Jump if left < right
                     if (typeSize == 1)
@@ -548,7 +591,7 @@ namespace T12
                     break;
                 default:
                     // We can't do something smart here :(
-                    EmitExpression(builder, condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                    EmitExpression(builder, condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                     builder.AppendLine($"\tjz {jmpLabel}");
                     break;
             }
@@ -1316,7 +1359,7 @@ namespace T12
             // FIXME: Do control flow analysis to check that the function returns!
 
             VarList variableList = new VarList();
-            FunctionConext functionConext = new FunctionConext(func.Name, func.ReturnType);
+            FunctionConext functionContext = new FunctionConext(func.Name, func.ReturnType);
             int local_index = 0;
 
             foreach (var param in func.Parameters)
@@ -1371,7 +1414,7 @@ namespace T12
             // We add a return statement if the function returns void and there is not a return statement at the end
             // FIXME: We do not yet validate that a function acutally returns the said value!
             // NOTE: This should be done better
-            if (functionConext.ReturnType == ASTBaseType.Void && (func.Body.Count <= 0 || func.Body.Last() is ASTReturnStatement == false))
+            if (functionContext.ReturnType == ASTBaseType.Void && (func.Body.Count <= 0 || func.Body.Last() is ASTReturnStatement == false))
             {
                 var trace = new TraceData
                 {
@@ -1388,9 +1431,11 @@ namespace T12
                 Warning(func.Trace, $"The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know it the function actually returns!");
             }
 
+            Context context = new Context(functionContext, LoopContext.Empty, default);
+
             foreach (var blockItem in func.Body)
             {
-                EmitBlockItem(builder, blockItem, scope, variableList, ref local_index, typeMap, functionConext, LoopContext.Empty, functionMap, constMap, globalMap);
+                EmitBlockItem(builder, blockItem, scope, variableList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
             }
             
             int locals = local_index;
@@ -1443,18 +1488,18 @@ namespace T12
             builder.Insert(param_index, $"\t{@params} {locals}\t; {combined_string}\n");
         }
 
-        private static void EmitBlockItem(StringBuilder builder, ASTBlockItem blockItem, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, FunctionConext functionConext, LoopContext loopContext, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        private static void EmitBlockItem(StringBuilder builder, ASTBlockItem blockItem, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, Context context, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (blockItem)
             {
                 case ASTDeclaration declaration:
-                    EmitDeclaration(builder, declaration, scope, varList, ref local_index, typeMap, functionMap, constMap, globalMap);
+                    EmitDeclaration(builder, declaration, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
                     break;
                 case ASTStatement statement:
                     // @TODO: Make this cleaner, like using an imutable map or other datastructure for handling scopes
                     // Make a copy of the scope so that the statement does not modify the current scope
                     var new_scope = new VarMap(scope);
-                    EmitStatement(builder, statement, new_scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
+                    EmitStatement(builder, statement, new_scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
                     break;
                 default:
                     Fail(blockItem.Trace, $"Unknown block item {blockItem}, this is a compiler bug!");
@@ -1462,7 +1507,7 @@ namespace T12
             }
         }
 
-        private static void EmitDeclaration(StringBuilder builder, ASTDeclaration declaration, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        private static void EmitDeclaration(StringBuilder builder, ASTDeclaration declaration, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, Context context, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (declaration)
             {
@@ -1484,7 +1529,7 @@ namespace T12
                             if (TryGenerateImplicitCast(initExpr, variableDeclaration.Type, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedExpression, out string error) == false)
                                 Fail(variableDeclaration.Initializer.Trace, $"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{variableDeclaration.Type}'");
                             
-                            EmitExpression(builder, typedExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, typedExpression, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                             VariableRef var = new VariableRef
                             {
@@ -1504,8 +1549,10 @@ namespace T12
             }
         }
 
-        private static void EmitStatement(StringBuilder builder, ASTStatement statement, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, FunctionConext functionConext, LoopContext loopContext, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        private static void EmitStatement(StringBuilder builder, ASTStatement statement, VarMap scope, VarList varList, ref int local_index, TypeMap typeMap, Context context, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
+            FunctionConext functionConext = context.FunctionConext;
+            LoopContext loopContext = context.LoopContext;
             switch (statement)
             {
                 case ASTEmptyStatement emptyStatement:
@@ -1522,7 +1569,7 @@ namespace T12
                             if (TryGenerateImplicitCast(retExpr, functionConext.ReturnType, scope, typeMap, functionMap, constMap, globalMap, out var typedReturn, out string error) == false)
                                 Fail(returnStatement.Trace, $"Cannot return expression of type '{retType}' in a function that returns type '{functionConext.ReturnType}'");
                             
-                            EmitExpression(builder, typedReturn, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, typedReturn, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             
                             int retSize = SizeOfType(functionConext.ReturnType, typeMap);
                             if (retSize == 1)
@@ -1552,124 +1599,123 @@ namespace T12
                         // This is not used!
                         Fail(assignment.Trace, $"We don't use this AST node type! {assignment}");
                         string varName = assignment.VariableNames[0];
-                        EmitExpression(builder, assignment.AssignmentExpression, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, assignment.AssignmentExpression, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tstore {scope[varName].Offset}\t; [{varName}]");
                         break;
                     }
                 case ASTIfStatement ifStatement:
                     {
-                        // FIXME: There could be hash collisions!
-                        int hash = ifStatement.GetHashCode();
+                        int ifIndex = context.LabelContext.IfLabels++;
                         if (ifStatement.IfFalse == null)
                         {
                             // If-statement without else
                             if (ifStatement.Condition is ASTBinaryOp)
                             {
                                 // Here we can optimize the jump.
-                                GenerateOptimizedBinaryOpJump(builder, ifStatement.Condition as ASTBinaryOp, $":post_{hash}", scope, varList, typeMap, functionMap, constMap, globalMap);
+                                GenerateOptimizedBinaryOpJump(builder, ifStatement.Condition as ASTBinaryOp, $":post_if_{ifIndex}", scope, varList, typeMap, context, functionMap, constMap, globalMap);
                             }
                             else
                             {
                                 // FIXME: We do not handle return types with a size > 1
                                 // We don't know how to optimize this so we eval the whole expression
-                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                builder.AppendLine($"\tjz :post_{hash}");
+                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tjz :post_if_{ifIndex}");
                             }
 
                             // Generate the if true block.
-                            EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
-                            builder.AppendLine($"\t:post_{hash}");
+                            EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
+                            builder.AppendLine($"\t:post_if_{ifIndex}");
                         }
                         else
                         {
                             if (ifStatement.Condition is ASTBinaryOp)
                             {
                                 // Here we can optimize the jump.
-                                GenerateOptimizedBinaryOpJump(builder, ifStatement.Condition as ASTBinaryOp, $":else_{hash}", scope, varList, typeMap, functionMap, constMap, globalMap);
+                                GenerateOptimizedBinaryOpJump(builder, ifStatement.Condition as ASTBinaryOp, $":else_{ifIndex}", scope, varList, typeMap, context, functionMap, constMap, globalMap);
                             }
                             else
                             {
                                 // We don't know how to optimize this so we eval the whole expression
-                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                builder.AppendLine($"\tjz :else_{hash}");
+                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                builder.AppendLine($"\tjz :else_{ifIndex}");
                             }
 
-                            EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
-                            builder.AppendLine($"\tjmp :post_{hash}");
-                            builder.AppendLine($"\t:else_{hash}");
-                            EmitStatement(builder, ifStatement.IfFalse, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
-                            builder.AppendLine($"\t:post_{hash}");
+                            EmitStatement(builder, ifStatement.IfTrue, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
+                            builder.AppendLine($"\tjmp :post_else_{ifIndex}");
+                            builder.AppendLine($"\t:else_{ifIndex}");
+                            EmitStatement(builder, ifStatement.IfFalse, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
+                            builder.AppendLine($"\t:post_else_{ifIndex}");
                         }
                         break;
                     }
                 case ASTCompoundStatement compoundStatement:
                     foreach (var blockItem in compoundStatement.Block)
                     {
-                        EmitBlockItem(builder, blockItem, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
+                        EmitBlockItem(builder, blockItem, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
                     }
                     break;
                 case ASTExpressionStatement expression:
-                    EmitExpression(builder, expression.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, false);
+                    EmitExpression(builder, expression.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, false);
                     break;
                 case ASTForWithDeclStatement forWithDecl:
                     {
                         var test = forWithDecl;
 
-                        int hash = forWithDecl.GetHashCode();
-                        LoopContext newLoopContext = new LoopContext($":post_statement_{hash}", $":for_end_{hash}");
+                        int forIndex = context.LabelContext.ForLabel++;
+                        LoopContext newLoopContext = new LoopContext($":post_for_statement_{forIndex}", $":for_end_{forIndex}");
 
-                        builder.AppendLine($"\t; For loop {forWithDecl.Condition} {hash}");
+                        builder.AppendLine($"\t; For loop {forWithDecl.Condition} {forIndex}");
                         
                         VarMap new_scope = new VarMap(scope);
-                        EmitDeclaration(builder, forWithDecl.Declaration, new_scope, varList, ref local_index, typeMap, functionMap, constMap, globalMap);
+                        EmitDeclaration(builder, forWithDecl.Declaration, new_scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
                         
                         // We are now in the new scope.
                         scope = new_scope;
 
-                        builder.AppendLine($"\t:for_cond_{hash}");
+                        builder.AppendLine($"\t:for_cond_{forIndex}");
 
                         var cond = forWithDecl.Condition;
                         if (cond is ASTBinaryOp)
                         {
                             // This will generate a jump depending on the type of binary op
-                            GenerateOptimizedBinaryOpJump(builder, cond as ASTBinaryOp, newLoopContext.EndLabel, scope, varList, typeMap, functionMap, constMap, globalMap);
+                            GenerateOptimizedBinaryOpJump(builder, cond as ASTBinaryOp, newLoopContext.EndLabel, scope, varList, typeMap, context, functionMap, constMap, globalMap);
                         }
                         else
                         {
                             // Here we can't really optimize.
-                            EmitExpression(builder, cond, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, cond, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
                         }
                         
-                        EmitStatement(builder, forWithDecl.Body, new_scope, varList, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap, globalMap);
+                        EmitStatement(builder, forWithDecl.Body, new_scope, varList, ref local_index, typeMap, context.With(newLoopContext), functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
-                        EmitExpression(builder, forWithDecl.PostExpression, new_scope, varList, typeMap, functionMap, constMap, globalMap, false);
+                        EmitExpression(builder, forWithDecl.PostExpression, new_scope, varList, typeMap, context, functionMap, constMap, globalMap, false);
 
-                        builder.AppendLine($"\tjmp :for_cond_{hash}");
+                        builder.AppendLine($"\tjmp :for_cond_{forIndex}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
 
                         break;
                     }
                 case ASTWhileStatement whileStatement:
                     {
-                        int hash = whileStatement.GetHashCode();
-                        LoopContext newLoopContext = new LoopContext($":while_condition_{hash}", $":while_end_{hash}");
+                        int whileIndex = context.LabelContext.WhileLabel++;
+                        LoopContext newLoopContext = new LoopContext($":while_condition_{whileIndex}", $":while_end_{whileIndex}");
 
-                        builder.AppendLine($"\t; While loop {whileStatement.Condition} {hash}");
+                        builder.AppendLine($"\t; While loop {whileStatement.Condition} {whileIndex}");
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
 
                         if (whileStatement.Condition is ASTBinaryOp binaryCond)
                         {
-                            GenerateOptimizedBinaryOpJump(builder, binaryCond, newLoopContext.EndLabel, scope, varList, typeMap, functionMap, constMap, globalMap);
+                            GenerateOptimizedBinaryOpJump(builder, binaryCond, newLoopContext.EndLabel, scope, varList, typeMap, context, functionMap, constMap, globalMap);
                         }
                         else
                         {
-                            EmitExpression(builder, whileStatement.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, whileStatement.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
                         }
                         
-                        EmitStatement(builder, whileStatement.Body, scope, varList, ref local_index, typeMap, functionConext, loopContext, functionMap, constMap, globalMap);
+                        EmitStatement(builder, whileStatement.Body, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\tjmp {newLoopContext.ContinueLabel}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
@@ -1677,18 +1723,18 @@ namespace T12
                     }
                 case ASTDoWhileStatement doWhile:
                     {
-                        int hash = doWhile.GetHashCode();
-                        LoopContext newLoopContext = new LoopContext($":do_while_condition_{hash}", $":do_while_end_{hash}");
+                        int doWhileIndex = context.LabelContext.DoWhileLabel++;
+                        LoopContext newLoopContext = new LoopContext($":do_while_condition_{doWhileIndex}", $":do_while_end_{doWhileIndex}");
 
-                        builder.AppendLine($"\t; Do while loop {doWhile.Condition} {hash}");
-                        builder.AppendLine($"\t:do_while_{hash}");
+                        builder.AppendLine($"\t; Do while loop {doWhile.Condition} {doWhileIndex}");
+                        builder.AppendLine($"\t:do_while_{doWhileIndex}");
 
-                        EmitStatement(builder, doWhile.Body, scope, varList, ref local_index, typeMap, functionConext, newLoopContext, functionMap, constMap, globalMap);
+                        EmitStatement(builder, doWhile.Body, scope, varList, ref local_index, typeMap, context.With(newLoopContext), functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
                         // Here we need to invert the condition before we try and do an optimized jump!
-                        EmitExpression(builder, doWhile.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                        builder.AppendLine($"\tjnz :do_while_{hash}");
+                        EmitExpression(builder, doWhile.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        builder.AppendLine($"\tjnz :do_while_{doWhileIndex}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
 
                         break;
@@ -1705,7 +1751,7 @@ namespace T12
             }
         }
 
-        private static void EmitExpression(StringBuilder builder, ASTExpression expression, VarMap scope, VarList varList, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, bool produceResult)
+        private static void EmitExpression(StringBuilder builder, ASTExpression expression, VarMap scope, VarList varList, TypeMap typeMap, Context context, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, bool produceResult)
         {
             switch (expression)
             {
@@ -1732,7 +1778,7 @@ namespace T12
                                         if (TryGenerateImplicitCast(variableExpr.AssignmentExpression, variableType, scope, typeMap, functionMap, constMap, globalMap, out var typedAssignment, out var error) == false)
                                             Fail(variableExpr.AssignmentExpression.Trace, $"Cannot assign expression of type '{assignmentType}' to variable '{variableExpr.Name}' of type '{variableType}'! (Implicit cast error: '{error}')");
 
-                                        EmitExpression(builder, typedAssignment, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                        EmitExpression(builder, typedAssignment, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                                         StoreVariable(builder, variableExpr.AssignmentExpression.Trace, variable, typeMap);
                                     }
@@ -1761,7 +1807,7 @@ namespace T12
                                         // We are loading a pointer so 'loadl' is fine
                                         builder.AppendLine($"\tloadl #{variableExpr.Name}");
 
-                                        EmitExpression(builder, typedAssignment, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                        EmitExpression(builder, typedAssignment, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                         
                                         StoreVariable(builder, variableExpr.Trace, variable, typeMap);
                                     }
@@ -1825,7 +1871,7 @@ namespace T12
                         int type_size = SizeOfType(type, typeMap);
 
                         // TODO: Check to see if this expression has side-effects. This way we can avoid poping at the end
-                        EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                         // FIXME: Handle differing type sizes!!!
 
@@ -1897,8 +1943,8 @@ namespace T12
                         var resultType = CalcReturnType(typedLeft, scope, typeMap, functionMap, constMap, globalMap);
                         int type_size = SizeOfType(resultType, typeMap);
 
-                        EmitExpression(builder, typedLeft, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                        EmitExpression(builder, typedRight, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         // FIXME: Consider the size of the result of the expression
                         switch (binaryOp.OperatorType)
                         {
@@ -2126,8 +2172,8 @@ namespace T12
                     }
                 case ASTConditionalExpression conditional:
                     {
-                        int hash = conditional.GetHashCode();
-                        // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({hash})");
+                        int condIndex = context.LabelContext.ConditionalLabels++;
+                        // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({condIndex})");
 
                         // NOTE: We can do a optimization for words with sel instruction
 
@@ -2140,21 +2186,21 @@ namespace T12
                         if (conditional.Condition is ASTBinaryOp)
                         {
                             // Optimize jump for binary operations
-                            GenerateOptimizedBinaryOpJump(builder, conditional.Condition as ASTBinaryOp, $":else_cond_{hash}", scope, varList, typeMap, functionMap, constMap, globalMap);
+                            GenerateOptimizedBinaryOpJump(builder, conditional.Condition as ASTBinaryOp, $":else_cond_{condIndex}", scope, varList, typeMap, context, functionMap, constMap, globalMap);
                         }
                         else
                         {
-                            EmitExpression(builder, conditional.Condition, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                            builder.AppendLine($"\tjz :else_cond_{hash}");
+                            EmitExpression(builder, conditional.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                            builder.AppendLine($"\tjz :else_cond_{condIndex}");
                         }
                         
                         // We propagate the produce results to the ifTrue and ifFalse emits.
-                        builder.AppendLine($"\t:if_cond_{hash}");
-                        EmitExpression(builder, conditional.IfTrue, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
-                        builder.AppendLine($"\tjmp :post_cond_{hash}");
-                        builder.AppendLine($"\t:else_cond_{hash}");
-                        EmitExpression(builder, conditional.IfFalse, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
-                        builder.AppendLine($"\t:post_cond_{hash}");
+                        builder.AppendLine($"\t:if_cond_{condIndex}");
+                        EmitExpression(builder, conditional.IfTrue, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        builder.AppendLine($"\tjmp :post_cond_{condIndex}");
+                        builder.AppendLine($"\t:else_cond_{condIndex}");
+                        EmitExpression(builder, conditional.IfFalse, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        builder.AppendLine($"\t:post_cond_{condIndex}");
                         break;
                     }
                 case ASTContainsExpression containsExpression:
@@ -2190,10 +2236,10 @@ namespace T12
                                 // swap sub
                                 // inc sub pop
                                 builder.AppendLine($"\t; Contains");
-                                EmitExpression(builder, lower, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                EmitExpression(builder, value, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, lower, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, value, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine($"\tover sub swap");
-                                EmitExpression(builder, upper, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, upper, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine($"\tswap sub");
                                 builder.AppendLine($"\tinc sub");
                                 if (produceResult) builder.AppendLine($"\tsetc\t; Set to one if the value is contained in the range");
@@ -2201,10 +2247,10 @@ namespace T12
                                 break;
                             case 2:
                                 builder.AppendLine($"\t; Contains");
-                                EmitExpression(builder, lower, scope, varList, typeMap, functionMap, constMap, globalMap, true);
-                                EmitExpression(builder, value, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, lower, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, value, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine($"\tlover lsub lswap");
-                                EmitExpression(builder, upper, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, upper, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine($"\tlswap lsub");
                                 builder.AppendLine($"\tlinc lsub pop");
                                 if (produceResult) builder.AppendLine($"\tsetc\t; Set to one if the value is contained in the range");
@@ -2218,7 +2264,7 @@ namespace T12
                     }
                 case ASTFunctionCall functionCall:
                     {
-                        int hash = functionCall.GetHashCode();
+                        int funcCallIndex = context.LabelContext.FunctionCalls++;
 
                         string name;
                         List<(ASTType Type, string Name)> parameters;
@@ -2280,12 +2326,12 @@ namespace T12
                         }
 
                         if (functionCall.Arguments.Count > 0)
-                            builder.AppendLine($"\t; Args to function call ::{name} {hash}");
+                            builder.AppendLine($"\t; Args to function call ::{name} {funcCallIndex}");
                         
                         // This means adding a result type to expressions
                         foreach (var arg in functionCall.Arguments)
                         {
-                            EmitExpression(builder, arg, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, arg, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         }
 
                         if (virtualCall)
@@ -2303,12 +2349,12 @@ namespace T12
 
                             // Load the pointer and then call the function!
                             LoadVariable(builder, functionCall.Trace, local, typeMap);
-                            builder.AppendLine($"\t::[SP]\t; {name} {hash}");
+                            builder.AppendLine($"\t::[SP]\t; {name} {funcCallIndex}");
                         }
                         else
                         {
                             // Just call the function
-                            builder.AppendLine($"\t::{functionLabel}\t; {hash}");
+                            builder.AppendLine($"\t::{functionLabel}\t; {funcCallIndex}");
                         }
                         
                         if (produceResult == false)
@@ -2367,10 +2413,10 @@ namespace T12
                         // This means adding a result type to expressions
                         foreach (var arg in virtualFucntionCall.Arguments)
                         {
-                            EmitExpression(builder, arg, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, arg, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         }
 
-                        EmitExpression(builder, virtualFucntionCall.FunctionPointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, virtualFucntionCall.FunctionPointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\t::[SP]\t; Virtual call to [{virtualFucntionCall.FunctionPointer}]");
 
                         if (produceResult == false)
@@ -2410,7 +2456,7 @@ namespace T12
                                 Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
                             // Emit the casted offset
-                            EmitExpression(builder, dwordOffset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, dwordOffset, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                             int baseTypeSize = SizeOfType(baseType, typeMap);
 
@@ -2445,7 +2491,7 @@ namespace T12
                                     builder.AppendLine($"\tldup");
                                 }
 
-                                EmitExpression(builder, typedAssign, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, typedAssign, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                                 StoreVariable(builder, pointerExpression.Trace, pointerRef, typeMap);
                             }
@@ -2542,7 +2588,7 @@ namespace T12
                                 {
                                     // This is a special case where we can load the pointer really easy. 
                                     // We just load the pointer to the fixedArray before dereferencing.
-                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 }
                                 else
                                 {
@@ -2551,7 +2597,7 @@ namespace T12
                             }
                             else
                             {
-                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             }
                             
                             // TODO: We could change things so we never have to discard data.
@@ -2562,7 +2608,7 @@ namespace T12
                     }
                 case ASTPointerToVoidPointerCast cast:
                     // We really don't need to do anything as the cast is just for type-safety
-                    EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                    EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                     break;
                 case ASTFixedArrayToArrayCast cast:
                     {
@@ -2576,7 +2622,7 @@ namespace T12
                         builder.AppendLine($"\tloadl #{cast.FromType.Size}\t; Size of {cast.FromType} in elements");
                         // We want a pointer to the value
                         // NOTE: We might not want to create AST nodes while emitting assembly because debugging might become harder
-                        EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         break;
                     }
                 case ASTImplicitCast cast:
@@ -2591,13 +2637,13 @@ namespace T12
                             }
                             else if (cast.FromType == ASTBaseType.Word || cast.FromType == ASTBaseType.Char)
                             {
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                                 if (produceResult) builder.AppendLine($"\tsetnz ; cast from {cast.FromType} to bool");
                             }
                             else if (cast.FromType == ASTBaseType.DoubleWord || cast.FromType == ASTBaseType.String)
                             {
                                 // FIXME: STRING: This will not work for new strings!!!
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                                 if (produceResult) builder.AppendLine($"\tor setnz ; cast from {cast.FromType} to bool");
                             }
                             else
@@ -2608,12 +2654,12 @@ namespace T12
                         else if (cast.FromType.Size == cast.ToType.Size)
                         {
                             // Do nothing fancy, they have the same size
-                            EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         }
                         else if (cast.FromType.Size + 1 == cast.ToType.Size)
                         {
                             if (produceResult) builder.AppendLine($"\tload #0\t; Cast from '{cast.FromType}' to '{cast.To}'");
-                            EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         }
                         else
                         {
@@ -2629,7 +2675,7 @@ namespace T12
                         if (TryGenerateImplicitCast(cast.From, toType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression implicitCast, out string _))
                         {
                             // There existed an implicit cast! Use that!
-                            EmitExpression(builder, implicitCast, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            EmitExpression(builder, implicitCast, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         }
                         else if (cast.From is ASTDoubleWordLitteral && toType == ASTBaseType.Word)
                         {
@@ -2637,7 +2683,7 @@ namespace T12
                             ASTDoubleWordLitteral dwordLit = cast.From as ASTDoubleWordLitteral;
                             int truncatedValue = dwordLit.IntValue & 0xFFF;
                             ASTWordLitteral wordLit = new ASTWordLitteral(dwordLit.Trace, truncatedValue.ToString(), truncatedValue);
-                            EmitExpression(builder, wordLit, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                            EmitExpression(builder, wordLit, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         }
                         else
                         {
@@ -2650,69 +2696,69 @@ namespace T12
                             if (ResolveType(fromType, typeMap) == ResolveType(toType, typeMap))
                             {
                                 // They are the same type behind the scenes, so we just don't do anything
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out var actType) && actType == ASTBaseType.DoubleWord && toType == ASTPointerType.Of(ASTBaseType.Void))
                             {
                                 // FIXME: THIS IS REALLY SPECIFIC!!!
                                 // We need to fix the rules for explicit casting!!
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.Word && toType == ASTBaseType.Char)
                             {
                                 // They have the same size!
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             // TODO: Should we hardcode these casts? The list is getting pretty long, I don't think we should hard code them like this...
                             else if (fromType == ASTBaseType.DoubleWord && toType == ASTBaseType.Word)
                             {
                                 // This cast is easy
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                                 if (produceResult) builder.AppendLine($"\tswap pop\t; cast({toType})");
                             }
                             else if (fromType is ASTPointerType && toType is ASTPointerType)
                             {
                                 // We don't have to do anything to swap base type for pointer types!
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTPointerType && toType == ASTBaseType.DoubleWord)
                             {
                                 // We don't have to do anything to convert a pointer to a dword!
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTFunctionPointerType && toType == ASTBaseType.DoubleWord)
                             {
                                 // These will have the same size just emit the expression
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTFunctionPointerType && toType == ASTPointerType.Of(ASTBaseType.Void))
                             {
                                 // NOTE: This might not be the best as we can confuse functions for structs!
                                 // These will have the same size just emit the expression
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.Word && toType is ASTPointerType)
                             {
                                 // FIXME: How should we do with sign!!!
                                 if (produceResult) builder.AppendLine($"\tload #0\t; Cast from '{fromType}' to '{toType}'");
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.DoubleWord && toType is ASTPointerType)
                             {
                                 // We don't have to do anything to convert a dword to a pointer!
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.DoubleWord && toType is ASTFunctionPointerType)
                             {
                                 // We don't have to do anything to convert a dword to a function pointer!
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.String && (toType == ASTPointerType.Of(ASTBaseType.Word) || toType == ASTPointerType.Of(ASTBaseType.Char)))
                             {
                                 // FIXME: Make proper strings! Now we are doing different things for different casts!!
                                 // TODO: Proper strings!
                                 // Take the string pointer and increment it by two
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                                 if (produceResult) builder.AppendLine($"\tlinc linc");
                             }
                             else if (fromType == ASTBaseType.String && toType == ASTPointerType.Of(ASTBaseType.DoubleWord))
@@ -2720,19 +2766,19 @@ namespace T12
                                 // FIXME! FIXME! FIXME! FIXME! FIXME!
                                 // For now we just cast to the raw pointer and not the data pointer
                                 // This is because it is convenient in code while we don't have proper strings
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.String && toType == ASTBaseType.DoubleWord)
                             {
                                 // FIXME: Make proper strings! Now we are doing different things for different casts!!
                                 // Because a string is just a pointer ATM just emit the expresion
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTPointerType && toType == ASTBaseType.String)
                             {
                                 // FIXME: Make proper strings! Now we are doing different things for different casts!!
                                 // Because a string is just a pointer ATM just emit the expresion
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTPointerType.Of(ASTBaseType.Void) && toType is ASTArrayType arrayType)
                             {
@@ -2741,13 +2787,13 @@ namespace T12
                                 // FIXME: Proper arrays with length and stuff!!!
 
                                 // They have the same size so we just emit
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTFixedArrayType fixedArrayType && (toType == ASTPointerType.Of(fixedArrayType.BaseType) || toType == ASTPointerType.Of(ASTBaseType.Void)))
                             {
                                 // We take the "data" pointer of the fixed array and use that
                                 var data_member = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
-                                EmitExpression(builder, data_member, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, data_member, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else
                             {
@@ -2788,7 +2834,7 @@ namespace T12
                                     {
                                         // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
                                         var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
-                                        EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                        EmitExpression(builder, dataExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                                         return;
                                     }
                                 case "end":
@@ -2796,7 +2842,7 @@ namespace T12
                                         // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
                                         // Then add the length - 1 to that pointer
                                         var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
-                                        EmitExpression(builder, dataExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                        EmitExpression(builder, dataExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                                         if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
                                         if (produceResult) builder.AppendLine($"\tloadl #{SizeOfType(fixedArrayType.BaseType, typeMap)}\t; size of type {fixedArrayType.BaseType}");
                                         if (produceResult) builder.AppendLine($"\tlmul ldec ladd\t; Multiply the length by the size decrement and add to the pointer");
@@ -2889,7 +2935,7 @@ namespace T12
                                                 // Duplicate the pointer if we are going to produce a result
                                                 if (produceResult) builder.AppendLine("\tldup");
                                                 // Load the value to store
-                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
                                                 StoreSP(builder, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
                                             }
@@ -2905,7 +2951,7 @@ namespace T12
                                             if (typedAssigmnent != null)
                                             {
                                                 // Load the assignment value
-                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                                                 // Store that value into local
                                                 StoreVariable(builder, varExpr.Trace, memberRef, typeMap);
@@ -2944,7 +2990,7 @@ namespace T12
                                                 // Duplicate the pointer if we are going to produce a result
                                                 if (produceResult) builder.AppendLine("ldup");
                                                 // Load the value to store
-                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
                                                 StoreSP(builder, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
                                             }
@@ -2969,7 +3015,7 @@ namespace T12
                                             {
                                                 // Can we do this?
                                                 builder.AppendLine($"\tloadl #(#{variable.GlobalName} {member.Offset} +)");
-                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 StoreVariable(builder, varExpr.Trace, memberRef, typeMap);
                                             }
 
@@ -3016,11 +3062,11 @@ namespace T12
                                 // If this is a fixed array, loading it will mean loading the full array, we just want a pointer to it
                                 // So we load the "data" member
                                 var fixedArrayPointerExpr = new ASTMemberExpression(pointerExpression.Trace, pointerExpression.Pointer, "data", null, false);
-                                EmitExpression(builder, fixedArrayPointerExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, fixedArrayPointerExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             }
                             else
                             {
-                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             }
 
                             // If the member has a offset, add that offset
@@ -3041,7 +3087,7 @@ namespace T12
                             // We'll just emit the whole struct, isolate the member, and possibly assign to it...
                             int targetSize = SizeOfType(targetType, typeMap);
                             
-                            EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                             if (memberExpression.Dereference)
                             {
@@ -3061,7 +3107,7 @@ namespace T12
                                     // Duplicate the pointer
                                     if (produceResult) builder.AppendLine("\tldup");
 
-                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                                     StoreVariable(builder, memberExpression.Trace, pointerRef, typeMap);
                                 }
@@ -3178,11 +3224,11 @@ namespace T12
                             if (pointerType is ASTFixedArrayType fixedArray)
                             {
                                 var dataMember = new ASTMemberExpression(addressOfExpression.Trace, pointerExpression.Pointer, "data", null, false);
-                                EmitExpression(builder, dataMember, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             }
                             else
                             {
-                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             }
 
                             var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
@@ -3191,7 +3237,7 @@ namespace T12
                                 Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
                             // Emit the casted offset
-                            EmitExpression(builder, dwordOffset, scope, varList, typeMap, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, dwordOffset, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                             int baseTypeSize = SizeOfType(baseType, typeMap);
                             // Multiply by pointer base type size!
@@ -3225,13 +3271,13 @@ namespace T12
                             if (memberExpression.Dereference)
                             {
                                 // Here we load the pointer and add the member offset.
-                                EmitExpression(builder, memberExpression.TargetExpr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, memberExpression.TargetExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else
                             {
                                 // Here we take the address of the expression and add the member offset
                                 var structAddr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
-                                EmitExpression(builder, structAddr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, structAddr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
 
                             // We have the base pointer, so we just add the member offset
@@ -3247,7 +3293,7 @@ namespace T12
                             {
                                 // Here we want the address of the thing that the expression is pointing to.
                                 // Which is just the value of the expression.
-                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, functionMap, constMap, globalMap, produceResult);
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else
                             {
