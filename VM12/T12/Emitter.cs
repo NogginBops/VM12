@@ -110,6 +110,7 @@ namespace T12
 
         internal static void Warning(TraceData trace, string warning)
         {
+            // FIXME: We want to save warnings so that VM12Asm can read them
             if (trace.StartLine == trace.EndLine)
             {
                 Console.WriteLine($"WARNING ({Path.GetFileName(trace.File)}:{trace.StartLine}): '{warning}'");
