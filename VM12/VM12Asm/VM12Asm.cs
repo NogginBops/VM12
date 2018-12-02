@@ -1071,11 +1071,11 @@ namespace VM12Asm
 
             total.Stop();
 
-            double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 100;
-            double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 100;
-            double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 100;
+            double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 1000;
+            double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 1000;
+            double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 1000;
             double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
-            double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 100;
+            double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 1000;
 
             string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");

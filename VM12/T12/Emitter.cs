@@ -14,6 +14,8 @@ namespace T12
     using VarList = List<(string Name, int Offset, ASTType Type)>;
     using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
 
+    using static ConstantFolding;
+
     public struct Assembly
     {
         public string assembly;
@@ -94,7 +96,7 @@ namespace T12
     
     public static class Emitter
     {
-        private static void Fail(TraceData trace, string error)
+        internal static void Fail(TraceData trace, string error)
         {
             if (trace.StartLine == trace.EndLine)
             {
@@ -106,7 +108,7 @@ namespace T12
             }
         }
 
-        private static void Warning(TraceData trace, string warning)
+        internal static void Warning(TraceData trace, string warning)
         {
             if (trace.StartLine == trace.EndLine)
             {
@@ -117,9 +119,9 @@ namespace T12
                 Console.WriteLine($"WARNING ({Path.GetFileName(trace.File)}:{trace.StartLine}-{trace.EndLine}): '{warning}'");
             }
         }
-        
+
         // TODO: Should we really include the trace?
-        private static ASTType TypeOfVariable(TraceData trace, string variableName, VarMap scope, TypeMap typeMap)
+        internal static ASTType TypeOfVariable(TraceData trace, string variableName, VarMap scope, TypeMap typeMap)
         {
             if (scope.TryGetValue(variableName, out var varType) == false)
                 Fail(trace, $"No variable called '{variableName}'!");
@@ -127,7 +129,7 @@ namespace T12
             return ResolveType(varType.Type, typeMap);
         }
 
-        private static int SizeOfType(ASTType type, TypeMap typeMap)
+        internal static int SizeOfType(ASTType type, TypeMap typeMap)
         {
             // NOTE: Here we don't check that the underlying types are valid types
             // E.g. We can have a pointer to some type and that type does not have to exist for this type to work
@@ -164,7 +166,7 @@ namespace T12
             }
         }
 
-        private static ASTType CalcReturnType(ASTExpression expression, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        internal static ASTType CalcReturnType(ASTExpression expression, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (expression)
             {
@@ -357,7 +359,7 @@ namespace T12
         // Or rather we want a way to describe unary implicit casts and binary implicit casts.
         // So we can say that an expression must result in a type
         // Or we can say that two expressions must result in the same type
-        private static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
+        internal static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
         {
             ASTType exprType = CalcReturnType(expression, scope, typeMap, functionMap, constMap, globalMap);
 
@@ -620,7 +622,7 @@ namespace T12
             }
         }
         
-        private struct VariableRef
+        internal struct VariableRef
         {
             public VariableType VariableType;
             
@@ -636,7 +638,7 @@ namespace T12
         }
 
         // NOTE: Should we use this instead?
-        private enum VariableType
+        internal enum VariableType
         {
             Local,
             Pointer,
@@ -665,7 +667,7 @@ namespace T12
             }
         }
 
-        private static bool TryResolveVariable(string name, VarMap scope, GlobalMap globalMap, ConstMap constMap, FunctionMap functionMap, TypeMap typeMap, out VariableRef variable)
+        internal static bool TryResolveVariable(string name, VarMap scope, GlobalMap globalMap, ConstMap constMap, FunctionMap functionMap, TypeMap typeMap, out VariableRef variable)
         {
             if (TryGetLocalVariableRef(name, scope, typeMap, out variable))
             {
@@ -898,7 +900,7 @@ namespace T12
             }
         }
 
-        private static ASTType ResolveType(ASTType type, TypeMap typeMap)
+        internal static ASTType ResolveType(ASTType type, TypeMap typeMap)
         {
             if (type is ASTTypeRef)
                 return ResolveType(type.Trace, type.TypeName, typeMap);
@@ -943,7 +945,7 @@ namespace T12
             return type;
         }
 
-        private struct StructMember
+        internal struct StructMember
         {
             /// <summary>
             /// The ASTStructType this member is a part of.
@@ -955,7 +957,7 @@ namespace T12
             public int Offset;
         }
         
-        private static bool TryGetStructMember(ASTStructType structType, string memberName, TypeMap typeMap, out StructMember member)
+        internal static bool TryGetStructMember(ASTStructType structType, string memberName, TypeMap typeMap, out StructMember member)
         {
             var members = structType.Members;
             int memberIndex = members.FindIndex(m => m.Name == memberName);
@@ -1005,148 +1007,6 @@ namespace T12
             return memberOffset;
         }
         
-        private static ASTExpression ConstantFold(ASTExpression expr, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
-        {
-            switch (expr)
-            {
-                case ASTLitteral litteral:
-                    return litteral;
-                case ASTUnaryOp unaryOp:
-                    {
-                        var foldedExpr = ConstantFold(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
-                        switch (unaryOp.OperatorType)
-                        {
-                            case ASTUnaryOp.UnaryOperationType.Identity:
-                                return foldedExpr;
-                            case ASTUnaryOp.UnaryOperationType.Negation:
-                                // TODO: Should we do something with chars?
-                                switch (foldedExpr)
-                                {
-                                    case ASTWordLitteral wordLitteral:
-                                        return new ASTWordLitteral(wordLitteral.Trace, "-" + wordLitteral.Value, -wordLitteral.IntValue);
-                                    case ASTDoubleWordLitteral dwordLitteral:
-                                        return new ASTDoubleWordLitteral(dwordLitteral.Trace, "-" + dwordLitteral.Value, -dwordLitteral.IntValue);
-                                    default:
-                                        return foldedExpr;
-                                }
-                            case ASTUnaryOp.UnaryOperationType.Compliment:
-                                switch (foldedExpr)
-                                {
-                                    case ASTWordLitteral wordLitteral:
-                                        return new ASTWordLitteral(wordLitteral.Trace, "~" + wordLitteral.Value, (~wordLitteral.IntValue) & 0xFFF);
-                                    case ASTDoubleWordLitteral dwordLitteral:
-                                        return new ASTDoubleWordLitteral(dwordLitteral.Trace, "~" + dwordLitteral.Value, (~dwordLitteral.IntValue) & 0xFFF_FFF);
-                                    default:
-                                        return foldedExpr;
-                                }
-                            case ASTUnaryOp.UnaryOperationType.Logical_negation:
-                                switch (foldedExpr)
-                                {
-                                    case ASTBoolLitteral boolLitteral:
-                                        return new ASTBoolLitteral(boolLitteral.Trace, !boolLitteral.BoolValue);
-                                    default:
-                                        return foldedExpr;
-                                }
-                            case ASTUnaryOp.UnaryOperationType.Dereference:
-                                return foldedExpr;
-                            default:
-                                Warning(expr.Trace, $"Trying to constant fold unknown unary operator of type '{unaryOp.OperatorType}'");
-                                return unaryOp;
-                        }
-                    }
-                case ASTBinaryOp binaryOp:
-                    {
-                        // FIXME: Implement!!
-                        var foldedLeft = ConstantFold(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
-                        var foldedRight = ConstantFold(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
-
-                        ASTBinaryOp CreateFoldedBinOp()
-                        {
-                            return new ASTBinaryOp(binaryOp.Trace, binaryOp.OperatorType, foldedLeft, foldedRight);
-                        }
-                        
-                        var leftType = CalcReturnType(foldedLeft, scope, typeMap, functionMap, constMap, globalMap);
-                        var rightType = CalcReturnType(foldedRight, scope, typeMap, functionMap, constMap, globalMap);
-
-                        // FIXME: Do casting correctly!!
-                        // We could cast before everything else so that that becomes part of the left and right folding!
-                        if (leftType != rightType) return binaryOp;
-
-                        // TODO: Implement more constant folding!!
-                        // FIXME: Handle overflow!!
-                        switch (binaryOp.OperatorType)
-                        {
-                            case ASTBinaryOp.BinaryOperatorType.Addition:
-                                {
-                                    if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
-                                    {
-                                        int value = leftWord.IntValue + rightWord.IntValue;
-                                        return new ASTWordLitteral(binaryOp.Trace, $"{value}", value);
-                                    }
-                                    else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
-                                    {
-                                        int value = leftDWord.IntValue + rightDWord.IntValue;
-                                        return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
-                                    }
-                                    else
-                                    {
-                                        return CreateFoldedBinOp();
-                                    }
-                                }
-                            case ASTBinaryOp.BinaryOperatorType.Multiplication:
-                                {
-                                    // FIXME: This can probably be refactored to be much nicer
-
-
-                                    if (foldedLeft is ASTNumericLitteral leftNum)
-                                    {
-                                        switch (leftNum.IntValue)
-                                        {
-                                            case 0:
-                                                return leftNum;
-                                            case 1:
-                                                return foldedRight;
-                                        }
-                                    }
-
-                                    if (foldedRight is ASTNumericLitteral rightNum)
-                                    {
-                                        switch (rightNum.IntValue)
-                                        {
-                                            case 0:
-                                                return rightNum;
-                                            case 1:
-                                                return foldedLeft;
-                                        }
-                                    }
-
-
-                                    if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
-                                    {
-                                        int value = leftWord.IntValue * rightWord.IntValue;
-                                        return new ASTWordLitteral(binaryOp.Trace, $"{value}", value);
-                                    }
-                                    else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
-                                    {
-                                        int value = leftDWord.IntValue * rightDWord.IntValue;
-                                        return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
-                                    }
-                                    else
-                                    {
-                                        return CreateFoldedBinOp();
-                                    }
-                                }
-                            default:
-                                Warning(expr.Trace, $"Trying to constant fold unknown unary operator of type '{binaryOp.OperatorType}'");
-                                return CreateFoldedBinOp();
-                        }
-                    }
-                default:
-                    Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
-                    return expr;
-            }
-        }
-
         private static ASTType DerefType(TraceData trace, ASTType pointerType)
         {
             if (pointerType is ASTDereferenceableType derefType)
@@ -1431,9 +1291,15 @@ namespace T12
 
                             //if (TryConstantFolding(constDirective.Value, typeMap, constMap, out ASTLitteral foldedConst) == false)
                             //    Fail(constDirective.Value.Trace, $"Cannot assign a non-costant value '{constDirective.Value}' to constant '{constDirective.Name}'");
-                            
+
+                            // Constant fold with empty scope
+                            var foldedConst = ConstantFold(constDirective.Value, new VarMap(), typeMap, functionMap, constMap, globalMap);
+
+                            if (foldedConst is ASTLitteral == false)
+                                Fail(constDirective.Value.Trace, $"Value for constant '{constDirective.Name}' could not be folded to a constant. It got folded to '{foldedConst}'");
+
                             // FIXME: Proper constant folding!!!!!!!
-                            builder.AppendLine($"<{constDirective.Name} = {(constDirective.Value as ASTLitteral).Value.TrimEnd('d', 'D', 'w', 'W')}>");
+                            builder.AppendLine($"<{constDirective.Name} = {(foldedConst as ASTLitteral).Value.TrimEnd('d', 'D', 'w', 'W')}>");
                         }
                         break;
                     }
@@ -1538,7 +1404,7 @@ namespace T12
             }
             else if (func.Body.Last() is ASTReturnStatement == false)
             {
-                Warning(func.Trace, $"The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know it the function actually returns!");
+                Warning(func.Trace, $"The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know if the function actually returns!");
             }
 
             Context context = new Context(functionContext, LoopContext.Empty, default);
@@ -2426,7 +2292,6 @@ namespace T12
                                 Fail(functionCall.Arguments[i].Trace, $"Missmatching types on parameter '{parameters[i].Name}' ({i}) when calling function '{functionCall.FunctionName}', expected '{parameters[i].Type}' got '{argumentType}'! (Cast error: '{error}')");
 
                             // We don't need to check the result as it will have the desired type.
-
                             // Switch the old argument for the new casted one
                             functionCall.Arguments[i] = typedArg;
                         }
@@ -2437,7 +2302,9 @@ namespace T12
                         // This means adding a result type to expressions
                         foreach (var arg in functionCall.Arguments)
                         {
-                            EmitExpression(builder, arg, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                            // Constant fold the arg
+                            var foldedArg = ConstantFold(arg, scope, typeMap, functionMap, constMap, globalMap);
+                            EmitExpression(builder, foldedArg, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         }
 
                         if (virtualCall)

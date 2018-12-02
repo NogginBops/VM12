@@ -3086,6 +3086,7 @@ namespace T12
                     }
                 case TokenType.Open_square_bracket:
                     {
+                        // FIXME: Use ASTExpression for fixed arrays (we can constant fold now)
                         // Parse and make the current type the base for an array
                         var peek = Tokens.Peek();
                         if (peek.Type == TokenType.Numeric_Litteral)
