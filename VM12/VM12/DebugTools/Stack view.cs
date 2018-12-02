@@ -237,6 +237,7 @@ namespace Debugging
 
                 for (int i = 0; i <= vm12.StackPointer; i++)
                 {
+                    // NOTE: This can probably be done a lot more efficient
                     dgvStack.Rows.Add(new[] { $"0x{i:X}", $"0x{vm12.MEM[i]:X}" });
                     dgvStack.Rows[dgvStack.RowCount - 1].Cells[0].ReadOnly = true;
                 }

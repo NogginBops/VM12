@@ -307,9 +307,20 @@ namespace T12
                                     break;
                             }
                         }
-
-                        // TODO: Add length and data members to arrays!
-
+                        else if (targetType is ASTArrayType arrayType)
+                        {
+                            switch (memberExpression.MemberName)
+                            {
+                                case "length":
+                                    return ASTBaseType.DoubleWord;
+                                case "data":
+                                    return ASTPointerType.Of(arrayType.BaseType);
+                                default:
+                                    Fail(memberExpression.Trace, $"Fixed array type '{targetType}' does not have a memeber '{memberExpression.MemberName}'");
+                                    break;
+                            }
+                        }
+                        
                         if (targetType is ASTStructType)
                         {
                             var (type, name) = (targetType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
@@ -994,58 +1005,119 @@ namespace T12
             return memberOffset;
         }
         
-        private static bool TryConstantFolding(StringBuilder builder, ASTExpression expr, TypeMap typeMap, ConstMap constMap)
+        private static ASTExpression ConstantFold(ASTExpression expr, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
-            // FIXME: Make this work and use it!
-
             switch (expr)
             {
-                /*
                 case ASTLitteral litteral:
-                    builder.Append($"{litteral.Value} ");
-                    return true;
-                */
-                case ASTBinaryOp binaryOp:
-                    {
-                        // If both operands are const we can do the binary op
-                        
-
-                        
-                        return false;
-                    }
+                    return litteral;
                 case ASTUnaryOp unaryOp:
                     {
-                        
-                        return false;
+                        var foldedExpr = ConstantFold(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
+                        switch (unaryOp.OperatorType)
+                        {
+                            case ASTUnaryOp.UnaryOperationType.Identity:
+                                return foldedExpr;
+                            case ASTUnaryOp.UnaryOperationType.Negation:
+                                // TODO: Should we do something with chars?
+                                switch (foldedExpr)
+                                {
+                                    case ASTWordLitteral wordLitteral:
+                                        return new ASTWordLitteral(wordLitteral.Trace, "-" + wordLitteral.Value, -wordLitteral.IntValue);
+                                    case ASTDoubleWordLitteral dwordLitteral:
+                                        return new ASTDoubleWordLitteral(dwordLitteral.Trace, "-" + dwordLitteral.Value, -dwordLitteral.IntValue);
+                                    default:
+                                        return foldedExpr;
+                                }
+                            case ASTUnaryOp.UnaryOperationType.Compliment:
+                                switch (foldedExpr)
+                                {
+                                    case ASTWordLitteral wordLitteral:
+                                        return new ASTWordLitteral(wordLitteral.Trace, "~" + wordLitteral.Value, (~wordLitteral.IntValue) & 0xFFF);
+                                    case ASTDoubleWordLitteral dwordLitteral:
+                                        return new ASTDoubleWordLitteral(dwordLitteral.Trace, "~" + dwordLitteral.Value, (~dwordLitteral.IntValue) & 0xFFF_FFF);
+                                    default:
+                                        return foldedExpr;
+                                }
+                            case ASTUnaryOp.UnaryOperationType.Logical_negation:
+                                switch (foldedExpr)
+                                {
+                                    case ASTBoolLitteral boolLitteral:
+                                        return new ASTBoolLitteral(boolLitteral.Trace, !boolLitteral.BoolValue);
+                                    default:
+                                        return foldedExpr;
+                                }
+                            case ASTUnaryOp.UnaryOperationType.Dereference:
+                                return foldedExpr;
+                            default:
+                                Warning(expr.Trace, $"Trying to constant fold unknown unary operator of type '{unaryOp.OperatorType}'");
+                                return unaryOp;
+                        }
                     }
-                case ASTConditionalExpression conditionalExpression:
+                case ASTBinaryOp binaryOp:
                     {
-                        return false;
-                    }
-                case ASTContainsExpression containsExpression:
-                    {
-                        return false;
-                    }
-                case ASTExternVariableExpression variableExpression:
-                    {
-                        return false;
-                    }
-                case ASTSizeofTypeExpression sizeofTypeExpression:
-                    {
-                        var sizeOfType = ResolveType(sizeofTypeExpression.Type, typeMap);
-                        int size = SizeOfType(sizeOfType, typeMap);
+                        // FIXME: Implement!!
+                        var foldedLeft = ConstantFold(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedRight = ConstantFold(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
 
-                        builder.Append($"{size} ");
-                        return true;
-                    }
-                case ASTAddressOfExpression addressOfExpression:
-                    {
-                        // If we are taking the address of a global var we can know the pointer?!
-                        return false;
+                        ASTBinaryOp CreateFoldedBinOp()
+                        {
+                            return new ASTBinaryOp(binaryOp.Trace, binaryOp.OperatorType, foldedLeft, foldedRight);
+                        }
+                        
+                        var leftType = CalcReturnType(foldedLeft, scope, typeMap, functionMap, constMap, globalMap);
+                        var rightType = CalcReturnType(foldedRight, scope, typeMap, functionMap, constMap, globalMap);
+
+                        // FIXME: Do casting correctly!!
+                        // We could cast before everything else so that that becomes part of the left and right folding!
+                        if (leftType != rightType) return binaryOp;
+
+                        // TODO: Implement more constant folding!!
+                        // FIXME: Handle overflow!!
+                        switch (binaryOp.OperatorType)
+                        {
+                            case ASTBinaryOp.BinaryOperatorType.Addition:
+                                {
+                                    if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
+                                    {
+                                        int value = leftWord.IntValue + rightWord.IntValue;
+                                        return new ASTWordLitteral(binaryOp.Trace, $"{value}", value);
+                                    }
+                                    else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
+                                    {
+                                        int value = leftDWord.IntValue + rightDWord.IntValue;
+                                        return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
+                                    }
+                                    else
+                                    {
+                                        return CreateFoldedBinOp();
+                                    }
+                                }
+                            case ASTBinaryOp.BinaryOperatorType.Multiplication:
+                                {
+                                    if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
+                                    {
+                                        int value = leftWord.IntValue * rightWord.IntValue;
+                                        return new ASTWordLitteral(binaryOp.Trace, $"{value}", value);
+                                    }
+                                    else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
+                                    {
+                                        int value = leftDWord.IntValue * rightDWord.IntValue;
+                                        return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
+                                    }
+                                    else
+                                    {
+                                        return CreateFoldedBinOp();
+                                    }
+                                }
+                            default:
+                                Warning(expr.Trace, $"Trying to constant fold unknown unary operator of type '{binaryOp.OperatorType}'");
+                                return CreateFoldedBinOp();
+                        }
                     }
                 default:
-                    Fail(expr.Trace, $"Unknown expression type '{expr.GetType()}'! This is a compiler bug!!");
-                    return false;
+                    Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
+                    return expr;
             }
         }
 
@@ -2464,26 +2536,26 @@ namespace T12
 
                             var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
 
+                            int baseTypeSize = SizeOfType(baseType, typeMap);
+
                             // Try to cast the offset to a dword
                             if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
                                 Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
-                            // Emit the casted offset
-                            EmitExpression(builder, dwordOffset, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                            // Set up the dereferencing operation as arithmetic operations so we can do constant folding
+                            // pointer + (typeSize * index)
+                            // And we have to do a cast for things to be fine
+                            // FIXME: We should refactor DerefPointer so we can include the pointer expression in the constant folding...
+                            // TODO: We also want a way to emit a comment describing what the folded value is...
+                            var toFoldExpression = new ASTBinaryOp(pointerExpression.Offset.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication,
+                                                        new ASTDoubleWordLitteral(pointerExpression.Trace, $"{baseTypeSize}", baseTypeSize), dwordOffset);
 
-                            int baseTypeSize = SizeOfType(baseType, typeMap);
+                            var foldedExpr = ConstantFold(toFoldExpression, scope, typeMap, functionMap, constMap, globalMap);
 
-                            // Multiply by pointer base type size!
-                            if (baseTypeSize > 1)
-                            {
-                                builder.AppendLine($"\tloadl #{baseTypeSize}\t; {pointerType} base type size ({baseTypeSize})");
-
-                                builder.AppendLine($"\tlmul");
-                            }
+                            EmitExpression(builder, foldedExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             
-                            // Add the offset to the pointer
                             builder.AppendLine($"\tladd");
-
+                            
                             VariableRef pointerRef = new VariableRef()
                             {
                                 VariableType = VariableType.Pointer,
@@ -2518,7 +2590,20 @@ namespace T12
                                 LoadVariable(builder, pointerExpression.Trace, pointerRef, typeMap);
                             }
                         }
-                        
+
+                        // Handle the case of an array type separate from the rest... (Not optimal...)
+                        var pType = CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap);
+                        if (pType is ASTArrayType)
+                        {
+                            // TODO: We should add a bounds check first!
+
+                            // Basically load the data member and do the same ASTPointerExpression with that instead
+                            var pExpr = pointerExpression;
+                            var dataPointerExpression = new ASTPointerExpression(pExpr.Trace, new ASTMemberExpression(pExpr.Trace, pExpr.Pointer, "data", null, false), pExpr.Offset, pExpr.Assignment);
+                            EmitExpression(builder, dataPointerExpression, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            return;
+                        }
+
                         if (pointerExpression.Pointer is ASTVariableExpression variableExpr)
                         {
                             if (TryResolveVariable(variableExpr.Name, scope, globalMap, constMap, functionMap, typeMap, out VariableRef variable) == false)
@@ -2613,8 +2698,7 @@ namespace T12
                                 EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             }
                             
-                            // TODO: We could change things so we never have to discard data.
-                            // We always want to load the pointer, this will handle discarding it.
+                            // This handles assignment!
                             DerefPointer(pointerType);
                         }
                         break;
@@ -2710,6 +2794,18 @@ namespace T12
                             {
                                 // They are the same type behind the scenes, so we just don't do anything
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType is ASTArrayType && (toType is ASTPointerType || toType == ASTBaseType.DoubleWord))
+                            {
+                                // We get the data member from the array
+                                var dataMember = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
+                                EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType is ASTFixedArrayType && (toType is ASTPointerType || toType == ASTBaseType.DoubleWord))
+                            {
+                                // We get the data member from the array
+                                var dataMember = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
+                                EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out var actType) && actType == ASTBaseType.DoubleWord && toType == ASTPointerType.Of(ASTBaseType.Void))
                             {
@@ -2866,13 +2962,48 @@ namespace T12
                                     break;
                             }
                         }
-
-                        // If we get here and structType is not a struct we fail
-                        if (structType is ASTStructType == false)
-                            Fail(memberExpression.TargetExpr.Trace, $"Type '{structType}' does not have members!");
                         
-                        if (TryGetStructMember(structType as ASTStructType, memberExpression.MemberName, typeMap, out StructMember member) == false)
-                            Fail(memberExpression.Trace, $"No member '{memberExpression.MemberName}' in struct '{structType}'!");
+                        // NOTE: We let array types pass here!! We will handle the offsets ourselves... (It's not optimal)
+                        // If we get here and structType is not a struct we fail
+                        if (structType is ASTStructType == false && structType is ASTArrayType == false)
+                            Fail(memberExpression.TargetExpr.Trace, $"Type '{structType}' does not have members!");
+
+                        // The special case for arrays here is not very nice...
+                        // Arrays should be refactored as a struct type!!
+                        // Then there would only be special cases when indexing.
+                        StructMember member = default;
+                        if (structType is ASTArrayType arrayType)
+                        {
+                            // We fix our own members....
+                            switch (memberExpression.MemberName)
+                            {
+                                case "length":
+                                    // Hmmm, what should we do here... (for now we leave it empty)
+                                    member.In = null;
+                                    member.Type = ASTBaseType.DoubleWord;
+                                    member.Offset = 0;
+                                    member.Index = 0;
+                                    member.Size = 2;
+                                    break;
+                                case "data":
+                                    // Hmmm, what should we do here... (for now we leave it empty)
+                                    member.In = null;
+                                    member.Type = ASTPointerType.Of(arrayType.BaseType);
+                                    member.Offset = 2;
+                                    member.Index = 1;
+                                    member.Size = 2;
+                                    break;
+                                default:
+                                    Fail(memberExpression.Trace, $"Array type '{arrayType}' does not have a member '{memberExpression.MemberName}'!");
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            // This is a normal struct type so we just try to get the member
+                            if (TryGetStructMember(structType as ASTStructType, memberExpression.MemberName, typeMap, out member) == false)
+                                Fail(memberExpression.Trace, $"No member '{memberExpression.MemberName}' in struct '{structType}'!");
+                        }
                         
                         ASTExpression typedAssigmnent = null;
                         if (memberExpression.Assignment != null)
@@ -2888,7 +3019,9 @@ namespace T12
                         // Then we can just calculate an offset directly instead of loading the the whole target expression
                         
                         Stack<string> membersComment = new Stack<string>();
-                        
+
+                        // FIXME: When we move to optimizing this, think about assignments!!! 
+                        // Each level can have an assignment and the typedAssignment for this ASTNode!!!
                         ASTMemberExpression target = memberExpression;
 
                         // TODO: We don't do this optimization for now. It's somewhat complex, easier to do without
@@ -3057,20 +3190,20 @@ namespace T12
                         else if (target.Dereference == false && target.TargetExpr is ASTPointerExpression pointerExpression && pointerExpression.Assignment == null)
                         {
                             // NOTE: Why are we doing this optimization? Is it worth it?
-
+                            
                             // Here we are derefing something and just taking one thing from the result.
                             // Then we can just get the pointer that points to the member
                             // We don't do this if we are dereferencing once again becase then we can't just
                             // add to the pointer
 
                             // If we are assigning to the pointer this becomes harder, so we just don't do this atm
-
+                            
                             if (pointerExpression.Assignment != null) Fail(pointerExpression.Assignment.Trace, $"Assigning to the pointer expression should not happen here!");
 
                             var pointerType = CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap);
 
                             // Load the pointer value
-                            if (pointerType is ASTFixedArrayType fixedArray)
+                            /*if (pointerType is ASTFixedArrayType fixedArray)
                             {
                                 // If this is a fixed array, loading it will mean loading the full array, we just want a pointer to it
                                 // So we load the "data" member
@@ -3079,20 +3212,35 @@ namespace T12
                             }
                             else
                             {
-                                EmitExpression(builder, pointerExpression.Pointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                            }
+                                
+                            }*/
+
+                            // Load the pointer expression address
+                            var addressOfPointerExpr = new ASTAddressOfExpression(pointerExpression.Trace, pointerExpression);
+                            EmitExpression(builder, addressOfPointerExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
                             // If the member has a offset, add that offset
-                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; Offset to member {memberExpression.MemberName}");
+                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; Offset to member {target.MemberName}");
 
                             VariableRef variable = new VariableRef
                             {
                                 VariableType = VariableType.Pointer,
                                 Type = member.Type,
-                                Comment = $"[{memberExpression.MemberName}]",
+                                Comment = $"[{target.MemberName}]",
                             };
 
-                            LoadVariable(builder, memberExpression.Trace, variable, typeMap);
+                            if (typedAssigmnent != null)
+                            {
+                                // Duplicate the pointer so we can assign to it.
+                                if (produceResult) builder.AppendLine("\tldup");
+
+                                // Load the value
+                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+
+                                StoreVariable(builder, typedAssigmnent.Trace, variable, typeMap);
+                            }
+
+                            if (produceResult) LoadVariable(builder, target.Trace, variable, typeMap);
                         }
                         else
                         {

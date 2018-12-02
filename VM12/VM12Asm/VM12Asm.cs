@@ -729,6 +729,8 @@ namespace VM12Asm
 
             Stack<string> remainingUsings = new Stack<string>();
 
+            HashSet<string> parsedFiles = new HashSet<string>();
+
             remainingUsings.Push(Path.GetFileName(file));
 
             FileInfo fileInf = new FileInfo(file);
@@ -745,7 +747,12 @@ namespace VM12Asm
                 {
                     continue;
                 }
-
+                else if (use.EndsWith("t12", StringComparison.InvariantCultureIgnoreCase) && files.ContainsKey(Path.ChangeExtension(use, "12asm")))
+                {
+                    Log(verbose, $"T12 file {use} was already compiled. Skipping!");
+                    continue;
+                }
+                
                 FileInfo fi = dirFiles.First(f => f.Name == use);
 
                 if (Path.GetExtension(fi.FullName) == ".t12")
@@ -755,11 +762,8 @@ namespace VM12Asm
                         T12.Compiler.StartCompiling(dirInf);
                     }
 
-                    if (verbose)
-                    {
-                        Console.WriteLine($"Compiling t12 file '{fi.Name}'.");
-                    }
-
+                    Log(verbose, $"Compiling t12 file '{fi.Name}'.");
+                    
                     t12Files++;
 
                     // We need to invoke the t12 compiler!
@@ -1409,6 +1413,8 @@ namespace VM12Asm
 
         static AsemFile Parse(RawFile file)
         {
+            Log(verbose, $"Parsing {Path.GetFileName(file.path)}");
+
             Dictionary<string, string> usings = new Dictionary<string, string>();
             Dictionary<string, Constant> constants = new Dictionary<string, Constant>();
             Dictionary<string, Proc> procs = new Dictionary<string, Proc>();
