@@ -1095,6 +1095,32 @@ namespace T12
                                 }
                             case ASTBinaryOp.BinaryOperatorType.Multiplication:
                                 {
+                                    // FIXME: This can probably be refactored to be much nicer
+
+
+                                    if (foldedLeft is ASTNumericLitteral leftNum)
+                                    {
+                                        switch (leftNum.IntValue)
+                                        {
+                                            case 0:
+                                                return leftNum;
+                                            case 1:
+                                                return foldedRight;
+                                        }
+                                    }
+
+                                    if (foldedRight is ASTNumericLitteral rightNum)
+                                    {
+                                        switch (rightNum.IntValue)
+                                        {
+                                            case 0:
+                                                return rightNum;
+                                            case 1:
+                                                return foldedLeft;
+                                        }
+                                    }
+
+
                                     if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
                                     {
                                         int value = leftWord.IntValue * rightWord.IntValue;
@@ -2548,7 +2574,7 @@ namespace T12
                             // FIXME: We should refactor DerefPointer so we can include the pointer expression in the constant folding...
                             // TODO: We also want a way to emit a comment describing what the folded value is...
                             var toFoldExpression = new ASTBinaryOp(pointerExpression.Offset.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication,
-                                                        new ASTDoubleWordLitteral(pointerExpression.Trace, $"{baseTypeSize}", baseTypeSize), dwordOffset);
+                                                        dwordOffset, new ASTDoubleWordLitteral(pointerExpression.Trace, $"{baseTypeSize}", baseTypeSize));
 
                             var foldedExpr = ConstantFold(toFoldExpression, scope, typeMap, functionMap, constMap, globalMap);
 
