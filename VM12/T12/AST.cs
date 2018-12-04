@@ -580,8 +580,9 @@ namespace T12
 
         public readonly string Name;
         public readonly ASTType DeclaredType;
+        public readonly bool Alias;
         
-        public ASTStructDeclarationDirective(TraceData trace, string name, ASTType type) : base(trace)
+        public ASTStructDeclarationDirective(TraceData trace, string name, ASTType type, bool Alias = false) : base(trace)
         {
             Name = name;
             DeclaredType = type;
@@ -601,6 +602,8 @@ namespace T12
             {
                 case TokenType.Equal:
                     {
+                        // This is a type alias
+
                         ASTType type = ASTType.Parse(Tokens);
 
                         var semicolonTok = Tokens.Dequeue();
@@ -613,7 +616,7 @@ namespace T12
                             EndLine = semicolonTok.Line,
                         };
                         
-                        return new ASTStructDeclarationDirective(trace, name, type);
+                        return new ASTStructDeclarationDirective(trace, name, ASTAliasedType.Of(name, type));
                     }
                 case TokenType.Open_brace:
                     {
@@ -1840,7 +1843,7 @@ namespace T12
                 switch (peek.Type)
                 {
                     case TokenType.Open_parenthesis:
-                        targetExpr = ASTVirtualFucntionCall.Parse(Tokens, targetExpr);
+                        targetExpr = ASTVirtualFunctionCall.Parse(Tokens, targetExpr);
                         break;
                     case TokenType.Open_square_bracket:
                         targetExpr = ASTPointerExpression.Parse(Tokens, targetExpr);
@@ -2496,6 +2499,50 @@ namespace T12
                     return false;
             }
         }
+
+        public static bool IsPointerCompatibleOpType(BinaryOperatorType type)
+        {
+            switch (type)
+            {
+                case BinaryOperatorType.Addition:
+                case BinaryOperatorType.Subtraction:
+                    // NOTE: Should these be allowed?
+                case BinaryOperatorType.Multiplication:
+                case BinaryOperatorType.Division:
+                case BinaryOperatorType.Modulo:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        internal static bool IsComparisonOp(BinaryOperatorType opType)
+        {
+            switch (opType)
+            {
+                case BinaryOperatorType.Equal:
+                case BinaryOperatorType.Not_equal:
+                case BinaryOperatorType.Less_than:
+                case BinaryOperatorType.Less_than_or_equal:
+                case BinaryOperatorType.Greater_than:
+                case BinaryOperatorType.Greater_than_or_equal:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        internal static bool IsEqualsOp(BinaryOperatorType opType)
+        {
+            switch (opType)
+            {
+                case BinaryOperatorType.Equal:
+                case BinaryOperatorType.Not_equal:
+                    return true;
+                default:
+                    return false;
+            }
+        }
     }
 
     public class ASTConditionalExpression : ASTExpression
@@ -2578,18 +2625,18 @@ namespace T12
         }
     }
 
-    public class ASTVirtualFucntionCall : ASTExpression
+    public class ASTVirtualFunctionCall : ASTExpression
     {
         public readonly ASTExpression FunctionPointer;
         public readonly List<ASTExpression> Arguments;
 
-        public ASTVirtualFucntionCall(TraceData trace, ASTExpression functionPointer, List<ASTExpression> arguments) : base(trace)
+        public ASTVirtualFunctionCall(TraceData trace, ASTExpression functionPointer, List<ASTExpression> arguments) : base(trace)
         {
             FunctionPointer = functionPointer;
             Arguments = arguments;
         }
 
-        public static ASTVirtualFucntionCall Parse(Queue<Token> Tokens, ASTExpression target)
+        public static ASTVirtualFunctionCall Parse(Queue<Token> Tokens, ASTExpression target)
         {
             var openParenTok = Tokens.Dequeue();
             if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
@@ -2622,7 +2669,7 @@ namespace T12
                 EndLine = closeParenTok.Line,
             };
 
-            return new ASTVirtualFucntionCall(trace, target, arguments);
+            return new ASTVirtualFunctionCall(trace, target, arguments);
         }
     }
 
@@ -3181,6 +3228,31 @@ namespace T12
         {
             Size = size;
         }
+
+        public static bool IsNumericType(ASTType type)
+        {
+            if (type is ASTBaseType == false)
+            {
+                return false;
+            }
+            else if (type == Word)
+            {
+                return true;
+            }
+            else if (type == DoubleWord)
+            {
+                return true;
+            }
+            // TODO: Should this really be considered a numeric type?....
+            else if (type == Char)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
     }
 
     public abstract class ASTDereferenceableType : ASTType
@@ -3265,6 +3337,23 @@ namespace T12
         public ASTTypeRef(TraceData trace, string name) : base(trace, name)
         {
             Name = name;
+        }
+    }
+
+    public class ASTAliasedType : ASTType
+    {
+        public readonly string Alias;
+        public readonly ASTType RealType;
+
+        public ASTAliasedType(TraceData trace, string alias, ASTType real) : base(trace, alias)
+        {
+            Alias = alias;
+            RealType = real;
+        }
+
+        internal static ASTType Of(string name, ASTType type)
+        {
+            return new ASTAliasedType(type.Trace, name, type);
         }
     }
 

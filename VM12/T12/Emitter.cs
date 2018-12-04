@@ -7,7 +7,7 @@ using System.Text;
 namespace T12
 {
     using ConstMap = Dictionary<string, ASTConstDirective>;
-    using FunctionMap = Dictionary<string, ASTFunction>;
+    using FunctionMap = Dictionary<string, List<ASTFunction>>;
     using GlobalMap = Dictionary<string, ASTGlobalDirective>;
     using ImportMap = Dictionary<string, ASTFile>;
     using TypeMap = Dictionary<string, ASTType>;
@@ -160,6 +160,8 @@ namespace T12
                         }
                     else
                         return SizeOfType(externType.Type, typeMap);
+                case ASTAliasedType aliasedType:
+                    return SizeOfType(aliasedType.RealType, typeMap);
                 default:
                     // We don't fully know the size of the type yet so we consult the TypeMap
                     // FIXME: We can get stuck looping here!
@@ -181,48 +183,36 @@ namespace T12
                             return constDirective.Type;
                         else if (globalMap.TryGetValue(variableExpression.Name, out var globalDirective))
                             return globalDirective.Type;
-                        else if (functionMap.TryGetValue(variableExpression.Name, out var function))
-                            return ASTFunctionPointerType.Of(expression.Trace, function);
+                        else if (functionMap.TryGetValue(variableExpression.Name, out var functions))
+                            if (functions.Count > 1) Fail(default, $"We cannot take function pointer to the overloaded function '{variableExpression.Name}'! ");
+                            else return ASTFunctionPointerType.Of(expression.Trace, functions[0]);
                         else
                             Fail(variableExpression.Trace, $"Could not find variable called '{variableExpression.Name}'!");
                         break;
                     }
                 case ASTUnaryOp unaryOp:
-                    var retType = CalcReturnType(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
-
-                    if (unaryOp.OperatorType == ASTUnaryOp.UnaryOperationType.Dereference)
                     {
-                        if (retType is ASTPointerType pointerType)
-                            retType = ResolveType(pointerType.BaseType, typeMap);
-                        else
-                            Fail(unaryOp.Trace, $"Cannot derefernece non-pointer type '{retType}'!");
-                    }
+                        var retType = CalcReturnType(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
 
-                    return retType;
+                        if (unaryOp.OperatorType == ASTUnaryOp.UnaryOperationType.Dereference)
+                        {
+                            if (retType is ASTPointerType pointerType)
+                                retType = ResolveType(pointerType.BaseType, typeMap);
+                            else
+                                Fail(unaryOp.Trace, $"Cannot derefernece non-pointer type '{retType}'!");
+                        }
+
+                        return retType;
+                    }
                 case ASTBinaryOp binaryOp:
                     {
                         ASTType left = CalcReturnType(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
                         ASTType right = CalcReturnType(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
 
-                        if (ASTBinaryOp.IsBooleanOpType(binaryOp.OperatorType))
-                        {
-                            return ASTBaseType.Bool;
-                        }
-
-                        if (TryGenerateImplicitCast(binaryOp.Right, left, scope, typeMap, functionMap, constMap, globalMap, out _, out _))
-                        {
-                            // We where able to cast the right expression to the left one! Great.
-                            return left;
-                        }
-                        else if (TryGenerateImplicitCast(binaryOp.Left, right, scope, typeMap, functionMap, constMap, globalMap, out _, out _))
-                        {
-                            return right;
-                        }
-                        else
-                        {
+                        if (TypesCompatibleWithBinaryOp(left, right, binaryOp.OperatorType, typeMap, out ASTType result) == false)
                             Fail(binaryOp.Trace, $"Cannot apply binary op '{binaryOp.OperatorType}' to types '{left}' and '{right}'");
-                            return default;
-                        }
+
+                        return result;
                     }
                 case ASTConditionalExpression conditional:
                     {
@@ -266,12 +256,14 @@ namespace T12
                         if (scope.TryGetValue(functionCall.FunctionName, out var local) && local.Type is ASTFunctionPointerType functionPointerType)
                             return functionPointerType.ReturnType;
 
-                        if (functionMap.TryGetValue(functionCall.FunctionName, out ASTFunction function) == false)
+                        if (functionMap.TryGetValue(functionCall.FunctionName, out var functions) == false)
                             Fail(functionCall.Trace, $"No function called '{functionCall.FunctionName}'!");
-
-                        return function.ReturnType;
+                        
+                        // Here we need to find the function that maches best to a list of imput argument types..
+                        // FIXME: Implement!!!!!!
+                        return functions[0].ReturnType;
                     }
-                case ASTVirtualFucntionCall virtualFucntionCall:
+                case ASTVirtualFunctionCall virtualFucntionCall:
                     {
                         var funcPointerType = CalcReturnType(virtualFucntionCall.FunctionPointer, scope, typeMap, functionMap, constMap, globalMap);
 
@@ -324,13 +316,12 @@ namespace T12
                             }
                         }
                         
-                        if (targetType is ASTStructType)
+                        if (targetType is ASTStructType structType)
                         {
-                            var (type, name) = (targetType as ASTStructType).Members.Find(m => m.Name == memberExpression.MemberName);
-                            if (type == null)
+                            if (TryGetStructMember(structType, memberExpression.MemberName, typeMap, out var member) == false)
                                 Fail(memberExpression.TargetExpr.Trace, $"Type '{targetType}' does not contain a member '{memberExpression.MemberName}'!");
 
-                            return type;
+                            return member.Type;
                         }
 
                         Fail(memberExpression.TargetExpr.Trace, $"Type '{targetType}' does not have members!");
@@ -356,6 +347,100 @@ namespace T12
             return default;
         }
 
+        internal static bool TypesCompatibleWithBinaryOp(ASTType left, ASTType right, ASTBinaryOp.BinaryOperatorType opType, TypeMap typeMap, out ASTType resultType)
+        {
+            // We might want a special error message for when we try to add something that is not a numeric type like a string
+            if ((left is ASTPointerType && ASTBaseType.IsNumericType(right as ASTBaseType)) ||
+                (right is ASTPointerType && ASTBaseType.IsNumericType(left as ASTBaseType)))
+            {
+                ASTPointerType pType = left as ASTPointerType ?? right as ASTPointerType;
+
+                if (ASTBinaryOp.IsPointerCompatibleOpType(opType))
+                {
+                    resultType = pType;
+                    return true;
+                }
+                else
+                {
+                    resultType = default;
+                    return false;
+                }
+            }
+
+            // TODO: Will this work always or what?
+            if (ASTBinaryOp.IsBooleanOpType(opType))
+            {
+                resultType = ASTBaseType.Bool;
+                return true;
+            }
+
+            if (HasImplicitCast(right, left, typeMap))
+            {
+                // We where able to cast the right expression to the left one! Great.
+                resultType = left;
+                return true;
+            }
+            else if (HasImplicitCast(left, right, typeMap))
+            {
+                // We where able to cast the left expression to the right one! Great.
+                resultType = left;
+                return true;
+            }
+            else
+            {
+                resultType = default;
+                return false;
+            }
+        }
+
+        internal static bool HasImplicitCast(ASTType from, ASTType to, TypeMap typeMap)
+        {
+            if (from == to)
+            {
+                return true;
+            }
+            else if (from is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out ASTType actType) && actType is ASTBaseType baseType && to == baseType)
+            {
+                return true;
+            }
+            else if (from is ASTFixedArrayType && to is ASTArrayType)
+            {
+                return true;
+            }
+            else if (from is ASTPointerType && to == ASTPointerType.Of(ASTBaseType.Void))
+            {
+                return true;
+            }
+            else if (from == ASTBaseType.String && to == ASTPointerType.Of(ASTBaseType.Void))
+            {
+                return true;
+            }
+            else if (from is ASTBaseType && to == ASTBaseType.Bool)
+            {
+                return true;
+            }
+            else if (from is ASTBaseType fromBase && to is ASTBaseType toBase)
+            {
+                if (fromBase.Size == toBase.Size)
+                {
+                    return true;
+                }
+                // FIXME: This should not allow word -> string casts...
+                else if (fromBase.Size < toBase.Size)
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
+        
         // FIXME: Redesign this to be able to consider both expressions we want to cast to each other
         // Or rather we want a way to describe unary implicit casts and binary implicit casts.
         // So we can say that an expression must result in a type
@@ -374,11 +459,16 @@ namespace T12
                 error = default;
                 return true;
             }
-            else if (exprType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out ASTType actType) && actType is ASTBaseType baseType && targetType == baseType)
+            else if (ResolveType(exprType, typeMap) is ASTAliasedType alias && ResolveType(alias.RealType, typeMap) == targetType)
             {
                 // If the type is an alias to a base type
                 result = expression;
                 error = default;
+                return true;
+            }
+            else if (targetType is ASTAliasedType targetAlias && TryGenerateImplicitCast(expression, targetAlias.RealType, scope, typeMap, functionMap, constMap, globalMap, out result, out error))
+            {
+                // The target was an alias for another type that we knew how to cast to
                 return true;
             }
             else if (exprType is ASTFixedArrayType && targetType is ASTArrayType)
@@ -434,6 +524,7 @@ namespace T12
                         error = default;
                         return true;
                     }
+                    // FIXME: This should not allow word -> string cast
                     if (exprSize < targetSize)
                     {
                         result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
@@ -456,6 +547,98 @@ namespace T12
             }
         }
         
+        internal struct TypedExpressionPair
+        {
+            public ASTExpression Left;
+            public ASTExpression Right;
+            public ASTType Type;
+
+            public TypedExpressionPair(ASTExpression left, ASTExpression right, ASTType type)
+            {
+                Left = left;
+                Right = right;
+                Type = type;
+            }
+        }
+
+        internal static TypedExpressionPair GenerateBinaryCast(ASTBinaryOp binaryOp, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        {
+            var left = binaryOp.Left;
+            var right = binaryOp.Right;
+            var opType = binaryOp.OperatorType;
+
+            var leftType = ResolveType(CalcReturnType(left, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+            var rightType = ResolveType(CalcReturnType(right, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+
+            // If the types are aliased, get the real types
+            if (leftType is ASTAliasedType leftAliasedType) leftType = leftAliasedType.RealType;
+            if (rightType is ASTAliasedType rightAliasedType) rightType = rightAliasedType.RealType;
+
+            var leftSize = SizeOfType(leftType, typeMap);
+            var rightSize = SizeOfType(rightType, typeMap);
+            
+            if (leftType is ASTPointerType leftPType && ASTBinaryOp.IsPointerCompatibleOpType(opType))
+            {
+                // We are doing pointer arithmetic
+                if (ASTBaseType.IsNumericType(rightType) == false)
+                    Fail(right.Trace, $"Cannot add the non-numeric type '{rightType}' to a the pointer '{leftPType}'");
+
+                if (TryGenerateImplicitCast(right, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out var typedRight, out _) == false)
+                    Fail(right.Trace, $"Could not cast '{right}' to dword as needed to be able to apply operator '{opType}' to pointer of type '{leftPType}'!");
+
+                // Here we transform the right thing to a mult of the pointer size
+                typedRight = new ASTBinaryOp(right.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication, new ASTDoubleWordLitteral(left.Trace, $"{leftSize}", leftSize), typedRight);
+
+                return new TypedExpressionPair(left, typedRight, leftType);
+            }
+            else if (ASTBaseType.IsNumericType(leftType) && ASTBaseType.IsNumericType(rightType))
+            {
+                // Do normal addition
+                var resultType = leftSize >= rightSize ? leftType : rightType;
+
+                if (TryGenerateImplicitCast(left, resultType, scope, typeMap, functionMap, constMap, globalMap, out var typedLeft, out _) == false)
+                    Fail(left.Trace, $"Could not implicitly cast left term of type '{leftType}' to type '{resultType}'");
+
+                if (TryGenerateImplicitCast(right, resultType, scope, typeMap, functionMap, constMap, globalMap, out var typedRight, out _) == false)
+                    Fail(left.Trace, $"Could not implicitly cast right term of type '{rightType}' to type '{resultType}'");
+
+                // If we get here the cast worked!
+                return new TypedExpressionPair(typedLeft, typedRight, resultType);
+            }
+            else if (leftType is ASTPointerType && rightType is ASTPointerType && ASTBinaryOp.IsComparisonOp(opType))
+            {
+                // Here we allow comparosions of pointer types.
+                // For now we allow comparisons for differing base types
+
+                // We don't have to cast because all pointers are the same size
+                return new TypedExpressionPair(left, right, leftType);
+            }
+            else if (leftType is ASTBaseType && rightType == ASTBaseType.Bool)
+            {
+                // We can compare all base types to bool
+                // For now we only support left to right comparisons
+
+                if (TryGenerateImplicitCast(left, ASTBaseType.Bool, scope, typeMap, functionMap, constMap, globalMap, out var typedLeft, out _) == false)
+                    Fail(left.Trace, $"Could not cast expression '{left}' of type '{leftType}' to type '{ASTBaseType.Bool}'!");
+
+                return new TypedExpressionPair(typedLeft, right, ASTBaseType.Bool);
+            }
+            else if (leftType == ASTBaseType.String && rightType == ASTPointerType.Of(ASTBaseType.Void) && ASTBinaryOp.IsEqualsOp(opType))
+            {
+                // Special case for comparing a string to null or any void pointer...?
+                // TODO: Should really only be comparison to null
+
+                // FIXME: This will need to change when we get proper strings!
+                // But for now a pointer and a string are the same
+                return new TypedExpressionPair(left, right, ASTBaseType.String);
+            }
+            else
+            {
+                Fail(binaryOp.Trace, $"Can not apply binary operation '{opType}' on types '{leftType}' and '{rightType}'.");
+                return default;
+            }
+        }
+
         /// <summary>
         /// This method will generate the most optimized jump based on the type of the binary operation condition.
         /// </summary>
@@ -464,21 +647,15 @@ namespace T12
             var leftType = CalcReturnType(condition.Left, scope, typeMap, functionMap, constMap, globalMap);
             var rightType = CalcReturnType(condition.Right, scope, typeMap, functionMap, constMap, globalMap);
 
-            ASTExpression typedLeft = condition.Left;
-            ASTExpression typedRight = condition.Right;
+            TypedExpressionPair exprPair = GenerateBinaryCast(condition, scope, typeMap, functionMap, constMap, globalMap);
 
-            // Try and cast the right type to the left type and vise versa so we can apply the binary operation.
-            if (TryGenerateImplicitCast(condition.Right, leftType, scope, typeMap, functionMap, constMap, globalMap, out typedRight, out string rightError)) ;
-            else if (TryGenerateImplicitCast(condition.Left, rightType, scope, typeMap, functionMap, constMap, globalMap, out typedLeft, out string leftError));
-            else Fail(condition.Trace, $"Cannot apply binary operation '{condition.OperatorType}' on differing types '{leftType}' and '{rightType}'!");
+            var resultType = exprPair.Type;
 
-            // The out param can set these to null
-            typedLeft = typedLeft ?? condition.Left;
-            typedRight = typedRight ?? condition.Right;
-
-            var resultType = CalcReturnType(typedLeft, scope, typeMap, functionMap, constMap, globalMap);
             int typeSize = SizeOfType(resultType, typeMap);
-            
+
+            var typedLeft = exprPair.Left;
+            var typedRight = exprPair.Right;
+
             // TODO: We can optimize even more if one of the operands is a constant zero!!
 
             switch (condition.OperatorType)
@@ -623,6 +800,15 @@ namespace T12
             }
         }
         
+        internal enum VariableType
+        {
+            Local,
+            Pointer,
+            Global,
+            Constant,
+            Function,
+        }
+        
         internal struct VariableRef
         {
             public VariableType VariableType;
@@ -636,16 +822,6 @@ namespace T12
             public string FunctionName;
             public ASTType Type;
             public string Comment;
-        }
-
-        // NOTE: Should we use this instead?
-        internal enum VariableType
-        {
-            Local,
-            Pointer,
-            Global,
-            Constant,
-            Function,
         }
 
         private static bool TryGetLocalVariableRef(string name, VarMap scope, TypeMap typeMap, out VariableRef variable)
@@ -704,16 +880,22 @@ namespace T12
 
                 return true;
             }
-            else if (functionMap.TryGetValue(name, out var function))
+            else if (functionMap.TryGetValue(name, out var functions))
             {
+                // FIXME: This is really not the trace we want to use...
+                // We want a special error message for this but this method shouldn't really create an error...
+                // FIXME: What if this function becomes overloaded later on in the programs lifetime...?
+                // NOTE: We could try solve the type by looking at the context of where this variable is located but the compiler is not really made for that...
+                if (functions.Count > 1) Fail(functions[0].Trace, $"Cannnot take a function pointer to the overloaded function '{name}'");
+
                 variable = new VariableRef
                 {
                     VariableType = VariableType.Function,
-                    FunctionName = function.Name,
-                    Type = ASTFunctionPointerType.Of(function.Trace, function),
+                    FunctionName = functions[0].Name,
+                    Type = ASTFunctionPointerType.Of(functions[0].Trace, functions[0]),
                 };
 
-                if (function is ASTExternFunction externFunc)
+                if (functions[0] is ASTExternFunction externFunc)
                 {
                     variable.FunctionName = externFunc.Func.Name;
                 }
@@ -1026,11 +1208,174 @@ namespace T12
                 return default;
             }
         }
+        
+        internal static bool TryFindBestFunctionMatch(TraceData trace, List<ASTFunction> functions, List<ASTType> argumentTypes, TypeMap typeMap, out ASTFunction func)
+        {
+            double bestScore = 0;
+            func = default;
+
+            // Special case to avoid divison by 0 later
+            if (argumentTypes.Count == 0)
+            {
+                foreach (var function in functions)
+                {
+                    // There should only be one function that have zero parameters, so return that one
+                    if (function.Parameters.Count == 0)
+                    {
+                        func = function;
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            
+            // For now we just take the first function matching the types
+            // And assume there is only one function that will match that sequence of types
+            foreach (var function in functions)
+            {
+                double score = 0;
+
+                // This will never match
+                if (function.Parameters.Count != argumentTypes.Count)
+                    continue;
+
+                for (int i = 0; i < argumentTypes.Count; i++)
+                {
+                    // TODO: Do we need to resolve the types?
+                    if (function.Parameters[i].Type == argumentTypes[i])
+                    {
+                        score += 1;
+                    }
+                    else if (HasImplicitCast(argumentTypes[i], function.Parameters[i].Type, typeMap))
+                    {
+                        score += .5f;
+                    }
+                }
+
+                score /= function.Parameters.Count;
+
+                if (score == 0)
+                    continue;
+
+                if (score > bestScore)
+                {
+                    func = function;
+                }
+                else if (score == bestScore)
+                {
+                    Warning(trace, $"There where two overloads to '' that fit equally good. F1: '{func}', F2: '{function}'");
+                }
+            }
+
+            // If we found a function we succeeded
+            return func != null;
+        }
+
+        internal static bool TypesMatchFunctionParameters(ASTFunction func1, List<ASTType> types)
+        {
+            if (func1.Parameters.Count != types.Count)
+                return false;
+
+            for (int i = 0; i < func1.Parameters.Count; i++)
+            {
+                if (func1.Parameters[i].Type != types[i])
+                    return false;
+            }
+
+            return true;
+        }
+
+        internal static bool FunctionParamsEqual(ASTFunction func1, ASTFunction func2)
+        {
+            if (func1.Parameters.Count != func2.Parameters.Count)
+                return false;
+
+            for (int i = 0; i < func1.Parameters.Count; i++)
+            {
+                if (func1.Parameters[i].Type != func2.Parameters[i].Type)
+                    return false;
+            }
+
+            return true;
+        }
+
+        internal static void AddFunctionToMap(TraceData trace, FunctionMap fmap, string name, ASTFunction func)
+        {
+            if (fmap.TryGetValue(name, out var funcList))
+            {
+                // When we implement generics, could a function be overloaded on generics too?
+                // If any function has the same signature we can't add this function to the map
+                if (funcList.Any(f => FunctionParamsEqual(func, f)))
+                {
+                    Fail(trace, $"There already is a function called '{func.Name}'. Declared in '{Path.GetFileName(func.Trace.File)}'");
+                }
+
+                funcList.Add(func);
+            }
+            else
+            {
+                fmap.Add(name, new List<ASTFunction>() { func });
+            }
+        }
+
+        internal static string GetFunctionLabel(ASTFunction func, TypeMap typeMap, FunctionMap functionMap)
+        {
+            void AppendTypeToFunctionLabel(StringBuilder label, ASTType type)
+            {
+                switch (type)
+                {
+                    case ASTBaseType baseType:
+                        label.Append(baseType);
+                        break;
+                    case ASTPointerType pType:
+                        label.Append("P[");
+                        AppendTypeToFunctionLabel(label, pType.BaseType);
+                        break;
+                    case ASTArrayType aType:
+                        label.Append("A[");
+                        AppendTypeToFunctionLabel(label, aType.BaseType);
+                        break;
+                    case ASTFixedArrayType fType:
+                        label.Append("F[");
+                        label.Append(fType.Size);
+                        AppendTypeToFunctionLabel(label, fType.BaseType);
+                        break;
+                    default:
+                        label.Append(type.TypeName);
+                        break;
+                }
+            }
+
+            StringBuilder functionLabelBuilder;
+            if (func is ASTExternFunction externFunction)
+            {
+                // FIXME: This is not necessarily true...
+                // If it is overloaded only in this file then the label will be wrong...
+                functionLabelBuilder = new StringBuilder(externFunction.Func.Name);
+            }
+            else
+            {
+                functionLabelBuilder = new StringBuilder(func.Name);
+            }
+
+            if (functionMap.TryGetValue(func.Name, out var functions) && functions.Count > 1)
+            {
+                foreach (var parameter in func.Parameters)
+                {
+                    functionLabelBuilder.Append("_");
+                    AppendTypeToFunctionLabel(functionLabelBuilder, parameter.Type);
+                }
+            }
+
+            return functionLabelBuilder.ToString();
+        }
 
         public static Assembly EmitAsem(ASTFile file, AST ast)
         {
             StringBuilder builder = new StringBuilder();
 
+            // TODO: Error message for duplicate types.
             TypeMap typeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType)kvp.Value);
 
             ConstMap constMap = new ConstMap();
@@ -1040,8 +1385,13 @@ namespace T12
             // This might be fixed with a function to do this.
             // But that might not be desirable either.
             GlobalMap globalMap = new GlobalMap();
-
-            FunctionMap functionMap = file.Functions.ToDictionary(func => func.Name, func => func);
+            
+            FunctionMap functionMap = new FunctionMap(file.Functions.Count);
+            foreach (var function in file.Functions)
+            {
+                // This will do duplicate checking
+                AddFunctionToMap(function.Trace, functionMap, function.Name, function);
+            }
 
             ImportMap importMap = new ImportMap();
             foreach (var import in file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>())
@@ -1229,15 +1579,13 @@ namespace T12
                             {
                                 var @params = func.Parameters.Select(p => { p.Type = ImportType(p.Type); return p; }).ToList();
                                 var importFunc = new ASTExternFunction(func.Trace, import.ImportName, func.Name, ImportType(func.ReturnType), @params, func.Body, func);
-                                functionMap.Add(importFunc.Name, importFunc);
+
+                                AddFunctionToMap(import.Trace, functionMap, importFunc.Name, importFunc);
                             }
                             else
                             {
-                                if (functionMap.TryGetValue(func.Name, out var value))
-                                    Fail(import.Trace, $"Cannot import function '{func.Name}' from '{import.File}'. There already is one in '{value.Trace.File}'.");
-
                                 // Just add the function no modification.
-                                functionMap.Add(func.Name, func);
+                                AddFunctionToMap(import.Trace, functionMap, func.Name, func);
                             }
                         }
                         
@@ -1248,11 +1596,8 @@ namespace T12
                         // Create a new ASTFunction without body
                         ASTFunction func = new ASTFunction(externFunc.Trace, externFunc.FunctionName, externFunc.ReturnType, externFunc.Parameters, null);
 
-                        if (functionMap.TryGetValue(externFunc.FunctionName, out var function))
-                            Fail(externFunc.Trace, $"There already exists a function called '{externFunc.FunctionName}'! {(function.Trace.File != externFunc.Trace.File ? $"Defined in '{Path.GetFileName(function.Trace.File)}'!" : "")}");
-                        
                         // Add that function to the function map
-                        functionMap.Add(externFunc.FunctionName, func);
+                        AddFunctionToMap(externFunc.Trace, functionMap, externFunc.FunctionName, func);
                         break;
                     }
                 case ASTExternConstantDirective externConstDirective:
@@ -1335,18 +1680,21 @@ namespace T12
         {
             // FIXME: Do control flow analysis to check that the function returns!
 
+            string functionLabel = GetFunctionLabel(func, typeMap, functionMap);
+
             VarList variableList = new VarList();
             FunctionConext functionContext = new FunctionConext(func.Name, func.ReturnType);
             int local_index = 0;
 
+            VarMap scope = new VarMap();
+
             foreach (var param in func.Parameters)
             {
                 variableList.Add((param.Name, local_index, param.Type));
+                scope.Add(param.Name, (local_index, param.Type));
                 local_index += SizeOfType(param.Type, typeMap);
             }
-
-            VarMap scope = variableList.ToDictionary(var => var.Name, var => (var.Offset, var.Type));
-
+            
             if (func is ASTInterrupt)
             {
                 // NOTE: We might want to use constants here...
@@ -1378,7 +1726,7 @@ namespace T12
             }
             else
             {
-                builder.AppendLine($":{func.Name}");
+                builder.AppendLine($":{functionLabel}");
             }
             
             int param_index = builder.Length;
@@ -1423,7 +1771,7 @@ namespace T12
             
             // Here we generate debug data
             {
-                debugBuilder.AppendLine($":{func.Name}");
+                debugBuilder.AppendLine($":{functionLabel}");
 
                 int index = 0;
                 foreach (var var in variableList)
@@ -1733,8 +2081,10 @@ namespace T12
             switch (expression)
             {
                 case ASTLitteral litteral:
-                    EmitLitteral(builder, litteral);
-                    break;
+                    {
+                        EmitLitteral(builder, litteral);
+                        break;
+                    }
                 case ASTVariableExpression variableExpr:
                     {
                         if (TryResolveVariable(variableExpr.Name, scope, globalMap, constMap, functionMap, typeMap, out VariableRef variable) == false)
@@ -1893,109 +2243,99 @@ namespace T12
                     }
                 case ASTBinaryOp binaryOp:
                     {
-                        var leftType = ResolveType(CalcReturnType(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+                        var leftType = CalcReturnType(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
                         var rightType = CalcReturnType(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
+
+                        TypedExpressionPair exprPair = GenerateBinaryCast(binaryOp, scope, typeMap, functionMap, constMap, globalMap);
+
+                        var resultType = exprPair.Type;
+
+                        int typeSize = SizeOfType(resultType, typeMap);
+
+                        var typedLeft = exprPair.Left;
+                        var typedRight = exprPair.Right;
                         
-                        // Try and cast the right type to the left type so we can apply the binary operation.
-                        //if (TryGenerateImplicitCast(binaryOp.Right, leftType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedRight, out string error) == false)
-                        //    Fail(binaryOp.Trace, $"Cannot apply binary operation '{binaryOp.OperatorType}' on differing types '{leftType}' and '{rightType}'!");
-                        
-                        ASTExpression typedLeft = binaryOp.Left;
-                        ASTExpression typedRight = binaryOp.Right;
-
-                        // Try and cast the right type to the left type and vise versa so we can apply the binary operation.
-                        if (TryGenerateImplicitCast(binaryOp.Right, leftType, scope, typeMap, functionMap, constMap, globalMap, out typedRight, out string rightError)) ;
-                        else if (TryGenerateImplicitCast(binaryOp.Left, rightType, scope, typeMap, functionMap, constMap, globalMap, out typedLeft, out string leftError)) ;
-                        else Fail(binaryOp.Trace, $"Cannot apply binary operation '{binaryOp.OperatorType}' on differing types '{leftType}' and '{rightType}'!");
-
-                        // The out param can set these to null
-                        typedLeft = typedLeft ?? binaryOp.Left;
-                        typedRight = typedRight ?? binaryOp.Right;
-
-                        var resultType = CalcReturnType(typedLeft, scope, typeMap, functionMap, constMap, globalMap);
-                        int type_size = SizeOfType(resultType, typeMap);
-
                         EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         // FIXME: Consider the size of the result of the expression
                         switch (binaryOp.OperatorType)
                         {
                             case ASTBinaryOp.BinaryOperatorType.Addition:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tadd");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tladd");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Subtraction:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tsub");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tlsub");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Multiplication:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tmul");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tlmul");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Division:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tdiv");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tldiv");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Modulo:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tmod");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tlmod");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_And:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tand");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     // FIXME: Make this better!
                                     builder.AppendLine("\tslswap and");
@@ -2005,67 +2345,67 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_Or:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tor");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     throw new NotImplementedException();
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_Xor:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\txor");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     throw new NotImplementedException();
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Equal:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tsub setz\t; Equals cmp");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tlsub lsetz swap pop\t; Equals cmp");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Not_equal:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     builder.AppendLine("\tsub setnz\t; Not equals cmp");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tlsub lsetnz swap pop\t; Equals cmp");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Less_than:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     // FIXME: This is really inefficient
                                     builder.AppendLine("\tswap ; Less than");
@@ -2076,60 +2416,60 @@ namespace T12
                                     builder.AppendLine("\tswap");
                                     builder.AppendLine("\tselgz ; If b - a > 0 signed");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     // FIXME!!
                                     throw new NotImplementedException();
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Greater_than:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     // 1 if left > right
                                     // left - right > 0
                                     builder.AppendLine("\tsub setgz\t; Greater than");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     builder.AppendLine("\tlsub lsetgz swap pop\t; Greater than");
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Logical_And:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     // TODO: Fix this!!
                                     builder.AppendLine("\tand");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     throw new NotImplementedException();
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Logical_Or:
-                                if (type_size == 1)
+                                if (typeSize == 1)
                                 {
                                     // TODO: Fix this!!
                                     builder.AppendLine("\tor");
                                 }
-                                else if (type_size == 2)
+                                else if (typeSize == 2)
                                 {
                                     throw new NotImplementedException();
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {type_size}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
                             default:
@@ -2249,6 +2589,8 @@ namespace T12
                         // FIXME: Function calls should really just be working on expressions! Or something like that
                         // Then we could do a function that returns a function pointer and then call that function directly
 
+                        List<ASTType> argumentTypes = functionCall.Arguments.Select(a => CalcReturnType(a, scope, typeMap, functionMap, constMap, globalMap)).ToList();
+
                         // Is there is something in our scope that is a better match for this function we use that and make this a virtual call
                         if (scope.TryGetValue(functionCall.FunctionName, out var variable) && variable.Type is ASTFunctionPointerType functionPointerType)
                         {
@@ -2261,16 +2603,16 @@ namespace T12
 
                             functionLabel = "[SP]";
                         }
-                        else if (functionMap.TryGetValue(functionCall.FunctionName, out ASTFunction function))
+                        else if (functionMap.TryGetValue(functionCall.FunctionName, out var functions))
                         {
+                            if (TryFindBestFunctionMatch(functionCall.Trace, functions, argumentTypes, typeMap, out var function) == false)
+                                Fail(functionCall.Trace, $"Did not find a overload for function '{functionCall.FunctionName}' with types '{string.Join(", ", argumentTypes)}'");
+                            
                             name = function.Name;
                             parameters = function.Parameters;
                             returnType = function.ReturnType;
 
-                            functionLabel = function.Name;
-
-                            if (function is ASTExternFunction externFunction)
-                                functionLabel = externFunction.Func.Name;
+                            functionLabel = GetFunctionLabel(function, typeMap, functionMap);
                         }
                         else
                         {
@@ -2279,10 +2621,10 @@ namespace T12
                         }
                         
                         // FIXME!!! Check types!!!
+                        // This won't be needed as we check the types when we find the function above
                         if (functionCall.Arguments.Count != parameters.Count)
                             Fail(functionCall.Trace, $"Missmaching number of arguments for function {name}! Calling with {functionCall.Arguments.Count} expected {parameters.Count}");
-
-                        // FIXME!! Implement implicit casting!!
+                        
                         for (int i = 0; i < parameters.Count; i++)
                         {
                             ASTType targetType = parameters[i].Type;
@@ -2353,50 +2695,50 @@ namespace T12
                         }
                         break;
                     }
-                case ASTVirtualFucntionCall virtualFucntionCall:
+                case ASTVirtualFunctionCall virtualFunctionCall:
                     {
-                        var targetType = ResolveType(CalcReturnType(virtualFucntionCall.FunctionPointer, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+                        var targetType = ResolveType(CalcReturnType(virtualFunctionCall.FunctionPointer, scope, typeMap, functionMap, constMap, globalMap), typeMap);
 
                         if (targetType is ASTFunctionPointerType == false)
-                            Fail(virtualFucntionCall.FunctionPointer.Trace, $"Cannot call non-function pointer type '{targetType}'!");
+                            Fail(virtualFunctionCall.FunctionPointer.Trace, $"Cannot call non-function pointer type '{targetType}'!");
 
                         ASTFunctionPointerType functionPointerType = targetType as ASTFunctionPointerType;
 
                         // Check the parameter types
                         // Call the pointer
 
-                        if (functionPointerType.ParamTypes.Count != virtualFucntionCall.Arguments.Count)
-                            Fail(virtualFucntionCall.Trace, $"Missmaching number of arguments for type {functionPointerType}! Calling with {virtualFucntionCall.Arguments.Count} expected {functionPointerType.ParamTypes.Count}");
+                        if (functionPointerType.ParamTypes.Count != virtualFunctionCall.Arguments.Count)
+                            Fail(virtualFunctionCall.Trace, $"Missmaching number of arguments for type {functionPointerType}! Calling with {virtualFunctionCall.Arguments.Count} expected {functionPointerType.ParamTypes.Count}");
 
                         List<ASTType> parameters = functionPointerType.ParamTypes;
 
                         for (int i = 0; i < parameters.Count; i++)
                         {
                             ASTType paramType = parameters[i];
-                            ASTType argumentType = CalcReturnType(virtualFucntionCall.Arguments[i], scope, typeMap, functionMap, constMap, globalMap);
+                            ASTType argumentType = CalcReturnType(virtualFunctionCall.Arguments[i], scope, typeMap, functionMap, constMap, globalMap);
 
                             // Try and cast the arguemnt
-                            if (TryGenerateImplicitCast(virtualFucntionCall.Arguments[i], paramType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
-                                Fail(virtualFucntionCall.Arguments[i].Trace, $"Missmatching types on parameter '{i}', expected '{parameters[i]}' got '{argumentType}'! (Cast error: '{error}')");
+                            if (TryGenerateImplicitCast(virtualFunctionCall.Arguments[i], paramType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedArg, out string error) == false)
+                                Fail(virtualFunctionCall.Arguments[i].Trace, $"Missmatching types on parameter '{i}', expected '{parameters[i]}' got '{argumentType}'! (Cast error: '{error}')");
 
                             // We don't need to check the result as it will have the desired type.
 
                             // NOTE: Should we really modify the AST like this?
                             // Switch the old argument for the new casted one
-                            virtualFucntionCall.Arguments[i] = typedArg;
+                            virtualFunctionCall.Arguments[i] = typedArg;
                         }
 
-                        if (virtualFucntionCall.Arguments.Count > 0)
-                            builder.AppendLine($"\t; Args to virtual function call to [{virtualFucntionCall.FunctionPointer}]");
+                        if (virtualFunctionCall.Arguments.Count > 0)
+                            builder.AppendLine($"\t; Args to virtual function call to [{virtualFunctionCall.FunctionPointer}]");
 
                         // This means adding a result type to expressions
-                        foreach (var arg in virtualFucntionCall.Arguments)
+                        foreach (var arg in virtualFunctionCall.Arguments)
                         {
                             EmitExpression(builder, arg, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         }
 
-                        EmitExpression(builder, virtualFucntionCall.FunctionPointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                        builder.AppendLine($"\t::[SP]\t; Virtual call to [{virtualFucntionCall.FunctionPointer}]");
+                        EmitExpression(builder, virtualFunctionCall.FunctionPointer, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        builder.AppendLine($"\t::[SP]\t; Virtual call to [{virtualFunctionCall.FunctionPointer}]");
 
                         if (produceResult == false)
                         {
@@ -2598,9 +2940,11 @@ namespace T12
                         break;
                     }
                 case ASTPointerToVoidPointerCast cast:
-                    // We really don't need to do anything as the cast is just for type-safety
-                    EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
-                    break;
+                    {
+                        // We really don't need to do anything as the cast is just for type-safety
+                        EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        break;
+                    }
                 case ASTFixedArrayToArrayCast cast:
                     {
                         Fail(cast.Trace, "We don't have fixed array to array type of cast yet!!");
@@ -2680,9 +3024,22 @@ namespace T12
                         {
                             // There was no implicit way to do it.
                             // How do we cast structs?
-                            
+
                             // FIXME: Make implicit casting nicer, this way we don't have to explicitly cast all the time
                             // FIXME: CLEAN THIS MESS UP!!!
+
+                            fromType = ResolveType(fromType, typeMap);
+
+                            // The simplest case first
+                            if (fromType == toType)
+                            {
+                                // They are the same type behind the scenes, so we just don't do anything
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                return;
+                            }
+
+                            // If it's an aliased type, get the real type
+                            if (fromType is ASTAliasedType aliasedType) fromType = aliasedType.RealType;
 
                             if (ResolveType(fromType, typeMap) == ResolveType(toType, typeMap))
                             {

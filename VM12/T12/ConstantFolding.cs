@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace T12
 {
     using ConstMap = Dictionary<string, ASTConstDirective>;
-    using FunctionMap = Dictionary<string, ASTFunction>;
+    using FunctionMap = Dictionary<string, List<ASTFunction>>;
     using GlobalMap = Dictionary<string, ASTGlobalDirective>;
     using ImportMap = Dictionary<string, ASTFile>;
     using TypeMap = Dictionary<string, ASTType>;

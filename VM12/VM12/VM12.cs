@@ -1157,7 +1157,6 @@ namespace VM12
                             break;
                         case Opcode.Add_c:
                             throw new NotImplementedException();
-                            break;
                         case Opcode.Sub:
                             // TODO: The sign might not work here!
                             int sub_temp = mem[SP - 1] - mem[SP];
