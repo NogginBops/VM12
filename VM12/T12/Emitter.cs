@@ -383,7 +383,7 @@ namespace T12
             else if (HasImplicitCast(left, right, typeMap))
             {
                 // We where able to cast the left expression to the right one! Great.
-                resultType = left;
+                resultType = right;
                 return true;
             }
             else
@@ -441,10 +441,7 @@ namespace T12
             }
         }
         
-        // FIXME: Redesign this to be able to consider both expressions we want to cast to each other
-        // Or rather we want a way to describe unary implicit casts and binary implicit casts.
-        // So we can say that an expression must result in a type
-        // Or we can say that two expressions must result in the same type
+        // FIXME: This is generating double casts to word.....
         internal static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
         {
             ASTType exprType = CalcReturnType(expression, scope, typeMap, functionMap, constMap, globalMap);
@@ -2252,9 +2249,13 @@ namespace T12
 
                         int typeSize = SizeOfType(resultType, typeMap);
 
+                        // FIXME: Make constant fold work properly
+                        //var typedLeft = ConstantFold(exprPair.Left, scope, typeMap, functionMap, constMap, globalMap);
+                        //var typedRight = ConstantFold(exprPair.Right, scope, typeMap, functionMap, constMap, globalMap);
+
                         var typedLeft = exprPair.Left;
                         var typedRight = exprPair.Right;
-                        
+
                         EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         // FIXME: Consider the size of the result of the expression
