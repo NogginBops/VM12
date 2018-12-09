@@ -72,7 +72,7 @@ namespace VM12
 
             GenerateLUT();
 
-            SetSize(VM12.SCREEN_HEIGHT, InterpolationMode.NearestNeighbor);
+            SetSize(VM12.SCREEN_HEIGHT * 2, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -580,7 +580,7 @@ namespace VM12
         {
             Stopwatch hTimer_watch = new Stopwatch();
 
-            while (true)
+            while (vm12 != null)
             {
                 long elapsed = hTimer_watch.ElapsedMilliseconds;
                 

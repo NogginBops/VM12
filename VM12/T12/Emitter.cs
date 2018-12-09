@@ -407,7 +407,11 @@ namespace T12
             {
                 return true;
             }
-            else if (from is ASTPointerType && to == ASTPointerType.Of(ASTBaseType.Void))
+            else if (from is ASTFixedArrayType fixedArray && fixedArray.BaseType == ASTBaseType.Char && to == ASTBaseType.String)
+            {
+                return true;
+            }
+            else if (from is ASTDereferenceableType && to == ASTPointerType.Of(ASTBaseType.Void))
             {
                 return true;
             }
@@ -442,14 +446,14 @@ namespace T12
         }
         
         // FIXME: This is generating double casts to word.....
+        // FIXME: TODO: NOTE: We should really just use the HasImplicitCast fucntion and wrap the expression in an implicit cast
+        // That way we really don't have to 
         internal static bool TryGenerateImplicitCast(ASTExpression expression, ASTType targetType, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, out ASTExpression result, out string error)
         {
             ASTType exprType = CalcReturnType(expression, scope, typeMap, functionMap, constMap, globalMap);
 
             // NOTE: Should we always resolve? Will this result in unexpected casts?
-
-            // TODO: Add optimization for sizeof(x) being casted to dword!
-
+            
             if (exprType == targetType)
             {
                 result = expression;
@@ -487,6 +491,14 @@ namespace T12
             else if (exprType is ASTPointerType && targetType == ASTPointerType.Of(ASTBaseType.Void))
             {
                 result = new ASTPointerToVoidPointerCast(expression.Trace, expression, exprType as ASTPointerType);
+                error = default;
+                return true;
+            }
+            else if (exprType is ASTArrayType && targetType == ASTPointerType.Of(ASTBaseType.Void))
+            {
+
+                result = new ASTMemberExpression(expression.Trace, expression, "data", null, false);
+                //result = new ASTPointerToVoidPointerCast(expression.Trace, expression, exprType as ASTPointerType);
                 error = default;
                 return true;
             }
@@ -628,6 +640,13 @@ namespace T12
                 // FIXME: This will need to change when we get proper strings!
                 // But for now a pointer and a string are the same
                 return new TypedExpressionPair(left, right, ASTBaseType.String);
+            }
+            else if (leftType is ASTFunctionPointerType leftFP && rightType is ASTFunctionPointerType rightFP)
+            {
+                if (leftFP != rightFP)
+                    Fail(binaryOp.Trace, $"Cannot compare function pointer of differing types {leftFP} and {rightFP}");
+
+                return new TypedExpressionPair(left, right, leftFP);
             }
             else
             {
@@ -1034,7 +1053,43 @@ namespace T12
                     builder.AppendLine($"\tstorel [SP]{(comment == null ? "" : $"\t; {comment}")}");
                     break;
                 default:
-                    throw new NotImplementedException();
+                    Warning(default, $"Storing a type larger than 2 at a pointer on the stack! This is not optimized at all!! Approximatly {6 + (typeSize * 6)} wasted instructions");
+
+                    if (comment.Length > 0) builder.AppendLine($"\t; {comment}");
+                    builder.AppendLine($"\t[SP]");
+                    builder.AppendLine($"\tloadl #{typeSize}");
+                    builder.AppendLine($"\tlsub");
+                    builder.AppendLine($"\tloadl [SP]");
+                    builder.AppendLine($"\tloadl #{typeSize}");
+                    builder.AppendLine($"\tladd");
+
+                    while (typeSize > 0)
+                    {
+                        if (typeSize > 2)
+                        {
+                            builder.AppendLine($"\tlover ; Get the value over the pointer");
+                            builder.AppendLine($"\tlover ; Get the pointer over the pointer");
+                            builder.AppendLine($"\tlswap ; Place the pointer above the value");
+                            builder.AppendLine($"\tstorel [SP] ; Store the value at the pointer");
+                            builder.AppendLine($"\tldec ldec ; Decrement the pointer by two");
+                            typeSize -= 2;
+                        }
+                        else if (typeSize == 2)
+                        {
+                            builder.AppendLine($"\tpop pop ; Remove the temp pointer");
+                            builder.AppendLine($"\tstorel [SP]");
+                            typeSize -= 2;
+                        }
+                        else
+                        {
+                            // We can do this because we only have one value left on the stack and pointer above that
+                            builder.AppendLine($"\tpop pop ; Remove the temp pointer");
+                            builder.AppendLine($"\tstore [SP] ; Store the value at the pointer");
+                            typeSize -= 1;
+                        }
+                    }
+
+                    break;
             }
         }
 

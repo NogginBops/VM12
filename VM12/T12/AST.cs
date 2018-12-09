@@ -40,9 +40,8 @@ namespace T12
                     // We have not parsed this file yet
                     if (dirFiles.TryGetValue(import.File, out var importFile) == false)
                         // TODO: Better error thing here!
-                        throw new FileNotFoundException($"Could not import '{import.ImportName}', did not find file '{import.File}'!");
-
-
+                        Emitter.Fail(import.Trace, $"Could not import '{import.ImportName ?? import.File}', did not find file '{import.File}'!");
+                    
                     // Parse the file!
                     string importedFileData = File.ReadAllText(importFile.FullName);
                     var tokens = Tokenizer.Tokenize(importedFileData, importFile.FullName);
@@ -1985,6 +1984,18 @@ namespace T12
                     return default;
             }
         }
+
+        public static ASTNumericLitteral From(TraceData trace, int value)
+        {
+            if (value > ASTWordLitteral.WORD_MAX_VALUE)
+            {
+                return new ASTDoubleWordLitteral(trace, $"{value}", value);
+            }
+            else
+            {
+                return new ASTWordLitteral(trace, $"{value}", value);
+            }
+        }
     }
 
     public class ASTWordLitteral : ASTNumericLitteral
@@ -2973,7 +2984,7 @@ namespace T12
             FromType = fromType;
         }
     }
-    
+
     #endregion
 
     #endregion
@@ -3407,7 +3418,7 @@ namespace T12
         }
     }
 
-    public class ASTFunctionPointerType : ASTType
+    public class ASTFunctionPointerType : ASTType, IEquatable<ASTFunctionPointerType>
     {
         public const int Size = 2;
 
@@ -3415,7 +3426,7 @@ namespace T12
         {
             return new ASTFunctionPointerType(trace, function.Parameters.Select(p => p.Type).ToList(), function.ReturnType);
         }
-
+        
         public readonly List<ASTType> ParamTypes;
         public readonly ASTType ReturnType;
 
@@ -3423,6 +3434,50 @@ namespace T12
         {
             ParamTypes = paramTypes;
             ReturnType = returnType;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as ASTFunctionPointerType);
+        }
+
+        public bool Equals(ASTFunctionPointerType other)
+        {
+            bool ComareParams()
+            {
+                if (ParamTypes.Count != other.ParamTypes.Count) return false;
+                
+                for (int i = 0; i < ParamTypes.Count; i++)
+                {
+                    if (ParamTypes[i] != other.ParamTypes[i]) return false;
+                }
+
+                return true;
+            }
+            
+            return other != null &&
+                   base.Equals(other) &&
+                   ComareParams() &&
+                   ReturnType == other.ReturnType;
+        }
+
+        public override int GetHashCode()
+        {
+            var hashCode = -480084024;
+            hashCode = hashCode * -1521134295 + base.GetHashCode();
+            hashCode = hashCode * -1521134295 + EqualityComparer<List<ASTType>>.Default.GetHashCode(ParamTypes);
+            hashCode = hashCode * -1521134295 + EqualityComparer<ASTType>.Default.GetHashCode(ReturnType);
+            return hashCode;
+        }
+
+        public static bool operator ==(ASTFunctionPointerType type1, ASTFunctionPointerType type2)
+        {
+            return EqualityComparer<ASTFunctionPointerType>.Default.Equals(type1, type2);
+        }
+
+        public static bool operator !=(ASTFunctionPointerType type1, ASTFunctionPointerType type2)
+        {
+            return !(type1 == type2);
         }
     }
 

@@ -1913,9 +1913,11 @@ namespace VM12
                         case Opcode.Start_coproc:
                             if (CoProssessor == null)
                             {
-                                CoProssessor = new Thread(StartCoProssess);
-                                CoProssessor.IsBackground = true;
-                                CoProssessor.Name = "VM12CoProc";
+                                CoProssessor = new Thread(StartCoProssess)
+                                {
+                                    IsBackground = true,
+                                    Name = "VM12CoProc"
+                                };
                                 CoProssessor.Start();
                             }
                             PC++;
@@ -2299,7 +2301,6 @@ namespace VM12
                             }
                         case GrapicOps.FontcharBufferColor:
                             {
-                                // FIMXME: Switch to using a color buffer!
                                 int char_buffer_addr = mem[GP + 1] << 12 | mem[GP + 2];
                                 int color_buffer_addr = mem[GP + 3] << 12 | mem[GP + 4];
                                 int buffer_length = mem[GP + 5] << 12 | mem[GP + 6];
