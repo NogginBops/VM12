@@ -926,7 +926,7 @@ namespace VM12
                                 {
                                     mem[++SP] = intrr[i].Args[arg];
                                 }
-
+                                
                                 int last_fp = FP;
                                 mem[++SP] = (PC >> 12) & 0xFFF;         // Return addr
                                                                         //FP = SP;

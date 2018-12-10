@@ -2843,10 +2843,17 @@ namespace T12
                                                         dwordOffset, new ASTDoubleWordLitteral(pointerExpression.Trace, $"{baseTypeSize}", baseTypeSize));
 
                             var foldedExpr = ConstantFold(toFoldExpression, scope, typeMap, functionMap, constMap, globalMap);
-
-                            EmitExpression(builder, foldedExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             
-                            builder.AppendLine($"\tladd");
+                            if (foldedExpr is ASTNumericLitteral numLit && numLit.IntValue == 0)
+                            {
+                                // Here we really don't need to add this offset
+                            }
+                            else
+                            {
+                                EmitExpression(builder, foldedExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+
+                                builder.AppendLine($"\tladd");
+                            }
                             
                             VariableRef pointerRef = new VariableRef()
                             {
@@ -3644,7 +3651,7 @@ namespace T12
                                     {
                                         builder.AppendLine($"\t[FP]");
                                         // Load the number of locals from the frame pointer
-                                        builder.AppendLine($"\t[FP] loadl [SP]\t; Load the number of locals");
+                                        builder.AppendLine($"\t[FP] loadl #4 ladd loadl [SP]\t; Load the number of locals");
                                         builder.AppendLine($"\tloadl #{variable.LocalAddress}");
                                         builder.AppendLine($"\tlsub\t; Subtract the local index");
                                         builder.AppendLine($"\tlsub\t; &{addressOfExpression.Expr}");
@@ -3656,7 +3663,7 @@ namespace T12
                                         break;
                                     }
                                 case VariableType.Pointer:
-                                    Fail(addressOfExpression.Trace, $"TryResolveVariable should not return variable of type pointer!");
+                                    Fail(addressOfExpression.Trace, $"TryResolveVariable should not return variable of type pointer! This is a compiler bug!");
                                     break;
                                 case VariableType.Constant:
                                     Fail(addressOfExpression.Trace, $"Cannot take address of constant '{variable.ConstantName}'!");
