@@ -30,7 +30,7 @@ namespace T12
 
         // This is not final to make it easier to increment the values.
         // This breaks the immulabillity of this object but oh well...
-        public LabelContext LabelContext;
+        public readonly LabelContext LabelContext;
 
         public Context(FunctionConext functionConext, LoopContext loopContext, LabelContext labelContext)
         {
@@ -55,7 +55,7 @@ namespace T12
         }
     }
 
-    public struct LabelContext
+    public class LabelContext
     {
         public int IfLabels;
         public int ConditionalLabels;
@@ -1808,7 +1808,7 @@ namespace T12
                 Warning(func.Trace, $"The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know if the function actually returns!");
             }
 
-            Context context = new Context(functionContext, LoopContext.Empty, default);
+            Context context = new Context(functionContext, LoopContext.Empty, new LabelContext());
 
             foreach (var blockItem in func.Body)
             {
@@ -2092,7 +2092,7 @@ namespace T12
                             builder.AppendLine($"\tjz {newLoopContext.EndLabel}");
                         }
                         
-                        EmitStatement(builder, whileStatement.Body, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
+                        EmitStatement(builder, whileStatement.Body, scope, varList, ref local_index, typeMap, context.With(newLoopContext), functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\tjmp {newLoopContext.ContinueLabel}");
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
