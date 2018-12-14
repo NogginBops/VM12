@@ -1381,16 +1381,15 @@ namespace T12
                         label.Append(baseType);
                         break;
                     case ASTPointerType pType:
-                        label.Append("P[");
+                        label.Append("P.");
                         AppendTypeToFunctionLabel(label, pType.BaseType);
                         break;
                     case ASTArrayType aType:
-                        label.Append("A[");
+                        label.Append("A.");
                         AppendTypeToFunctionLabel(label, aType.BaseType);
                         break;
                     case ASTFixedArrayType fType:
-                        label.Append("F[");
-                        label.Append(fType.Size);
+                        label.Append($"F{fType.Size}.");
                         AppendTypeToFunctionLabel(label, fType.BaseType);
                         break;
                     default:
