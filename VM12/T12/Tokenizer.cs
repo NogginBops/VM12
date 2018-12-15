@@ -187,7 +187,9 @@ namespace T12
             Type == TokenType.Keyword_False ||
             Type == TokenType.Keyword_Null ||
             Type == TokenType.Char_Litteral ||
-            Type == TokenType.String_Litteral;
+            Type == TokenType.String_Litteral ||
+            // NOTE: The open brace does feel out of place here
+            Type == TokenType.Open_brace;
 
         public bool IsIdentifier => 
             Type == TokenType.Identifier;

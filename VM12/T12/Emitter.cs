@@ -1572,6 +1572,19 @@ namespace T12
                                 case ASTConstDirective constDirective:
                                     {
                                         // FIXME: Implement!!!
+                                        if (importWithNamespace)
+                                        {
+                                            Warning(import.Trace, $"We do not import constants in namespaces!! So we did not import constant '{constDirective.Name}' into the namespace '{import.ImportName}'");
+                                        }
+                                        else
+                                        {
+                                            if (constMap.TryGetValue(constDirective.Name, out var constant))
+                                                Fail(import.Trace, $"Could not import constant '{constDirective.Name}' from '{import.File}'. There already is a global called '{constDirective.Name}' in this filescope imported from file '{Path.GetFileName(constant.Trace.File)}'.");
+
+                                            builder.AppendLine($"<{constDirective.Name} = extern>");
+
+                                            constMap.Add(constDirective.Name, constDirective);
+                                        }
                                     }
                                     break;
                                 case ASTGlobalDirective globalDirective:
@@ -1676,6 +1689,26 @@ namespace T12
                             // FIXME: This is risky, and does not feel super good...
                             // We do nothing as we handle the case when we need the constant
                         }
+                        else if (constDirective.Value is ASTArrayLitteral arrayLitteral)
+                        {
+                            // FIXME: Here we want to delay the emittion of an array label
+                            // This should not emit litterals like normal (that would load them 'load #0')
+                            // instead we should emit values directly ('0')
+                            
+                            builder.AppendLine($":{constDirective.Name}");
+
+                            int index = 1;
+                            builder.Append("\t");
+                            foreach (var lit in arrayLitteral.Values)
+                            {
+                                // NOTE: We need to fix array litterals string Value
+                                builder.Append($"{lit.Value} ");
+
+                                if (index++ % 10 == 0) builder.Append("\n\t");
+                            }
+                            builder.AppendLine();
+                            builder.AppendLine();
+                        }
                         else
                         {
                             // We send in an empty scope as there is no scope
@@ -1685,12 +1718,12 @@ namespace T12
                             if (constType is ASTPointerType)
                                 if (valueType != ASTBaseType.Word && valueType != ASTBaseType.DoubleWord)
                                     Fail(constDirective.Value.Trace, $"Can't convert constant expression of type '{valueType}' to type '{constType}'!");
-
-                            //if (TryConstantFolding(constDirective.Value, typeMap, constMap, out ASTLitteral foldedConst) == false)
-                            //    Fail(constDirective.Value.Trace, $"Cannot assign a non-costant value '{constDirective.Value}' to constant '{constDirective.Name}'");
+                            
+                            if (TryGenerateImplicitCast(constDirective.Value, constType, new VarMap(), typeMap, functionMap, constMap, globalMap, out var typedValue, out string error) == false)
+                                Fail(constDirective.Value.Trace, $"Cannot define const '{constDirective.Name}' of type '{constType}' as a value of type '{valueType}'");
 
                             // Constant fold with empty scope
-                            var foldedConst = ConstantFold(constDirective.Value, new VarMap(), typeMap, functionMap, constMap, globalMap);
+                            var foldedConst = ConstantFold(typedValue, new VarMap(), typeMap, functionMap, constMap, globalMap);
 
                             if (foldedConst is ASTLitteral == false)
                                 Fail(constDirective.Value.Trace, $"Value for constant '{constDirective.Name}' could not be folded to a constant. It got folded to '{foldedConst}'");

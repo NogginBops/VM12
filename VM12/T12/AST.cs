@@ -1902,6 +1902,8 @@ namespace T12
                 case TokenType.Keyword_Null:
                     var nullTok = Tokens.Dequeue();
                     return new ASTNullLitteral(TraceData.From(nullTok));
+                case TokenType.Open_brace:
+                    return ASTArrayLitteral.Parse(Tokens);
                 default:
                     Fail(peek, $"Expected litteral, got '{peek}'");
                     return default;
@@ -2113,6 +2115,59 @@ namespace T12
     public class ASTNullLitteral : ASTLitteral
     {
         public ASTNullLitteral(TraceData trace) : base(trace, ASTPointerType.Of(ASTBaseType.Void), "null") { }
+    }
+
+    // FIXME: Atm we don't support array litterals with non-litteral elements...
+    // This is so we can know the type of the litteral at parse time
+    // But constant arrays of function pointers might be a really usefull thing
+    // So we will probably want to change this to support that
+    public class ASTArrayLitteral : ASTLitteral
+    {
+        public List<ASTLitteral> Values;
+
+        public ASTArrayLitteral(TraceData trace, ASTType baseType, List<ASTLitteral> values) : base(trace, new ASTFixedArrayType(trace, baseType, ASTNumericLitteral.From(trace, values.Count)), "ARRAY LITTERAL")
+        {
+            Values = values;
+        }
+
+        public static new ASTArrayLitteral Parse(Queue<Token> Tokens)
+        {
+            var open_brace_tok = Tokens.Dequeue();
+            if (open_brace_tok.Type != TokenType.Open_brace) Fail(open_brace_tok, "Expected opening '{'");
+
+            List<ASTLitteral> litterals = new List<ASTLitteral>();
+            ASTType litteralType = null;
+
+            // We peeked so we can handle this loop more uniform by always dequeueing at the start
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_brace)
+            {
+                var expr = ASTLitteral.Parse(Tokens);
+                if (litteralType == null) litteralType = expr.Type;
+                if (expr.Type != litteralType) Fail(peek, $"Cannot add a element of type '{expr.Type}' to an array of type '{litteralType}'");
+                litterals.Add(expr);
+
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_brace) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '}'");
+                // Dequeue the comma
+                Tokens.Dequeue();
+
+                peek = Tokens.Peek();
+            }
+
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_brace) Fail(closeParenTok, "Expected '}'");
+
+            var trace = new TraceData
+            {
+                File = open_brace_tok.File,
+                StartLine = open_brace_tok.Line,
+                EndLine = closeParenTok.Line,
+            };
+
+            return new ASTArrayLitteral(trace, litteralType, litterals);
+        }
     }
 
     #endregion

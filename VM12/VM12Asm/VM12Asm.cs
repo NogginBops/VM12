@@ -593,9 +593,7 @@ namespace VM12Asm
         static int autoVars = Constants.RAM_END;
         
         const int STACK_SIZE = Constants.STACK_MAX_ADDRESS;
-
-        static int t12Files = 0;
-
+        
         public static void Reset()
         {
             verbose = false;
@@ -624,8 +622,6 @@ namespace VM12Asm
 
             Warnings.Clear();
             autoVars = Constants.RAM_END;
-
-            t12Files = 0;
         }
 
         public static void Main(params string[] args)
@@ -763,8 +759,6 @@ namespace VM12Asm
                     }
 
                     Log(verbose, $"Compiling t12 file '{fi.Name}'.");
-                    
-                    t12Files++;
 
                     // We need to invoke the t12 compiler!
                     T12.Compiler.Compile(fi);
