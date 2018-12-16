@@ -755,9 +755,29 @@ namespace VM12Asm
 
                 if (Path.GetExtension(fi.FullName) == ".t12")
                 {
+                    void HandleMessage(T12.Compiler.MessageData data)
+                    {
+                        switch (data.Level)
+                        {
+                            case T12.Compiler.MessageLevel.Error:
+                                // For now we do nothing
+                                break;
+                            case T12.Compiler.MessageLevel.Warning:
+                                RawFile messageFile = new RawFile
+                                {
+                                    path = data.File,
+                                };
+                                Warning(messageFile, data.StartLine, data.Message);
+                                break;
+                            default:
+                                Error(null, -1, $"Unknown message level!! '{data.Level}'");
+                                break;
+                        }
+                    }
+
                     if (T12.Compiler.Compiling == false)
                     {
-                        T12.Compiler.StartCompiling(dirInf);
+                        T12.Compiler.StartCompiling(dirInf, HandleMessage);
                     }
 
                     Log(verbose, $"Compiling t12 file '{fi.Name}'.");

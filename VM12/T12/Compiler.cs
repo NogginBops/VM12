@@ -41,7 +41,53 @@ namespace T12
             
             Console.ReadKey();
         }
-        
+
+        public enum MessageLevel
+        {
+            Error,
+            Warning,
+        }
+
+        public struct MessageData
+        {
+            public MessageLevel Level;
+            public string File;
+            public int StartLine;
+            public int EndLine;
+            public string Message;
+
+            public MessageData(MessageLevel level, string file, int startLine, int endLine, string errorMessage)
+            {
+                Level = level;
+                File = file;
+                StartLine = startLine;
+                EndLine = endLine;
+                Message = errorMessage;
+            }
+
+            public static MessageData FromError(Token tok, string message)
+            {
+                return new MessageData(MessageLevel.Error, tok.File, tok.Line, tok.Line, message);
+            }
+
+            public static MessageData FromError(TraceData trace, string message)
+            {
+                return new MessageData(MessageLevel.Error, trace.File, trace.StartLine, trace.EndLine, message);
+            }
+
+            public static MessageData FromWarning(Token tok, string message)
+            {
+                return new MessageData(MessageLevel.Warning, tok.File, tok.Line, tok.Line, message);
+            }
+
+            public static MessageData FromWarning(TraceData trace, string message)
+            {
+                return new MessageData(MessageLevel.Warning, trace.File, trace.StartLine, trace.EndLine, message);
+            }
+        }
+
+        public delegate void ErrorHandler(MessageData message);
+
         public static bool Compiling { get; private set; }
         static StringBuilder FuncDebug = new StringBuilder();
         static DirectoryInfo BaseDirectory;
@@ -50,8 +96,9 @@ namespace T12
         public static int CompiledLines = 0;
         public static int ResultLines = 0;
         internal static AST CurrentAST;
-
-        public static void StartCompiling(DirectoryInfo baseDirectory)
+        internal static ErrorHandler CurrentErrorHandler;
+        
+        public static void StartCompiling(DirectoryInfo baseDirectory, ErrorHandler errorHandler)
         {
             if (Compiling)
             {
@@ -68,6 +115,8 @@ namespace T12
             CompiledLines = 0;
             ResultLines = 0;
             CurrentAST = new AST(new Dictionary<string, (ASTFile File, FileInfo FileInfo)>());
+
+            CurrentErrorHandler = errorHandler;
         }
 
         public static void StopCompiling()
@@ -77,6 +126,7 @@ namespace T12
             CurrentAST = null;
             BaseDirectory = null;
             DirectoryFiles = null;
+            CurrentErrorHandler = null;
         }
 
         public static void Compile(FileInfo infile)

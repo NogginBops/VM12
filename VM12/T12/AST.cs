@@ -114,6 +114,7 @@ namespace T12
 
         public static void Fail(Token tok, string error)
         {
+            Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromError(tok, error));
             // TODO: Do something better!
             //throw new FormatException(error);
             throw new FormatException($"Error in file {Path.GetFileName(tok.File)} at line {tok.Line}: '{error}'");
