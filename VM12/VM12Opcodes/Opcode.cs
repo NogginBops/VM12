@@ -101,7 +101,7 @@
         Store_local, Store_local_l,
         Swap, Swap_l, Swap_s_l,
         Dup, Dup_l,
-        Over, Over_l_l, Over_l_s,
+        Over, Over_l_l, Over_l_s, Over_s_l,
         Add, Add_l, Add_c,
         Sub, Sub_l,
         Neg, Neg_l,

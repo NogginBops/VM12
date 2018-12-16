@@ -2282,7 +2282,7 @@ namespace T12
                         int type_size = SizeOfType(type, typeMap);
 
                         // TODO: Check to see if this expression has side-effects. This way we can avoid poping at the end
-                        EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        
 
                         // FIXME: Handle differing type sizes!!!
 
@@ -2290,38 +2290,260 @@ namespace T12
                         {
                             case ASTUnaryOp.UnaryOperationType.Identity:
                                 // Do nothing
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Negation:
                                 // FIXME: Consider the size of the result of the expression
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine("\tneg");
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Compliment:
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine("\tnot");
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Logical_negation:
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine("\tsetz");
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Dereference:
-                                if (type is ASTPointerType == false) Fail(unaryOp.Trace, $"Cannot dereference non-pointer type '{type}'!");
-                                
-                                VariableRef variable = new VariableRef
                                 {
-                                    VariableType = VariableType.Pointer,
-                                    Type = (type as ASTPointerType).BaseType,
-                                    Comment = $"*[{unaryOp.Expr}]",
-                                };
+                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
-                                LoadVariable(builder, unaryOp.Trace, variable, typeMap);
-                                break;
+                                    if (type is ASTPointerType == false) Fail(unaryOp.Trace, $"Cannot dereference non-pointer type '{type}'!");
+
+                                    VariableRef variable = new VariableRef
+                                    {
+                                        VariableType = VariableType.Pointer,
+                                        Type = (type as ASTPointerType).BaseType,
+                                        Comment = $"*[{unaryOp.Expr}]",
+                                    };
+
+                                    LoadVariable(builder, unaryOp.Trace, variable, typeMap);
+                                    break;
+                                }
+                            case ASTUnaryOp.UnaryOperationType.Decrement:
+                            case ASTUnaryOp.UnaryOperationType.Increment:
+                            case ASTUnaryOp.UnaryOperationType.Increment_post:
+                            case ASTUnaryOp.UnaryOperationType.Decrement_post:
+                                {
+                                    // FIXME: Pointer arithmetic!!!!! Atm we don't handle pointers right!!!
+                                    if (unaryOp.Expr is ASTVariableExpression varExpr)
+                                    {
+                                        // Here we can do cool optimized stuff!
+                                        if (TryResolveVariable(varExpr.Name, scope, globalMap, constMap, functionMap, typeMap, out var variable) == false)
+                                            Fail(varExpr.Trace, $"No variable called '{varExpr.Name}'!");
+                                        
+                                        switch (variable.VariableType)
+                                        {
+                                            case VariableType.Local:
+                                                {
+                                                    // TODO: For now we always produce a result, but we could figure out how to not do that in the future
+                                                    EmitExpression(builder, varExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                                    ASTUnaryOp.UnaryOperationType opType = unaryOp.OperatorType;
+
+                                                    // If we are not producing a result, this is the same as just doing post operators.
+                                                    // This makes it easier to deal with not producing a result for the pre operators.
+                                                    if (produceResult == false)
+                                                    {
+                                                        if (opType == ASTUnaryOp.UnaryOperationType.Increment) opType = ASTUnaryOp.UnaryOperationType.Increment_post;
+                                                        else if (opType == ASTUnaryOp.UnaryOperationType.Decrement) opType = ASTUnaryOp.UnaryOperationType.Decrement_post;
+                                                    }
+
+                                                    switch (unaryOp.OperatorType)
+                                                    {
+                                                        case ASTUnaryOp.UnaryOperationType.Increment:
+                                                            switch (type_size)
+                                                            {
+                                                                case 1:
+                                                                    builder.AppendLine($"\tinc dup ; ++[{varExpr.Name}]");
+                                                                    builder.AppendLine($"\tstore {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                case 2:
+                                                                    builder.AppendLine($"\tlinc ldup ; ++[{varExpr.Name}]");
+                                                                    builder.AppendLine($"\tstorel {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                default:
+                                                                    Fail(unaryOp.Trace, $"We can't incrementing values of type '{type}!'");
+                                                                    break;
+                                                            }
+                                                            break;
+                                                        case ASTUnaryOp.UnaryOperationType.Decrement:
+                                                            switch (type_size)
+                                                            {
+                                                                case 1:
+                                                                    builder.AppendLine($"\tdec dup ; --[{varExpr.Name}]");
+                                                                    builder.AppendLine($"\tstore {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                case 2:
+                                                                    builder.AppendLine($"\tldec ldup ; --[{varExpr.Name}]");
+                                                                    builder.AppendLine($"\tstorel {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                default:
+                                                                    Fail(unaryOp.Trace, $"We can't incrementing values of type '{type}!'");
+                                                                    break;
+                                                            }
+                                                            break;
+                                                        case ASTUnaryOp.UnaryOperationType.Increment_post:
+                                                            switch (type_size)
+                                                            {
+                                                                case 1:
+                                                                    builder.AppendLine($"\tinc {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                case 2:
+                                                                    builder.AppendLine($"\tlinc {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                default:
+                                                                    Fail(unaryOp.Trace, $"We can't incrementing values of type '{type}!'");
+                                                                    break;
+                                                            }
+                                                            break;
+                                                        case ASTUnaryOp.UnaryOperationType.Decrement_post:
+                                                            switch (type_size)
+                                                            {
+                                                                case 1:
+                                                                    builder.AppendLine($"\tdec {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                case 2:
+                                                                    builder.AppendLine($"\tldec {variable.LocalAddress} ; [{varExpr.Name}]");
+                                                                    break;
+                                                                default:
+                                                                    Fail(unaryOp.Trace, $"We can't decrementing values of type '{type}!'");
+                                                                    break;
+                                                            }
+                                                            break;
+                                                        default:
+                                                            Fail(unaryOp.Trace, $"This should not happen!!!!!");
+                                                            break;
+                                                    }
+                                                    break;
+                                                }
+                                            case VariableType.Global:
+                                                EmitExpression(builder, varExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                                switch (unaryOp.OperatorType)
+                                                {
+                                                    case ASTUnaryOp.UnaryOperationType.Increment:
+                                                        // Increment the current value, load the global addr, over and then store
+                                                        switch (type_size)
+                                                        {
+                                                            case 1:
+                                                                builder.AppendLine($"\tinc");
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "soverl" : "slswap")}");
+                                                                builder.AppendLine($"\tstore [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            case 2:
+                                                                builder.AppendLine($"\tlinc");
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "lover" : "lswap")}");
+                                                                builder.AppendLine($"\tstorel [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            default:
+                                                                Fail(unaryOp.Trace, $"We can't incrementing values of type '{type}!'");
+                                                                break;
+                                                        }
+                                                        break;
+                                                    case ASTUnaryOp.UnaryOperationType.Decrement:
+                                                        // Decrement the current value, load the global addr, over and then store
+                                                        switch (type_size)
+                                                        {
+                                                            case 1:
+                                                                builder.AppendLine($"\tdec");
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "soverl" : "slswap")}");
+                                                                builder.AppendLine($"\tstore [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            case 2:
+                                                                builder.AppendLine($"\tldec");
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "lover" : "lswap")}");
+                                                                builder.AppendLine($"\tstorel [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            default:
+                                                                Fail(unaryOp.Trace, $"We can't incrementing values of type '{type}!'");
+                                                                break;
+                                                        }
+                                                        break;
+                                                    case ASTUnaryOp.UnaryOperationType.Increment_post:
+                                                        // Load the global addr, over the value and increment and then store
+                                                        switch (type_size)
+                                                        {
+                                                            case 1:
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "soverl" : "slswap")}");
+                                                                builder.AppendLine($"\tinc");
+                                                                builder.AppendLine($"\tstore [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            case 2:
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "lover" : "lswap")}");
+                                                                builder.AppendLine($"\tlinc");
+                                                                builder.AppendLine($"\tstorel [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            default:
+                                                                Fail(unaryOp.Trace, $"We can't incrementing values of type '{type}!'");
+                                                                break;
+                                                        }
+                                                        break;
+                                                    case ASTUnaryOp.UnaryOperationType.Decrement_post:
+                                                        // Load the global addr, over the value and decrement and then store
+                                                        switch (type_size)
+                                                        {
+                                                            case 1:
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "soverl" : "slswap")}");
+                                                                builder.AppendLine($"\tdec");
+                                                                builder.AppendLine($"\tstore [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            case 2:
+                                                                builder.AppendLine($"\tloadl #{variable.GlobalName}");
+                                                                // If we should produce a result or not
+                                                                builder.AppendLine($"\t{(produceResult ? "lover" : "lswap")}");
+                                                                builder.AppendLine($"\tldec");
+                                                                builder.AppendLine($"\tstorel [SP] ; ++[{variable.GlobalName}]");
+                                                                break;
+                                                            default:
+                                                                Fail(unaryOp.Trace, $"We can't incrementing values of type '{type}!'");
+                                                                break;
+                                                        }
+                                                        break;
+                                                    default:
+                                                        Fail(unaryOp.Trace, $"This should not happen!!!!!");
+                                                        break;
+                                                }
+                                                break;
+                                            case VariableType.Pointer:
+                                                // NOTE: Is this really true? Can we have constant pointers? Or would you need to cast first?
+                                                Fail(varExpr.Trace, "This should not happen because TryResolveVariable should not return pointers!");
+                                                break;
+                                            case VariableType.Constant:
+                                                Fail(unaryOp.Trace, $"Cannot increment/decrement a constant value! (Type: '{variable.Type}')");
+                                                break;
+                                            case VariableType.Function:
+                                                Fail(unaryOp.Trace, $"Cannot increment/decrement a function pointer! (Type: '{variable.Type}')");
+                                                break;
+                                            default:
+                                                Fail(unaryOp.Trace, $"Unknown VariableType '{variable.VariableType}'! This is a compiler bug!");
+                                                break;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        // TODO: Here we see if we can get the address to store the new value at
+
+                                        Fail(unaryOp.Trace, $"We don't support this case of incrementing/decrementing yet!");
+                                    }
+                                    break;
+                                }
                             default:
                                 Fail(unaryOp.Trace, $"Unknown unary operator type {unaryOp.OperatorType}, this is a compiler bug!");
                                 break;
-                        }
-
-                        if (produceResult == false)
-                        {
-                            // FIXME: Do this depending on the type size!!!
-                            builder.AppendLine("\tpop");
                         }
                         break;
                     }

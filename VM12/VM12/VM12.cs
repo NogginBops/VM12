@@ -1121,8 +1121,8 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Over:
+                            mem[SP + 1] = mem[SP - 1];
                             SP++;
-                            mem[SP] = mem[SP - 2];
                             PC++;
                             break;
                         case Opcode.Over_l_l:
@@ -1135,6 +1135,11 @@ namespace VM12
                             mem[SP + 1] = mem[SP - 2];
                             mem[SP + 2] = mem[SP - 1];
                             SP += 2;
+                            PC++;
+                            break;
+                        case Opcode.Over_s_l:
+                            mem[SP + 1] = mem[SP - 2];
+                            SP++;
                             PC++;
                             break;
                         case Opcode.Add:

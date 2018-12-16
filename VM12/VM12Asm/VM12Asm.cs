@@ -275,6 +275,7 @@ namespace VM12Asm
             { new Regex(sname("ldup")), "dup.l" },
             { new Regex(sname("lover")), "over.l.l" },
             { new Regex(sname("lovers")), "over.l.s" },
+            { new Regex(sname("soverl")), "over.s.l" },
             { new Regex(sname("ladd")), "add.l" },
             { new Regex(sname("adc")), "add.c" },
             { new Regex(sname("lsub")), "sub.l" },
@@ -415,6 +416,7 @@ namespace VM12Asm
             { "over", Opcode.Over },
             { "over.l.l", Opcode.Over_l_l },
             { "over.l.s", Opcode.Over_l_s },
+            { "over.s.l", Opcode.Over_s_l },
             { "add", Opcode.Add },
             { "add.l", Opcode.Add_l },
             { "sub", Opcode.Sub },
@@ -526,7 +528,7 @@ namespace VM12Asm
             { "ST.Le.l", (int) SetMode.Le_l },
         };
 
-        private static ConsoleColor conColor = Console.ForegroundColor;
+        private static readonly ConsoleColor conColor = Console.ForegroundColor;
 
         static bool verbose = false;
 

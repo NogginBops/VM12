@@ -91,6 +91,16 @@ namespace T12
                 EndLine = to.Line,
             };
         }
+
+        public static TraceData From(TraceData trace, Token to)
+        {
+            return new TraceData
+            {
+                File = trace.File,
+                StartLine = trace.StartLine,
+                EndLine = to.Line,
+            };
+        }
     }
 
     public abstract class ASTNode
@@ -1851,6 +1861,14 @@ namespace T12
                     case TokenType.Arrow:
                         targetExpr = ASTMemberExpression.Parse(Tokens, targetExpr);
                         break;
+                    case TokenType.PlusPlus:
+                        targetExpr = new ASTUnaryOp(TraceData.From(targetExpr.Trace, peek), ASTUnaryOp.UnaryOperationType.Increment_post, targetExpr);
+                        Tokens.Dequeue();
+                        break;
+                    case TokenType.MinusMinus:
+                        targetExpr = new ASTUnaryOp(TraceData.From(targetExpr.Trace, peek), ASTUnaryOp.UnaryOperationType.Decrement_post, targetExpr);
+                        Tokens.Dequeue();
+                        break;
                     default:
                         Fail(peek, $"Unknown postfix operator '{peek}'!");
                         break;
@@ -2372,6 +2390,10 @@ namespace T12
             Compliment,
             Logical_negation,
             Dereference,
+            Increment,
+            Decrement,
+            Increment_post,
+            Decrement_post,
             // TODO: More
         }
 
@@ -2398,6 +2420,12 @@ namespace T12
                     return UnaryOperationType.Logical_negation;
                 case TokenType.ShiftLeft:
                     return UnaryOperationType.Dereference;
+                // NOTE: Here we really need to know if it's before or after...
+                // Or we always assume before here..? Sounds weird
+                case TokenType.PlusPlus:
+                    return UnaryOperationType.Increment;
+                case TokenType.MinusMinus:
+                    return UnaryOperationType.Decrement;
                 default:
                     Fail(token, $"Expected a unary operator token, not '{token}'");
                     return UnaryOperationType.Unknown;

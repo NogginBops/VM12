@@ -49,6 +49,9 @@ namespace T12
         PipeEqual,
         CaretEqual,
 
+        PlusPlus,
+        MinusMinus,
+        
         Plus,
         Minus,
         Asterisk,
@@ -150,7 +153,9 @@ namespace T12
             Type == TokenType.Minus ||
             Type == TokenType.Tilde ||
             Type == TokenType.Exclamationmark ||
-            Type == TokenType.ShiftLeft;
+            Type == TokenType.ShiftLeft ||
+            Type == TokenType.PlusPlus ||
+            Type == TokenType.MinusMinus;
 
         public bool IsBinaryOp =>
             Type == TokenType.Plus ||
@@ -208,7 +213,9 @@ namespace T12
             Type == TokenType.Open_parenthesis ||
             Type == TokenType.Open_square_bracket ||
             Type == TokenType.Period ||
-            Type == TokenType.Arrow;
+            Type == TokenType.Arrow ||
+            Type == TokenType.PlusPlus ||
+            Type == TokenType.MinusMinus;
 
         public Token(TokenType Type, string Value, string file, int line, int startIndex, int charLength)
         {
@@ -273,6 +280,9 @@ namespace T12
             ( TokenType.AndEqual, new Regex("\\G&=") ),
             ( TokenType.PipeEqual, new Regex("\\G\\|=") ),
             ( TokenType.CaretEqual, new Regex("\\G\\^=") ),
+
+            ( TokenType.PlusPlus, new Regex("\\G\\+\\+") ),
+            ( TokenType.MinusMinus, new Regex("\\G\\-\\-") ),
 
             ( TokenType.Plus, new Regex("\\G\\+") ),
             ( TokenType.Minus, new Regex("\\G\\-") ),
