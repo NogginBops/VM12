@@ -21,6 +21,10 @@ namespace T12
     {
         // TODO: There is the problem where a lot of comments are lost 
         // because of constant folding
+        // We wan't something where we only fold constants and other things if they can be folded
+        // Or some other thing where we still get comments or constant names
+        // Like doing all constants in the  #(...) form.
+        // This is really the solution i want to find!
         public static ASTExpression ConstantFold(ASTExpression expr, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             switch (expr)
@@ -46,6 +50,10 @@ namespace T12
         public static ASTExpression FoldUnaryOp(ASTUnaryOp unaryOp, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             var foldedExpr = ConstantFold(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
+
+            // FIXME: For now we do this!
+            return new ASTUnaryOp(unaryOp.Trace, unaryOp.OperatorType, foldedExpr);
+
             switch (unaryOp.OperatorType)
             {
                 case ASTUnaryOp.UnaryOperationType.Identity:
@@ -81,29 +89,30 @@ namespace T12
                     }
                 case ASTUnaryOp.UnaryOperationType.Dereference:
                     return new ASTUnaryOp(unaryOp.Trace, ASTUnaryOp.UnaryOperationType.Dereference, foldedExpr);
+                case ASTUnaryOp.UnaryOperationType.Increment:
+                case ASTUnaryOp.UnaryOperationType.Increment_post:
+                case ASTUnaryOp.UnaryOperationType.Decrement:
+                case ASTUnaryOp.UnaryOperationType.Decrement_post:
+                    // By definition increment and decrement can't be constant folded, because we can't increment a constant
+                    return foldedExpr;
                 default:
                     Warning(unaryOp.Trace, $"Trying to constant fold unknown unary operator of type '{unaryOp.OperatorType}'");
-                    return unaryOp;
+                    return foldedExpr;
             }
         }
 
         public static ASTExpression FoldBinaryOp(ASTBinaryOp binaryOp, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
-            // FIXME: Implement!!
-            var foldedLeft = ConstantFold(binaryOp.Left, scope, typeMap, functionMap, constMap, globalMap);
-            var foldedRight = ConstantFold(binaryOp.Right, scope, typeMap, functionMap, constMap, globalMap);
+            // We could cast before everything else so that that becomes part of the left and right folding!
+            var binaryCast = GenerateBinaryCast(binaryOp, scope, typeMap, functionMap, constMap, globalMap);
+            
+            var foldedLeft = ConstantFold(binaryCast.Left, scope, typeMap, functionMap, constMap, globalMap);
+            var foldedRight = ConstantFold(binaryCast.Right, scope, typeMap, functionMap, constMap, globalMap);
 
             ASTBinaryOp CreateFoldedBinOp()
             {
                 return new ASTBinaryOp(binaryOp.Trace, binaryOp.OperatorType, foldedLeft, foldedRight);
             }
-
-            var leftType = CalcReturnType(foldedLeft, scope, typeMap, functionMap, constMap, globalMap);
-            var rightType = CalcReturnType(foldedRight, scope, typeMap, functionMap, constMap, globalMap);
-
-            // FIXME: Do casting correctly!!
-            // We could cast before everything else so that that becomes part of the left and right folding!
-            if (leftType != rightType) return binaryOp;
 
             // TODO: Implement more constant folding!!
             // FIXME: Handle overflow!!
@@ -121,6 +130,14 @@ namespace T12
                             int value = leftDWord.IntValue + rightDWord.IntValue;
                             return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
                         }
+                        else if (foldedLeft is ASTNumericLitteral leftNumLit && leftNumLit.IntValue == 0)
+                        {
+                            return foldedRight;
+                        }
+                        else if (foldedRight is ASTNumericLitteral rightNumLit && rightNumLit.IntValue == 0)
+                        {
+                            return foldedLeft;
+                        }
                         else
                         {
                             return CreateFoldedBinOp();
@@ -137,6 +154,15 @@ namespace T12
                         {
                             int value = leftDWord.IntValue - rightDWord.IntValue;
                             return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
+                        }
+                        else if (foldedLeft is ASTNumericLitteral leftNumLit && leftNumLit.IntValue == 0)
+                        {
+                            // FIXME: Negate the right part!!
+                            return CreateFoldedBinOp();
+                        }
+                        else if (foldedRight is ASTNumericLitteral rightNumLit && rightNumLit.IntValue == 0)
+                        {
+                            return foldedLeft;
                         }
                         else
                         {
@@ -186,6 +212,14 @@ namespace T12
                             return CreateFoldedBinOp();
                         }
                     }
+                case ASTBinaryOp.BinaryOperatorType.Equal:
+                case ASTBinaryOp.BinaryOperatorType.Not_equal:
+                case ASTBinaryOp.BinaryOperatorType.Division:
+                case ASTBinaryOp.BinaryOperatorType.Modulo:
+                case ASTBinaryOp.BinaryOperatorType.Bitwise_And:
+                case ASTBinaryOp.BinaryOperatorType.Logical_Or:
+                    // FIXME: Implement these foldings!
+                    return CreateFoldedBinOp();
                 default:
                     Warning(binaryOp.Trace, $"Trying to constant fold unknown unary operator of type '{binaryOp.OperatorType}'");
                     return CreateFoldedBinOp();
@@ -232,14 +266,13 @@ namespace T12
                                     }
                                     break;
                                 case ASTCharLitteral charLitteral:
-                                    //return new ASTCharLitteral(variableExpression.Trace, variable.ConstantName, charLitteral.CharValue);
-                                    break;
+                                    return new ASTCharLitteral(variableExpression.Trace, variable.ConstantName, charLitteral.CharValue);
                                 default:
-                                    return ConstantFold(constant.Value, scope, typeMap, functionMap, constMap, globalMap);
+                                    return foldedConst;
                             }
                         }
 
-                        return ConstantFold(constant.Value, scope, typeMap, functionMap, constMap, globalMap);
+                        return foldedConst;
                     }
                 case VariableType.Global:
                     // We don't know the value of the global so we can't constant fold

@@ -2321,13 +2321,13 @@ namespace T12
                         var resultType = exprPair.Type;
 
                         int typeSize = SizeOfType(resultType, typeMap);
+                        
+                        //var typedLeft = exprPair.Left;
+                        //var typedRight = exprPair.Right;
 
                         // FIXME: Make constant fold work properly
-                        //var typedLeft = ConstantFold(exprPair.Left, scope, typeMap, functionMap, constMap, globalMap);
-                        //var typedRight = ConstantFold(exprPair.Right, scope, typeMap, functionMap, constMap, globalMap);
-
-                        var typedLeft = exprPair.Left;
-                        var typedRight = exprPair.Right;
+                        var typedLeft = ConstantFold(exprPair.Left, scope, typeMap, functionMap, constMap, globalMap);
+                        var typedRight = ConstantFold(exprPair.Right, scope, typeMap, functionMap, constMap, globalMap);
 
                         EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
@@ -3461,7 +3461,7 @@ namespace T12
                                             // Deref that pointer
                                             LoadSP(builder, SizeOfType(variable.Type, typeMap), $"<< [{variable.GlobalName}]");
                                             // Add the member offset
-                                            builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
+                                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
 
                                             if (typedAssigmnent != null)
                                             {
@@ -3580,10 +3580,10 @@ namespace T12
                             // We'll just emit the whole struct, isolate the member, and possibly assign to it...
                             int targetSize = SizeOfType(targetType, typeMap);
                             
-                            EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-
                             if (memberExpression.Dereference)
                             {
+                                EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+
                                 // Add the member offset to the pointer we just got!
                                 if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
 
@@ -3612,26 +3612,18 @@ namespace T12
                             }
                             else
                             {
-                                Fail(memberExpression.Trace, $"FIXME: I was really tired and didn't feel like fixing this code path...");
-                                // NOTE: Remember to pop the pointer if we should not produce a result, or something similar
+                                // We get the address to our current struct!
+                                // Then we add our memberoffset
+                                // Then we load the member
 
-                                // TODO: We want to optimize this as much as possible!
-                                // Basically we never want to get here as this means we have dereferenced something
-                                // where we could have just calculated another offset and gotten the correct pointer
-                                // so we don't need to pop anything
-                                if (targetSize != member.Size)
-                                    Warning(memberExpression.Trace, $"Non-optimized case when accessing member '{memberExpression.MemberName}'. Struct type: '{targetType}' Member type: '{member.Type}'");
+                                var addressOf = new ASTAddressOfExpression(target.TargetExpr.Trace, target.TargetExpr);
+                                var memberAddr = new ASTBinaryOp(target.Trace, ASTBinaryOp.BinaryOperatorType.Addition, 
+                                    new ASTExplicitCast(addressOf.Trace, addressOf, ASTPointerType.Of(ASTBaseType.Word)),
+                                    ASTNumericLitteral.From(target.Trace, member.Offset));
+                                var foldedAddr = ConstantFold(memberAddr, scope, typeMap, functionMap, constMap, globalMap);
 
-                                // If the value we have loaded is a big struct we need to isolate the member we want!
-                                for (int i = 0; i < member.Offset; i++)
-                                {
-                                    builder.AppendLine($"\tpop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
-                                }
-
-                                for (int i = member.Offset + member.Size; i < targetSize; i++)
-                                {
-                                    builder.AppendLine($"\tswap pop\t; [{target.TargetExpr}]:{targetSize - i - 1}");
-                                }
+                                EmitExpression(builder, foldedAddr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                LoadSP(builder, targetSize, comment);
                             }
                         }
                         break;
@@ -3670,8 +3662,11 @@ namespace T12
                                         builder.AppendLine($"\t[FP]");
                                         // Load the number of locals from the frame pointer
                                         builder.AppendLine($"\t[FP] loadl #4 ladd loadl [SP]\t; Load the number of locals");
-                                        builder.AppendLine($"\tloadl #{variable.LocalAddress}");
-                                        builder.AppendLine($"\tlsub\t; Subtract the local index");
+                                        if (variable.LocalAddress != 0)
+                                        {
+                                            builder.AppendLine($"\tloadl #{variable.LocalAddress}");
+                                            builder.AppendLine($"\tlsub\t; Subtract the local index");
+                                        }
                                         builder.AppendLine($"\tlsub\t; &{addressOfExpression.Expr}");
                                         break;
                                     }
@@ -3729,20 +3724,25 @@ namespace T12
                             if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
                                 Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
-                            // Emit the casted offset
-                            EmitExpression(builder, dwordOffset, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-
                             int baseTypeSize = SizeOfType(baseType, typeMap);
+
                             // Multiply by pointer base type size!
-                            if (baseTypeSize > 1)
+                            var typedOffset = new ASTBinaryOp(pointerExpression.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication, dwordOffset, ASTNumericLitteral.From(addressOfExpression.Trace, baseTypeSize));
+
+                            var foldedOffset = ConstantFold(typedOffset, scope, typeMap, functionMap, constMap, globalMap);
+                            
+                            if (foldedOffset is ASTNumericLitteral numLit && numLit.IntValue == 0)
                             {
-                                builder.AppendLine($"\tloadl #{baseTypeSize}\t; {pointerType} base type size ({baseTypeSize})");
-
-                                builder.AppendLine($"\tlmul");
+                                // Here we don't have to add anything
                             }
+                            else
+                            {
+                                // Emit the casted offset
+                                EmitExpression(builder, foldedOffset, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
-                            // Add the offset to the pointer
-                            builder.AppendLine($"\tladd");
+                                // Add the offset to the pointer
+                                builder.AppendLine($"\tladd");
+                            }
 
                             // This will be the address where the element is stored
                         }
@@ -3776,8 +3776,11 @@ namespace T12
                             // We have the base pointer, so we just add the member offset
                             if (produceResult)
                             {
-                                builder.AppendLine($"\tloadl #{member.Offset} ; {memberExpression}");
-                                builder.AppendLine($"\tladd");
+                                if (member.Offset != 0)
+                                {
+                                    builder.AppendLine($"\tloadl #{member.Offset} ; {memberExpression}");
+                                    builder.AppendLine($"\tladd");
+                                }
                             }
                         }
                         else if (addressOfExpression.Expr is ASTUnaryOp unaryOp)
@@ -3841,7 +3844,10 @@ namespace T12
                     builder.AppendLine($"\tloadl #{litteral}");
                     break;
                 case ASTCharLitteral charLitteral:
-                    builder.AppendLine($"\tload {litteral}");
+                    if (charLitteral.Value.StartsWith("'"))
+                        builder.AppendLine($"\tload {litteral}");
+                    else
+                        builder.AppendLine($"\tload #{litteral}");
                     break;
                 case ASTStringLitteral stringLitteral:
                     builder.AppendLine($"\tload {litteral}");
