@@ -488,7 +488,7 @@ namespace T12
                 // Here there is a special case where we can optimize the loading of words and dwords
                 ASTWordLitteral litteral = expression as ASTWordLitteral;
                 // NOTE: Is adding the 'd' to the litteral the right thing to do?
-                result = new ASTDoubleWordLitteral(litteral.Trace, litteral.Value + "d", litteral.IntValue);
+                result = new ASTDoubleWordLitteral(litteral.Trace, litteral.Value + "d", litteral.IntValue, litteral.NumberFromat);
                 error = default;
                 return true;
             }
@@ -599,8 +599,10 @@ namespace T12
                 if (TryGenerateImplicitCast(right, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out var typedRight, out _) == false)
                     Fail(right.Trace, $"Could not cast '{right}' to dword as needed to be able to apply operator '{opType}' to pointer of type '{leftPType}'!");
 
+                int pointerTypeSize = SizeOfType(leftPType.BaseType, typeMap);
+
                 // Here we transform the right thing to a mult of the pointer size
-                typedRight = new ASTBinaryOp(right.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication, new ASTDoubleWordLitteral(left.Trace, $"{leftSize}", leftSize), typedRight);
+                typedRight = new ASTBinaryOp(right.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication, ASTDoubleWordLitteral.From(left.Trace, pointerTypeSize), typedRight);
 
                 return new TypedExpressionPair(left, typedRight, leftType);
             }
@@ -620,7 +622,7 @@ namespace T12
             }
             else if (leftType is ASTPointerType && rightType is ASTPointerType && ASTBinaryOp.IsComparisonOp(opType))
             {
-                // Here we allow comparosions of pointer types.
+                // Here we allow comparisons of pointer types.
                 // For now we allow comparisons for differing base types
 
                 // We don't have to cast because all pointers are the same size
@@ -629,12 +631,18 @@ namespace T12
             else if (leftType is ASTBaseType && rightType == ASTBaseType.Bool)
             {
                 // We can compare all base types to bool
-                // For now we only support left to right comparisons
-
                 if (TryGenerateImplicitCast(left, ASTBaseType.Bool, scope, typeMap, functionMap, constMap, globalMap, out var typedLeft, out _) == false)
                     Fail(left.Trace, $"Could not cast expression '{left}' of type '{leftType}' to type '{ASTBaseType.Bool}'!");
 
                 return new TypedExpressionPair(typedLeft, right, ASTBaseType.Bool);
+            }
+            else if (leftType == ASTBaseType.Bool && rightType is ASTBaseType)
+            {
+                // We can compare all base types to bool
+                if (TryGenerateImplicitCast(right, ASTBaseType.Bool, scope, typeMap, functionMap, constMap, globalMap, out var typedRight, out _) == false)
+                    Fail(left.Trace, $"Could not cast expression '{right}' of type '{rightType}' to type '{ASTBaseType.Bool}'!");
+
+                return new TypedExpressionPair(left, typedRight, ASTBaseType.Bool);
             }
             else if (leftType == ASTBaseType.String && rightType == ASTPointerType.Of(ASTBaseType.Void) && ASTBinaryOp.IsEqualsOp(opType))
             {
@@ -1147,6 +1155,9 @@ namespace T12
             return true;
         }
 
+        // FIXME: When we import something we just parse it, we don't emit it before using it's AST
+        // this means that errors like, duplicate function names will be detected first when we import them
+        // This will cause the error message to have a weird trace...
         internal static void AddFunctionToMap(TraceData trace, FunctionMap fmap, string name, ASTFunction func)
         {
             if (fmap.TryGetValue(name, out var funcList))
@@ -1376,7 +1387,10 @@ namespace T12
                                             if (constMap.TryGetValue(constDirective.Name, out var constant))
                                                 Fail(import.Trace, $"Could not import constant '{constDirective.Name}' from '{import.File}'. There already is a global called '{constDirective.Name}' in this filescope imported from file '{Path.GetFileName(constant.Trace.File)}'.");
 
-                                            builder.AppendLine($"<{constDirective.Name} = extern>");
+                                            // We only extern it it will be a constant in 12asm
+                                            // Array constants will be procs, so we don't extern them
+                                            if (constDirective.Type is ASTFixedArrayType) ;
+                                            else builder.AppendLine($"<{constDirective.Name} = extern>");
 
                                             constMap.Add(constDirective.Name, constDirective);
                                         }
@@ -1491,13 +1505,24 @@ namespace T12
                             // instead we should emit values directly ('0')
                             
                             builder.AppendLine($":{constDirective.Name}");
+                            
+                            // TODO: Proper checking of types
+                            // TODO: Support nested array litterals
+
+                            if (constDirective.Type is ASTFixedArrayType farray && farray.Size.IntValue != arrayLitteral.Values.Count)
+                                Fail(constDirective.Trace, $"Missmatching length, '{constDirective.Name}' is an array of '{farray.Size.IntValue}' elements, got '{arrayLitteral.Values.Count}' elements");
 
                             int index = 1;
                             builder.Append("\t");
                             foreach (var lit in arrayLitteral.Values)
                             {
+                                var folded = ConstantFold(lit, new VarMap(), typeMap, functionMap, constMap, globalMap);
+
+                                if (folded is ASTLitteral == false)
+                                    Fail(lit.Trace, $"Could not evaluate this as a constant! Got '{folded}'");
+                                
                                 // NOTE: We need to fix array litterals string Value
-                                builder.Append($"{lit.Value} ");
+                                builder.Append($"{(folded as ASTLitteral).Value} ");
 
                                 if (index++ % 10 == 0) builder.Append("\n\t");
                             }
@@ -1522,9 +1547,13 @@ namespace T12
 
                             if (foldedConst is ASTLitteral == false)
                                 Fail(constDirective.Value.Trace, $"Value for constant '{constDirective.Name}' could not be folded to a constant. It got folded to '{foldedConst}'");
+                            
+                            string value = (foldedConst as ASTLitteral).Value;
+                            if (foldedConst is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
+                                value = value.TrimEnd('d', 'D', 'w', 'W');
 
                             // FIXME: Proper constant folding!!!!!!!
-                            builder.AppendLine($"<{constDirective.Name} = {(foldedConst as ASTLitteral).Value.TrimEnd('d', 'D', 'w', 'W')}>");
+                            builder.AppendLine($"<{constDirective.Name} = {value}>");
                         }
                         break;
                     }
@@ -1592,7 +1621,7 @@ namespace T12
                         Comment = $"[{param.Name}]",
                     };
 
-                    LoadVariable(builder, func.Trace, paramVariable, typeMap);
+                    LoadVariable(builder, func.Trace, paramVariable, typeMap, constMap);
 
                     index += SizeOfType(param.Type, typeMap);
                 }
@@ -1772,7 +1801,7 @@ namespace T12
                             var retExpr = returnStatement.ReturnValueExpression;
 
                             if (TryGenerateImplicitCast(retExpr, functionConext.ReturnType, scope, typeMap, functionMap, constMap, globalMap, out var typedReturn, out string error) == false)
-                                Fail(returnStatement.Trace, $"Cannot return expression of type '{retType}' in a function that returns type '{functionConext.ReturnType}'");
+                                Fail(returnStatement.Trace, $"Cannot return expression of type '{retType}' in the function '{functionConext.FunctionName}' that returns type '{functionConext.ReturnType}'");
                             
                             EmitExpression(builder, typedReturn, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             
@@ -1992,7 +2021,7 @@ namespace T12
 
                                     if (produceResult)
                                     {
-                                        LoadVariable(builder, variableExpr.Trace, variable, typeMap);
+                                        LoadVariable(builder, variableExpr.Trace, variable, typeMap, constMap);
                                     }
                                     break;
                                 }
@@ -2023,7 +2052,7 @@ namespace T12
                                     {
                                         // We are loading a pointer so 'loadl' is fine
                                         builder.AppendLine($"\tloadl #{variable.GlobalName}");
-                                        LoadVariable(builder, variableExpr.Trace, variable, typeMap);
+                                        LoadVariable(builder, variableExpr.Trace, variable, typeMap, constMap);
                                     }
                                     break;
                                 }
@@ -2046,7 +2075,7 @@ namespace T12
                                         }
                                         else
                                         {
-                                            LoadVariable(builder, variableExpr.Trace, variable, typeMap);
+                                            LoadVariable(builder, variableExpr.Trace, variable, typeMap, constMap);
                                         }
                                     }
                                     break;
@@ -2114,7 +2143,7 @@ namespace T12
                                         Comment = $"*[{unaryOp.Expr}]",
                                     };
 
-                                    LoadVariable(builder, unaryOp.Trace, variable, typeMap);
+                                    LoadVariable(builder, unaryOp.Trace, variable, typeMap, constMap);
                                     break;
                                 }
                             case ASTUnaryOp.UnaryOperationType.Decrement:
@@ -2481,19 +2510,11 @@ namespace T12
                             case ASTBinaryOp.BinaryOperatorType.Less_than:
                                 if (typeSize == 1)
                                 {
-                                    // FIXME: This is really inefficient
-                                    builder.AppendLine("\tswap ; Less than");
-                                    builder.AppendLine("\tsub");
-                                    builder.AppendLine("\tload #0");
-                                    builder.AppendLine("\tswap");
-                                    builder.AppendLine("\tload #1");
-                                    builder.AppendLine("\tswap");
-                                    builder.AppendLine("\tselgz ; If b - a > 0 signed");
+                                    builder.AppendLine("\tswap sub setgz ; Less than");
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    // FIXME!!
-                                    throw new NotImplementedException();
+                                    builder.AppendLine("\tlswap lsub lsetgz swap pop ; Less than");
                                 }
                                 else
                                 {
@@ -2738,7 +2759,7 @@ namespace T12
                             local.Comment = $"[{functionCall.FunctionName}]";
 
                             // Load the pointer and then call the function!
-                            LoadVariable(builder, functionCall.Trace, local, typeMap);
+                            LoadVariable(builder, functionCall.Trace, local, typeMap, constMap);
                             builder.AppendLine($"\t::[SP]\t; {name} {funcCallIndex}");
                         }
                         else
@@ -2847,18 +2868,18 @@ namespace T12
                             var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
 
                             int baseTypeSize = SizeOfType(baseType, typeMap);
-
-                            // Try to cast the offset to a dword
-                            if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression dwordOffset, out string error) == false)
-                                Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
-
+                            
                             // Set up the dereferencing operation as arithmetic operations so we can do constant folding
                             // pointer + (typeSize * index)
                             // And we have to do a cast for things to be fine
                             // FIXME: We should refactor DerefPointer so we can include the pointer expression in the constant folding...
                             // TODO: We also want a way to emit a comment describing what the folded value is...
-                            var toFoldExpression = new ASTBinaryOp(pointerExpression.Offset.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication,
-                                                        dwordOffset, new ASTDoubleWordLitteral(pointerExpression.Trace, $"{baseTypeSize}", baseTypeSize));
+                            var offsetExpression = new ASTBinaryOp(pointerExpression.Offset.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication,
+                                                        pointerExpression.Offset, ASTDoubleWordLitteral.From(pointerExpression.Trace, baseTypeSize));
+
+                            // Try to cast the offset to a dword
+                            if (TryGenerateImplicitCast(offsetExpression, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression toFoldExpression, out string error) == false)
+                                Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
                             var foldedExpr = ConstantFold(toFoldExpression, scope, typeMap, functionMap, constMap, globalMap);
                             
@@ -2904,7 +2925,7 @@ namespace T12
 
                             if (produceResult)
                             {
-                                LoadVariable(builder, pointerExpression.Trace, pointerRef, typeMap);
+                                LoadVariable(builder, pointerExpression.Trace, pointerRef, typeMap, constMap);
                             }
                         }
 
@@ -2964,11 +2985,18 @@ namespace T12
                                     break;
                                 case VariableType.Constant:
                                     {
+                                        // We can dereference constant pointers!
                                         if (variable.Type is ASTDereferenceableType == false)
                                             Fail(variableExpr.Trace, $"Cannot dereference constant of type '{variable.Type}'!");
 
-                                        // We can dereference constant pointers!
-                                        builder.AppendLine($"\tloadl #{variable.ConstantName}\t; {variable.ConstantName}[{pointerExpression.Offset}]");
+                                        if (constMap.TryGetValue(variable.ConstantName, out var constant) == false)
+                                            Fail(pointerExpression.Trace, $"No constant '{variable.ConstantName}'! This should not happen!");
+
+                                        // If it's a constant array we need to load the generated proc
+                                        if (constant.Value is ASTArrayLitteral)
+                                            builder.AppendLine($"\tloadl :{variable.ConstantName}\t; {variable.ConstantName}[{pointerExpression.Offset}]");
+                                        else
+                                            builder.AppendLine($"\tloadl #{variable.ConstantName}\t; {variable.ConstantName}[{pointerExpression.Offset}]");
 
                                         DerefPointer(variable.Type as ASTDereferenceableType);
                                         break;
@@ -3098,7 +3126,7 @@ namespace T12
                             // This is an optimization for dword litterals casted to words. We can just compile time truncate the litteral to 12-bits.
                             ASTDoubleWordLitteral dwordLit = cast.From as ASTDoubleWordLitteral;
                             int truncatedValue = dwordLit.IntValue & 0xFFF;
-                            ASTWordLitteral wordLit = new ASTWordLitteral(dwordLit.Trace, truncatedValue.ToString(), truncatedValue);
+                            ASTWordLitteral wordLit = ASTWordLitteral.From(dwordLit.Trace, truncatedValue);
                             EmitExpression(builder, wordLit, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         }
                         else
@@ -3280,6 +3308,7 @@ namespace T12
                                     }
                                 case "end":
                                     {
+                                        // TODO: Constant fold this!
                                         // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
                                         // Then add the length - 1 to that pointer
                                         var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
@@ -3404,7 +3433,7 @@ namespace T12
                                         if (target.Dereference)
                                         {
                                             // Load the target pointer
-                                            LoadVariable(builder, target.Trace, variable, typeMap);
+                                            LoadVariable(builder, target.Trace, variable, typeMap, constMap);
                                             // Add the member offset
                                             if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
                                             
@@ -3437,7 +3466,7 @@ namespace T12
 
                                             if (produceResult)
                                             {
-                                                LoadVariable(builder, varExpr.Trace, memberRef, typeMap);
+                                                LoadVariable(builder, varExpr.Trace, memberRef, typeMap, constMap);
 
                                                 // What is this? This case is already handled above?
                                                 if (target.Dereference)
@@ -3500,7 +3529,7 @@ namespace T12
                                             if (produceResult)
                                             {
                                                 builder.AppendLine($"\tloadl #(#{variable.GlobalName} {member.Offset} +)");
-                                                LoadVariable(builder, varExpr.Trace, memberRef, typeMap);
+                                                LoadVariable(builder, varExpr.Trace, memberRef, typeMap, constMap);
                                             }
                                         }
                                         break;
@@ -3572,14 +3601,10 @@ namespace T12
                                 StoreVariable(builder, typedAssigmnent.Trace, variable, typeMap);
                             }
 
-                            if (produceResult) LoadVariable(builder, target.Trace, variable, typeMap);
+                            if (produceResult) LoadVariable(builder, target.Trace, variable, typeMap, constMap);
                         }
                         else
                         {
-                            // We don't have a way to optimize this yet...
-                            // We'll just emit the whole struct, isolate the member, and possibly assign to it...
-                            int targetSize = SizeOfType(targetType, typeMap);
-                            
                             if (memberExpression.Dereference)
                             {
                                 EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
@@ -3607,7 +3632,7 @@ namespace T12
 
                                 if (produceResult)
                                 {
-                                    LoadVariable(builder, memberExpression.Trace, pointerRef, typeMap);
+                                    LoadVariable(builder, memberExpression.Trace, pointerRef, typeMap, constMap);
                                 }
                             }
                             else
@@ -3623,7 +3648,21 @@ namespace T12
                                 var foldedAddr = ConstantFold(memberAddr, scope, typeMap, functionMap, constMap, globalMap);
 
                                 EmitExpression(builder, foldedAddr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                                LoadSP(builder, targetSize, comment);
+
+                                if (typedAssigmnent != null)
+                                {
+                                    // Duplicate the pointer
+                                    if (produceResult) builder.AppendLine("\tldup");
+
+                                    EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+
+                                    StoreSP(builder, member.Size, $"[{comment}] = {typedAssigmnent}");
+                                }
+
+                                if (produceResult)
+                                {
+                                    LoadSP(builder, member.Size, comment);
+                                }
                             }
                         }
                         break;
@@ -3636,15 +3675,7 @@ namespace T12
 
                         if (produceResult)
                         {
-                            VariableRef variable = new VariableRef
-                            {
-                                VariableType = VariableType.Constant,
-                                ConstantName = $"{size}",
-                                Type = resultType,
-                                Comment = $"sizeof({sizeofTypeExpression.Type})"
-                            };
-
-                            LoadVariable(builder, sizeofTypeExpression.Trace, variable, typeMap);
+                            EmitLitteral(builder, ASTNumericLitteral.From(sizeofTypeExpression.Trace, size));
                         }
                         break;
                     }
@@ -3709,7 +3740,7 @@ namespace T12
 
                             // NOTE: Here we do special behaviour for fixed arrays to not load the whole fixed array.
                             // I don't know if it would actually work without this.... yikes
-                            if (pointerType is ASTFixedArrayType fixedArray)
+                            if (pointerType is ASTFixedArrayType || pointerType is ASTArrayType)
                             {
                                 var dataMember = new ASTMemberExpression(addressOfExpression.Trace, pointerExpression.Pointer, "data", null, false);
                                 EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);

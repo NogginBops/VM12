@@ -21,7 +21,7 @@ namespace T12
         {
             if (comment != null && comment.Length > 0)
             {
-                builder.AppendLine($"{data} ; {comment}");
+                builder.AppendLine($"{data}\t; {comment}");
             }
             else
             {
@@ -112,10 +112,10 @@ namespace T12
             switch (typeSize)
             {
                 case 1:
-                    builder.AppendLine($"\tdup{(comment == null ? "" : $"; {comment}")}");
+                    builder.AppendLineWithComment($"\tdup", comment);
                     break;
                 case 2:
-                    builder.AppendLine($"\tldup{(comment == null ? "" : $"; {comment}")}");
+                    builder.AppendLineWithComment($"\tldup", comment);
                     break;
                 default:
                     Fail(trace, $"We can't duplicate arbitrary structs on the stack yet! This is a compiler bug!");
@@ -192,10 +192,10 @@ namespace T12
             switch (typeSize)
             {
                 case 1:
-                    builder.AppendLine($"\tload [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    builder.AppendLineWithComment($"\tload [SP]", comment);
                     break;
                 case 2:
-                    builder.AppendLine($"\tloadl [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    builder.AppendLineWithComment($"\tloadl [SP]", comment);
                     break;
                 default:
                     builder.AppendLine($"\t; {comment} ({typeSize})");
@@ -254,7 +254,7 @@ namespace T12
             }
         }
 
-        private static void LoadVariable(StringBuilder builder, TraceData trace, VariableRef var, TypeMap typeMap)
+        private static void LoadVariable(StringBuilder builder, TraceData trace, VariableRef var, TypeMap typeMap, ConstMap constMap)
         {
             int typeSize = SizeOfType(var.Type, typeMap);
             switch (var.VariableType)
@@ -263,10 +263,10 @@ namespace T12
                     switch (typeSize)
                     {
                         case 1:
-                            builder.AppendLine($"\tload {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            builder.AppendLineWithComment($"\tload {var.LocalAddress}", var.Comment);
                             break;
                         case 2:
-                            builder.AppendLine($"\tloadl {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            builder.AppendLineWithComment($"\tloadl {var.LocalAddress}", var.Comment);
                             break;
                         default:
                             builder.AppendLine($"\t; {var.Comment} ({typeSize})");
@@ -285,16 +285,26 @@ namespace T12
                 case VariableType.Global:
                     throw new NotImplementedException();
                 case VariableType.Constant:
-                    switch (typeSize)
+                    if (constMap.TryGetValue(var.ConstantName, out var constant) == false)
+                        Fail(trace, $"No constant '{var.ConstantName}'! This is a compiler bug, we should not get!");
+                    
+                    if (constant.Value is ASTArrayLitteral)
                     {
-                        case 1:
-                            builder.AppendLine($"\tload #{var.ConstantName}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
-                            break;
-                        case 2:
-                            builder.AppendLine($"\tloadl #{var.ConstantName}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
-                            break;
-                        default:
-                            throw new NotImplementedException();
+                        builder.AppendLineWithComment($"\tload :{var.ConstantName}", var.Comment);
+                    }
+                    else
+                    {
+                        switch (typeSize)
+                        {
+                            case 1:
+                                builder.AppendLineWithComment($"\tload #{var.ConstantName}", var.Comment);
+                                break;
+                            case 2:
+                                builder.AppendLineWithComment($"\tloadl #{var.ConstantName}", var.Comment);
+                                break;
+                            default:
+                                throw new NotImplementedException();
+                        }
                     }
                     break;
                 default:
@@ -309,10 +319,10 @@ namespace T12
             switch (typeSize)
             {
                 case 1:
-                    builder.AppendLine($"\tstore [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    builder.AppendLineWithComment($"\tstore [SP]", comment);
                     break;
                 case 2:
-                    builder.AppendLine($"\tstorel [SP]{(comment == null ? "" : $"\t; {comment}")}");
+                    builder.AppendLineWithComment($"\tstorel [SP]", comment);
                     break;
                 default:
                     Warning(default, $"Storing a type larger than 2 at a pointer on the stack! This is not optimized at all!! Approximatly {6 + (typeSize * 6)} wasted instructions");
@@ -364,10 +374,10 @@ namespace T12
                     switch (typeSize)
                     {
                         case 1:
-                            builder.AppendLine($"\tstore {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            builder.AppendLineWithComment($"\tstore {var.LocalAddress}", var.Comment);
                             break;
                         case 2:
-                            builder.AppendLine($"\tstorel {var.LocalAddress}{(var.Comment == null ? "" : $"\t; {var.Comment}")}");
+                            builder.AppendLineWithComment($"\tstorel {var.LocalAddress}", var.Comment);
                             break;
                         default:
                             builder.AppendLine($"\t; {var.Comment} ({typeSize})");

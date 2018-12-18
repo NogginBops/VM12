@@ -51,9 +51,14 @@ namespace T12
         {
             var foldedExpr = ConstantFold(unaryOp.Expr, scope, typeMap, functionMap, constMap, globalMap);
 
+            if (unaryOp.OperatorType == ASTUnaryOp.UnaryOperationType.Negation && foldedExpr is ASTNumericLitteral numLit)
+            {
+                return ASTNumericLitteral.From(unaryOp.Trace, -numLit.IntValue);
+            }
+
             // FIXME: For now we do this!
             return new ASTUnaryOp(unaryOp.Trace, unaryOp.OperatorType, foldedExpr);
-
+            
             switch (unaryOp.OperatorType)
             {
                 case ASTUnaryOp.UnaryOperationType.Identity:
@@ -63,9 +68,9 @@ namespace T12
                     switch (foldedExpr)
                     {
                         case ASTWordLitteral wordLitteral:
-                            return new ASTWordLitteral(wordLitteral.Trace, "-" + wordLitteral.Value, -wordLitteral.IntValue);
+                            return ASTWordLitteral.From(wordLitteral.Trace, -wordLitteral.IntValue, wordLitteral.NumberFromat);
                         case ASTDoubleWordLitteral dwordLitteral:
-                            return new ASTDoubleWordLitteral(dwordLitteral.Trace, "-" + dwordLitteral.Value, -dwordLitteral.IntValue);
+                            return ASTDoubleWordLitteral.From(dwordLitteral.Trace, -dwordLitteral.IntValue, dwordLitteral.NumberFromat);
                         default:
                             return foldedExpr;
                     }
@@ -73,9 +78,9 @@ namespace T12
                     switch (foldedExpr)
                     {
                         case ASTWordLitteral wordLitteral:
-                            return new ASTWordLitteral(wordLitteral.Trace, "~" + wordLitteral.Value, (~wordLitteral.IntValue) & 0xFFF);
+                            return ASTWordLitteral.From(wordLitteral.Trace, (~wordLitteral.IntValue) & 0xFFF, wordLitteral.NumberFromat);
                         case ASTDoubleWordLitteral dwordLitteral:
-                            return new ASTDoubleWordLitteral(dwordLitteral.Trace, "~" + dwordLitteral.Value, (~dwordLitteral.IntValue) & 0xFFF_FFF);
+                            return ASTDoubleWordLitteral.From(dwordLitteral.Trace, (~dwordLitteral.IntValue) & 0xFFF_FFF, dwordLitteral.NumberFromat);
                         default:
                             return foldedExpr;
                     }
@@ -123,12 +128,12 @@ namespace T12
                         if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
                         {
                             int value = leftWord.IntValue + rightWord.IntValue;
-                            return new ASTWordLitteral(binaryOp.Trace, $"{value}", value);
+                            return ASTWordLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftWord.NumberFromat, rightWord.NumberFromat));
                         }
                         else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
                         {
                             int value = leftDWord.IntValue + rightDWord.IntValue;
-                            return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
+                            return ASTDoubleWordLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftDWord.NumberFromat, rightDWord.NumberFromat));
                         }
                         else if (foldedLeft is ASTNumericLitteral leftNumLit && leftNumLit.IntValue == 0)
                         {
@@ -148,12 +153,12 @@ namespace T12
                         if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
                         {
                             int value = leftWord.IntValue - rightWord.IntValue;
-                            return new ASTWordLitteral(binaryOp.Trace, $"{value}", value);
+                            return ASTWordLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftWord.NumberFromat, rightWord.NumberFromat));
                         }
                         else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
                         {
                             int value = leftDWord.IntValue - rightDWord.IntValue;
-                            return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
+                            return ASTDoubleWordLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftDWord.NumberFromat, rightDWord.NumberFromat));
                         }
                         else if (foldedLeft is ASTNumericLitteral leftNumLit && leftNumLit.IntValue == 0)
                         {
@@ -195,17 +200,19 @@ namespace T12
                                     return foldedLeft;
                             }
                         }
-
-
+                        
                         if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
                         {
                             int value = leftWord.IntValue * rightWord.IntValue;
-                            return new ASTWordLitteral(binaryOp.Trace, $"{value}", value);
+                            // This can result in a value that is bigger than a word so we allow it to become a dword
+                            // This might not be right if it really should be a word, but then we do casting or something...
+                            // TODO: Check if constant folding will put a value bigger than max word size in a constant of type word
+                            return ASTNumericLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftWord.NumberFromat, rightWord.NumberFromat));
                         }
                         else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
                         {
                             int value = leftDWord.IntValue * rightDWord.IntValue;
-                            return new ASTDoubleWordLitteral(binaryOp.Trace, $"{value}", value);
+                            return ASTDoubleWordLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftDWord.NumberFromat, rightDWord.NumberFromat));
                         }
                         else
                         {
@@ -258,11 +265,13 @@ namespace T12
                                 case ASTNumericLitteral numericLitteral:
                                     if (constant.Type == ASTBaseType.Word)
                                     {
-                                        return new ASTWordLitteral(numericLitteral.Trace, variable.ConstantName, numericLitteral.IntValue);
+                                        // FIXME: How to handle this? (we wan't a constant name but still keep format info)
+                                        // We probably implement '#(...)' constants...
+                                        return new ASTWordLitteral(numericLitteral.Trace, variable.ConstantName, numericLitteral.IntValue, numericLitteral.NumberFromat);
                                     }
                                     else if (constant.Type == ASTBaseType.DoubleWord)
                                     {
-                                        return new ASTDoubleWordLitteral(numericLitteral.Trace, variable.ConstantName, numericLitteral.IntValue);
+                                        return new ASTDoubleWordLitteral(numericLitteral.Trace, variable.ConstantName, numericLitteral.IntValue, numericLitteral.NumberFromat);
                                     }
                                     break;
                                 case ASTCharLitteral charLitteral:
@@ -295,11 +304,11 @@ namespace T12
 
             if (typeSize > ASTWordLitteral.WORD_MAX_VALUE)
             {
-                return new ASTDoubleWordLitteral(sizeofTypeExpression.Trace, $"{typeSize}", typeSize);
+                return ASTDoubleWordLitteral.From(sizeofTypeExpression.Trace, typeSize, ASTNumericLitteral.NumberFormat.Decimal);
             }
             else
             {
-                return new ASTWordLitteral(sizeofTypeExpression.Trace, $"{typeSize}", typeSize);
+                return ASTWordLitteral.From(sizeofTypeExpression.Trace, typeSize, ASTNumericLitteral.NumberFormat.Decimal);
             }
         }
 
@@ -308,16 +317,21 @@ namespace T12
             var foldedFrom = ConstantFold(implicitCast.From, scope, typeMap, functionMap, constMap, globalMap);
             
             // The case where the from is a word litteral casted to a dword
-            if (foldedFrom is ASTWordLitteral wordLitteral && implicitCast.To == ASTBaseType.DoubleWord)
+            if (foldedFrom is ASTWordLitteral wordLitteral)
             {
-                // Return it as a double word litteral
-                return new ASTDoubleWordLitteral(wordLitteral.Trace, wordLitteral.Value, wordLitteral.IntValue);
+                if (implicitCast.To == ASTBaseType.DoubleWord)
+                {
+                    // Return it as a double word litteral
+                    return new ASTDoubleWordLitteral(wordLitteral.Trace, wordLitteral.Value, wordLitteral.IntValue, wordLitteral.NumberFromat);
+                }
+                else if (implicitCast.To == ASTBaseType.Char)
+                {
+                    return new ASTCharLitteral(wordLitteral.Trace, wordLitteral.Value, (char)wordLitteral.IntValue);
+                }
             }
-            else
-            {
-                // Here we have nothing smart to do and need the emitter to actaully do the cast
-                return implicitCast;
-            }
+
+            // Here we have nothing smart to do and need the emitter to actaully do the cast
+            return implicitCast;
         }
     }
 }

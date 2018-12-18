@@ -1906,6 +1906,9 @@ namespace T12
             var peek = Tokens.Peek();
             switch (peek.Type)
             {
+                // For now we don't allow leading plus
+                //case TokenType.Plus:
+                case TokenType.Minus:
                 case TokenType.Numeric_Litteral:
                     return ASTNumericLitteral.Parse(Tokens);
                 case TokenType.Keyword_True:
@@ -1932,15 +1935,32 @@ namespace T12
 
     public abstract class ASTNumericLitteral : ASTLitteral
     {
-        public readonly int IntValue;
+        public enum NumberFormat
+        {
+            Decimal,
+            Hexadecimal,
+            Octal,
+            Binary,
+        }
 
-        public ASTNumericLitteral(TraceData trace, ASTBaseType type, string value, int intValue) : base(trace, type, value)
+        public readonly int IntValue;
+        public readonly NumberFormat NumberFromat;
+
+        public ASTNumericLitteral(TraceData trace, ASTBaseType type, string value, int intValue, NumberFormat numFormat) : base(trace, type, value)
         {
             IntValue = intValue;
+            NumberFromat = numFormat;
         }
 
         public static new ASTNumericLitteral Parse(Queue<Token> Tokens)
         {
+            bool negate = false;
+            if (Tokens.Peek().Type == TokenType.Minus)
+            {
+                negate = true;
+                Tokens.Dequeue();
+            }
+
             var peek = Tokens.Peek();
             switch (peek.Type)
             {
@@ -1948,6 +1968,7 @@ namespace T12
                     // Remove any underscores
                     string number = peek.Value.Replace("_", "");
 
+                    bool forceDouble = false;
                     int value;
                     try
                     {
@@ -1965,6 +1986,7 @@ namespace T12
                         }
                         else
                         {
+                            forceDouble = number.EndsWith("D", true, System.Globalization.CultureInfo.InvariantCulture);
                             number = number.TrimEnd('d', 'D', 'w', 'W');
                             // Try normal parsing!
                             value = Convert.ToInt32(number, 10);
@@ -1981,24 +2003,49 @@ namespace T12
 
                     TraceData trace = TraceData.From(peek);
 
-                    if (value > ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE)
+                    if (negate)
                     {
-                        Fail(peek, $"Numeric litteral is larger than '{ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE}' and does not fit in a double word!");
-                        return default;
-                    }
-                    else if (value > ASTWordLitteral.WORD_MAX_VALUE || peek.Value.EndsWith("d") || peek.Value.EndsWith("D"))
-                    {
-                        if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
+                        if (-value < ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE)
                         {
-                            Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
+                            Fail(peek, $"Numeric litteral is less than '{ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE}' and does not fit in a double word!");
                             return default;
                         }
+                        else if (-value < ASTWordLitteral.WORD_MIN_SIGNED_VALUE || forceDouble)
+                        {
+                            if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
+                            {
+                                Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
+                                return default;
+                            }
 
-                        return new ASTDoubleWordLitteral(trace, peek.Value, value);
+                            return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                        }
+                        else
+                        {
+                            return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                        }
                     }
                     else
                     {
-                        return new ASTWordLitteral(trace, peek.Value, value);
+                        if (value > ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE)
+                        {
+                            Fail(peek, $"Numeric litteral is larger than '{ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE}' and does not fit in a double word!");
+                            return default;
+                        }
+                        else if (value > ASTWordLitteral.WORD_MAX_VALUE || forceDouble)
+                        {
+                            if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
+                            {
+                                Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
+                                return default;
+                            }
+
+                            return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                        }
+                        else
+                        {
+                            return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                        }
                     }
                 default:
                     Fail(peek, $"Expected numeric litteral! Got {peek}");
@@ -2006,15 +2053,73 @@ namespace T12
             }
         }
 
-        public static ASTNumericLitteral From(TraceData trace, int value)
+        public static ASTNumericLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
         {
+            // FIXME!!! What if it's larger than max dword
             if (value > ASTWordLitteral.WORD_MAX_VALUE)
             {
-                return new ASTDoubleWordLitteral(trace, $"{value}", value);
+                return new ASTDoubleWordLitteral(trace, FormatNumber(value, format), value, format);
             }
             else
             {
-                return new ASTWordLitteral(trace, $"{value}", value);
+                return new ASTWordLitteral(trace, FormatNumber(value, format), value, format);
+            }
+        }
+
+        public static NumberFormat GetFormat(string number)
+        {
+            if (number.StartsWith("0x"))
+                return NumberFormat.Hexadecimal;
+            else if (number.StartsWith("8x"))
+                return NumberFormat.Octal;
+            else if (number.StartsWith("0b"))
+                return NumberFormat.Binary;
+            else
+                return NumberFormat.Decimal;
+        }
+
+        /// <summary>
+        /// Combines formats so that some intent can be keept when doing certain operations
+        /// </summary>
+        /// <param name="format1"></param>
+        /// <param name="format2"></param>
+        /// <returns></returns>
+        public static NumberFormat CombineFormats(NumberFormat format1, NumberFormat format2)
+        {
+            // Hexadecimal has precedence
+            if (format1 == NumberFormat.Hexadecimal || format2 == NumberFormat.Hexadecimal)
+            {
+                return NumberFormat.Hexadecimal;
+            }
+            else if (format1 == NumberFormat.Octal || format2 == NumberFormat.Octal)
+            {
+                return NumberFormat.Octal;
+            }
+            else if (format1 == NumberFormat.Binary || format2 == NumberFormat.Binary)
+            {
+                return NumberFormat.Binary;
+            }
+            else
+            {
+                return NumberFormat.Decimal;
+            }
+        }
+
+        // FIXME: Negative numbers converted to anything other than decimal will be wrong!!! (Larger than 12/24 bit)
+        public static string FormatNumber(int value, NumberFormat format)
+        {
+            switch (format)
+            {
+                case NumberFormat.Decimal:
+                    return Convert.ToString(value, 10);
+                case NumberFormat.Hexadecimal:
+                    return Convert.ToString(value, 16);
+                case NumberFormat.Octal:
+                    return Convert.ToString(value, 8);
+                case NumberFormat.Binary:
+                    return Convert.ToString(value, 2);
+                default:
+                    throw new ArgumentException($"Unknown number format {format}!");
             }
         }
     }
@@ -2022,8 +2127,9 @@ namespace T12
     public class ASTWordLitteral : ASTNumericLitteral
     {
         public const int WORD_MAX_VALUE = 0xFFF;
+        public const int WORD_MIN_SIGNED_VALUE = -2048; // -2^11
 
-        public ASTWordLitteral(TraceData trace, string value, int intValue) : base(trace, ASTBaseType.Word, value, intValue) { }
+        public ASTWordLitteral(TraceData trace, string value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.Word, value, intValue, numFormat) { }
         
         public static new ASTWordLitteral Parse(Queue<Token> Tokens)
         {
@@ -2036,15 +2142,31 @@ namespace T12
 
             var trace = TraceData.From(tok);
 
-            return new ASTWordLitteral(trace, tok.Value, value);
+            NumberFormat format = GetFormat(tok.Value);
+
+            return new ASTWordLitteral(trace, tok.Value, value, format);
+        }
+
+        public new static ASTWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
+        {
+            if (value > WORD_MAX_VALUE)
+            {
+                Emitter.Fail(trace, $"The value '{value}' does not fit in a word!");
+                return default;
+            }
+            else
+            {
+                return new ASTWordLitteral(trace, FormatNumber(value, format), value, format);
+            }
         }
     }
 
     public class ASTDoubleWordLitteral : ASTNumericLitteral
     {
         public const int DOUBLE_WORD_MAX_VALUE = 0xFFF_FFF;
+        public const int DOUBLE_WORD_MIN_SIGNED_VALUE = -8_388_608; // -2^23
 
-        public ASTDoubleWordLitteral(TraceData trace, string value, int intValue) : base(trace, ASTBaseType.DoubleWord, value, intValue) { }
+        public ASTDoubleWordLitteral(TraceData trace, string value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.DoubleWord, value, intValue, numFormat) { }
 
         public static new ASTDoubleWordLitteral Parse(Queue<Token> Tokens)
         {
@@ -2058,9 +2180,25 @@ namespace T12
 
             var trace = TraceData.From(tok);
 
-            return new ASTDoubleWordLitteral(trace, tok.Value, value);
+            NumberFormat format = GetFormat(tok.Value);
+
+            return new ASTDoubleWordLitteral(trace, tok.Value, value, format);
         }
 
+        public new static ASTDoubleWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
+        {
+            if (value > DOUBLE_WORD_MAX_VALUE)
+            {
+                Emitter.Fail(trace, $"The value '{value}' does not fit in a dword!");
+                return default;
+            }
+            else
+            {
+                return new ASTDoubleWordLitteral(trace, FormatNumber(value, format), value, format);
+            }
+        }
+
+        // FIXME: General tostring for numlit which does consideres format
         public override string ToString()
         {
             if (Value.EndsWith("d"))
@@ -2142,9 +2280,9 @@ namespace T12
     // So we will probably want to change this to support that
     public class ASTArrayLitteral : ASTLitteral
     {
-        public List<ASTLitteral> Values;
+        public List<ASTExpression> Values;
 
-        public ASTArrayLitteral(TraceData trace, ASTType baseType, List<ASTLitteral> values) : base(trace, new ASTFixedArrayType(trace, baseType, ASTNumericLitteral.From(trace, values.Count)), "ARRAY LITTERAL")
+        public ASTArrayLitteral(TraceData trace, ASTType baseType, List<ASTExpression> values) : base(trace, new ASTFixedArrayType(trace, baseType, ASTNumericLitteral.From(trace, values.Count)), "ARRAY LITTERAL")
         {
             Values = values;
         }
@@ -2154,17 +2292,18 @@ namespace T12
             var open_brace_tok = Tokens.Dequeue();
             if (open_brace_tok.Type != TokenType.Open_brace) Fail(open_brace_tok, "Expected opening '{'");
 
-            List<ASTLitteral> litterals = new List<ASTLitteral>();
-            ASTType litteralType = null;
+            List<ASTExpression> elements = new List<ASTExpression>();
+            // ASTType litteralType = null;
 
             // We peeked so we can handle this loop more uniform by always dequeueing at the start
             var peek = Tokens.Peek();
             while (peek.Type != TokenType.Close_brace)
             {
-                var expr = ASTLitteral.Parse(Tokens);
-                if (litteralType == null) litteralType = expr.Type;
-                if (expr.Type != litteralType) Fail(peek, $"Cannot add a element of type '{expr.Type}' to an array of type '{litteralType}'");
-                litterals.Add(expr);
+                var expr = ASTExpression.Parse(Tokens);
+                // NOTE: We don't do typechecking at this stage...
+                //if (litteralType == null) litteralType = expr.Type;
+                //if (expr.Type != litteralType) Fail(peek, $"Cannot add a element of type '{expr.Type}' to an array of type '{litteralType}'");
+                elements.Add(expr);
 
                 var contToken = Tokens.Peek();
                 if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_brace) break;
@@ -2185,7 +2324,8 @@ namespace T12
                 EndLine = closeParenTok.Line,
             };
 
-            return new ASTArrayLitteral(trace, litteralType, litterals);
+            // We will figure out the type later
+            return new ASTArrayLitteral(trace, ASTBaseType.Void, elements);
         }
     }
 
