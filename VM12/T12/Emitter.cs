@@ -2140,7 +2140,7 @@ namespace T12
                                     {
                                         VariableType = VariableType.Pointer,
                                         Type = (type as ASTPointerType).BaseType,
-                                        Comment = $"*[{unaryOp.Expr}]",
+                                        Comment = $"<< [{unaryOp.Expr}]",
                                     };
 
                                     LoadVariable(builder, unaryOp.Trace, variable, typeMap, constMap);
@@ -2458,7 +2458,9 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    throw new NotImplementedException();
+                                    builder.AppendLine("\tor");
+                                    builder.AppendLine("\tslswap slswap");
+                                    builder.AppendLine("\tor swap");
                                 }
                                 else
                                 {
