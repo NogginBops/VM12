@@ -41,6 +41,8 @@ namespace T12
                     return FoldSizeOfTypeExpression(sizeofTypeExpression, scope, typeMap, functionMap, constMap, globalMap);
                 case ASTImplicitCast implicitCast:
                     return FoldImplicitCastExpression(implicitCast, scope, typeMap, functionMap, constMap, globalMap);
+                case ASTExplicitCast explicitCast:
+                    return FoldExplicitCastExpression(explicitCast, scope, typeMap, functionMap, constMap, globalMap);
                 default:
                     //Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
                     return expr;
@@ -332,6 +334,54 @@ namespace T12
 
             // Here we have nothing smart to do and need the emitter to actaully do the cast
             return implicitCast;
+        }
+        
+        public static ASTExpression FoldExplicitCastExpression(ASTExplicitCast explicitCast, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        {
+            var foldedFrom = ConstantFold(explicitCast.From, scope, typeMap, functionMap, constMap, globalMap);
+
+            ASTExpression GenerateDefault() => new ASTExplicitCast(explicitCast.Trace, foldedFrom, explicitCast.To);
+
+            // NOTE: We take the type of the original expression here
+            // because it is not garaneed that the folded will have the same type...
+            var fromType = CalcReturnType(explicitCast.From, scope, typeMap, functionMap, constMap, globalMap);
+
+            if (foldedFrom is ASTVariableExpression varExpr && fromType is ASTPointerType && explicitCast.To is ASTPointerType)
+            {
+                if (TryResolveVariable(varExpr.Name, scope, globalMap, constMap, functionMap, typeMap, out var variable) == false)
+                    return GenerateDefault();
+
+                switch (variable.VariableType)
+                {
+                    case VariableType.Constant:
+                        {
+                            if (constMap.TryGetValue(variable.ConstantName, out var constant) == false)
+                                return GenerateDefault();
+
+                            // We kind of want the thing to actually have a new type when we return here...
+                            return ConstantFold(constant.Value, scope, typeMap, functionMap, constMap, globalMap);
+                        }
+                    case VariableType.Function:
+                        // We kind of want the thing to actually have a new type when we return here...
+                        return new ASTDoubleWordLitteral(explicitCast.Trace, $":{variable.FunctionName}", -1, ASTNumericLitteral.NumberFormat.Hexadecimal);
+                    // NOTE: We should maybe error of the options that should not
+                    // be a result of TryResolveVariable (pointer...)
+                    case VariableType.Local:
+                    case VariableType.Pointer:
+                    case VariableType.Global:
+                    default:
+                        return GenerateDefault();
+                }
+            }
+            else if (fromType is ASTFunctionPointerType && explicitCast.To == ASTPointerType.Of(ASTBaseType.Void))
+            {
+                // We kind of want the thing to actually have a new type when we return here...
+                return foldedFrom;
+            }
+            else
+            {
+                return GenerateDefault();
+            }
         }
     }
 }

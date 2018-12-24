@@ -72,7 +72,7 @@ namespace VM12
 
             GenerateLUT();
 
-            SetSize(VM12.SCREEN_HEIGHT * 2, InterpolationMode.NearestNeighbor);
+            SetSize(VM12.SCREEN_HEIGHT, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);

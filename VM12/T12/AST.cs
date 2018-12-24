@@ -3214,7 +3214,7 @@ namespace T12
     #endregion
 
     #region Types
-
+    
     public abstract class ASTType : ASTNode, IEquatable<ASTType>
     {
         public readonly string TypeName;

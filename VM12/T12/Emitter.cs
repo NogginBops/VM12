@@ -476,6 +476,13 @@ namespace T12
                 // The target was an alias for another type that we knew how to cast to
                 return true;
             }
+            else if (expression is ASTNullLitteral && targetType is ASTPointerType pType)
+            {
+                // If it's a null litteral, we can cast that to anything
+                result = expression;
+                error = null;
+                return true;
+            }
             else if (exprType is ASTFixedArrayType && targetType is ASTArrayType)
             {
                 // We can always cast a fixed size array to a non-fixed array.
@@ -1534,10 +1541,12 @@ namespace T12
                             // We send in an empty scope as there is no scope
                             var valueType = ResolveType(CalcReturnType(constDirective.Value, new VarMap(), typeMap, functionMap, constMap, globalMap), typeMap);
 
+                            // This is fine, we can have things that resolve to pointer to structs
+                            // and are still constant
                             // If we are casting from a (d)word to pointer of those types there is no problem
-                            if (constType is ASTPointerType)
-                                if (valueType != ASTBaseType.Word && valueType != ASTBaseType.DoubleWord)
-                                    Fail(constDirective.Value.Trace, $"Can't convert constant expression of type '{valueType}' to type '{constType}'!");
+                            // if (constType is ASTPointerType)
+                            //    if (valueType != ASTBaseType.Word && valueType != ASTBaseType.DoubleWord)
+                            //        Fail(constDirective.Value.Trace, $"Can't convert constant expression of type '{valueType}' to type '{constType}'!");
                             
                             if (TryGenerateImplicitCast(constDirective.Value, constType, new VarMap(), typeMap, functionMap, constMap, globalMap, out var typedValue, out string error) == false)
                                 Fail(constDirective.Value.Trace, $"Cannot define const '{constDirective.Name}' of type '{constType}' as a value of type '{valueType}'");
@@ -2247,7 +2256,7 @@ namespace T12
                                                         AppendIncDecOp();
                                                         builder.AppendLine($"\tloadl #{variable.GlobalName}");
                                                         OverSP(builder, unaryOp.Trace, typeSize, 2);
-                                                        StoreSP(builder, typeSize, $"{OpString()}[{variable.GlobalName}]");
+                                                        StoreSP(builder, unaryOp.Trace, typeSize, $"{OpString()}[{variable.GlobalName}]");
                                                         break;
                                                     case ASTUnaryOp.UnaryOperationType.Increment_post:
                                                     case ASTUnaryOp.UnaryOperationType.Decrement_post:
@@ -2258,7 +2267,7 @@ namespace T12
                                                             builder.AppendLine($"\tloadl #{variable.GlobalName}");
                                                             OverSP(builder, unaryOp.Trace, typeSize, 2);
                                                             AppendIncDecOp();
-                                                            StoreSP(builder, typeSize, $"[{unaryOp.Expr}]{OpString()}");
+                                                            StoreSP(builder, unaryOp.Trace, typeSize, $"[{unaryOp.Expr}]{OpString()}");
                                                         }
                                                         else
                                                         {
@@ -2266,7 +2275,7 @@ namespace T12
                                                             builder.AppendLine($"\tldup");
                                                             LoadSP(builder, typeSize, $"[{unaryOp.Expr}]");
                                                             AppendIncDecOp();
-                                                            StoreSP(builder, typeSize, $"[{unaryOp.Expr}]{OpString()}");
+                                                            StoreSP(builder, unaryOp.Trace, typeSize, $"[{unaryOp.Expr}]{OpString()}");
                                                         }
 
                                                         break;
@@ -2305,7 +2314,7 @@ namespace T12
                                                 AppendIncDecOp();
                                                 EmitExpression(builder, addressOf, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 OverSP(builder, unaryOp.Trace, typeSize, 2);
-                                                StoreSP(builder, typeSize, $"{OpString()}[{unaryOp.Expr}]");
+                                                StoreSP(builder, unaryOp.Trace, typeSize, $"{OpString()}[{unaryOp.Expr}]");
                                                 break;
                                             case ASTUnaryOp.UnaryOperationType.Increment_post:
                                             case ASTUnaryOp.UnaryOperationType.Decrement_post:
@@ -2316,7 +2325,7 @@ namespace T12
                                                     EmitExpression(builder, addressOf, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                     OverSP(builder, unaryOp.Trace, typeSize, 2);
                                                     AppendIncDecOp();
-                                                    StoreSP(builder, typeSize, $"[{unaryOp.Expr}]{OpString()}");
+                                                    StoreSP(builder, unaryOp.Trace, typeSize, $"[{unaryOp.Expr}]{OpString()}");
                                                 }
                                                 else
                                                 {
@@ -2324,7 +2333,7 @@ namespace T12
                                                     builder.AppendLine($"\tldup");
                                                     LoadSP(builder, typeSize, $"[{unaryOp.Expr}]");
                                                     AppendIncDecOp();
-                                                    StoreSP(builder, typeSize, $"[{unaryOp.Expr}]{OpString()}");
+                                                    StoreSP(builder, unaryOp.Trace, typeSize, $"[{unaryOp.Expr}]{OpString()}");
                                                 }
                                                 break;
                                             default:
@@ -3446,7 +3455,7 @@ namespace T12
                                                 // Load the value to store
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
-                                                StoreSP(builder, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                                StoreSP(builder, typedAssigmnent.Trace, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
                                             }
                                             
                                             if (produceResult)
@@ -3501,7 +3510,7 @@ namespace T12
                                                 // Load the value to store
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
-                                                StoreSP(builder, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                                StoreSP(builder, typedAssigmnent.Trace, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
                                             }
 
                                             if (produceResult)
@@ -3658,7 +3667,7 @@ namespace T12
 
                                     EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
-                                    StoreSP(builder, member.Size, $"[{comment}] = {typedAssigmnent}");
+                                    StoreSP(builder, typedAssigmnent.Trace, member.Size, $"[{comment}] = {typedAssigmnent}");
                                 }
 
                                 if (produceResult)

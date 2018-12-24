@@ -572,13 +572,13 @@ namespace VM12Asm
                 this.File = file;
                 this.Line = line;
                 this.WarningText = warning;
-
+                
                 FileInfo = new FileInfo(file.path);
             }
 
             public override string ToString()
             {
-                return $"Warning in file \"{FileInfo.Name}\" at line {Line}: '{WarningText}'";
+                return $"Warning in file \"{FileInfo?.Name ?? "internal"}\" at line {Line}: '{WarningText}'";
             }
         }
 

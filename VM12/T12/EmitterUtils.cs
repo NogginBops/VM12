@@ -313,7 +313,7 @@ namespace T12
             }
         }
 
-        private static void StoreSP(StringBuilder builder, int typeSize, string comment = "")
+        private static void StoreSP(StringBuilder builder, TraceData trace, int typeSize, string comment = "")
         {
             // It will be hard to implement storing of things larger than 2 words!
             switch (typeSize)
@@ -325,14 +325,14 @@ namespace T12
                     builder.AppendLineWithComment($"\tstorel [SP]", comment);
                     break;
                 default:
-                    Warning(default, $"Storing a type larger than 2 at a pointer on the stack! This is not optimized at all!! Approximatly {6 + (typeSize * 6)} wasted instructions");
+                    Warning(trace, $"Storing a type larger than 2 ({typeSize}) at a pointer on the stack! This is not optimized at all!! Approximatly {6 + (typeSize / 2 * 9)} wasted instructions");
 
                     if (comment.Length > 0) builder.AppendLine($"\t; {comment}");
                     builder.AppendLine($"\t[SP]");
-                    builder.AppendLine($"\tloadl #{typeSize}");
+                    builder.AppendLine($"\tloadl #{typeSize + 1}"); // Go to the pointer addr
                     builder.AppendLine($"\tlsub");
                     builder.AppendLine($"\tloadl [SP]");
-                    builder.AppendLine($"\tloadl #{typeSize}");
+                    builder.AppendLine($"\tloadl #{typeSize - 2}"); // To compensate that the pointer already pointing to valid memory
                     builder.AppendLine($"\tladd");
 
                     while (typeSize > 0)
@@ -344,6 +344,7 @@ namespace T12
                             builder.AppendLine($"\tlswap ; Place the pointer above the value");
                             builder.AppendLine($"\tstorel [SP] ; Store the value at the pointer");
                             builder.AppendLine($"\tldec ldec ; Decrement the pointer by two");
+                            builder.AppendLine($"\tlswap pop pop ; Swap the pointer under the value just stored and pop the value");
                             typeSize -= 2;
                         }
                         else if (typeSize == 2)
@@ -393,7 +394,7 @@ namespace T12
                     break;
                 case VariableType.Pointer:
                     // NOTE: Here we assume the pointer is already on the stack
-                    StoreSP(builder, typeSize, var.Comment);
+                    StoreSP(builder, trace, typeSize, var.Comment);
                     break;
                 case VariableType.Global:
                     // What do we do here!?
