@@ -499,6 +499,13 @@ namespace T12
                 error = default;
                 return true;
             }
+            else if (exprType is ASTPointerType && targetType == ASTBaseType.DoubleWord)
+            {
+                // FIXME: Actually change the type!
+                result = expression;
+                error = default;
+                return true;
+            }
             else if (exprType is ASTPointerType && targetType == ASTPointerType.Of(ASTBaseType.Void))
             {
                 result = new ASTPointerToVoidPointerCast(expression.Trace, expression, exprType as ASTPointerType);
@@ -507,7 +514,6 @@ namespace T12
             }
             else if (exprType is ASTArrayType && targetType == ASTPointerType.Of(ASTBaseType.Void))
             {
-
                 result = new ASTMemberExpression(expression.Trace, expression, "data", null, false);
                 //result = new ASTPointerToVoidPointerCast(expression.Trace, expression, exprType as ASTPointerType);
                 error = default;
@@ -1510,20 +1516,27 @@ namespace T12
                             // FIXME: Here we want to delay the emittion of an array label
                             // This should not emit litterals like normal (that would load them 'load #0')
                             // instead we should emit values directly ('0')
-                            
+
+                            if ((constDirective.Type is ASTArrayType == false) && (constDirective.Type is ASTFixedArrayType == false))
+                                Fail(constDirective.Trace, $"Cannot define const '{constDirective.Name}' of type '{constType}' as an array!");
+
                             builder.AppendLine($":{constDirective.Name}");
                             
-                            // TODO: Proper checking of types
-                            // TODO: Support nested array litterals
-
                             if (constDirective.Type is ASTFixedArrayType farray && farray.Size.IntValue != arrayLitteral.Values.Count)
                                 Fail(constDirective.Trace, $"Missmatching length, '{constDirective.Name}' is an array of '{farray.Size.IntValue}' elements, got '{arrayLitteral.Values.Count}' elements");
 
+                            // TODO: Support nested array litterals
+                            
+                            var baseType = (constDirective.Type as ASTDereferenceableType).DerefType;
+                            
                             int index = 1;
                             builder.Append("\t");
                             foreach (var lit in arrayLitteral.Values)
                             {
-                                var folded = ConstantFold(lit, new VarMap(), typeMap, functionMap, constMap, globalMap);
+                                if (TryGenerateImplicitCast(lit, baseType, new VarMap(), typeMap, functionMap, constMap, globalMap, out var casted, out string error) == false)
+                                    Fail(lit.Trace, $"Cannot cast element in index {index - 1}, '{lit} to the type of the array {baseType}!'");
+
+                                var folded = ConstantFold(casted, new VarMap(), typeMap, functionMap, constMap, globalMap);
 
                                 if (folded is ASTLitteral == false)
                                     Fail(lit.Trace, $"Could not evaluate this as a constant! Got '{folded}'");

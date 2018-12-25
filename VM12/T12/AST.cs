@@ -520,6 +520,11 @@ namespace T12
 
             var value = ASTExpression.Parse(Tokens);
 
+            // If it is a constant array, we set the size of the type
+            if (type is ASTArrayType arrayType && value is ASTArrayLitteral arrayLit)
+                type = new ASTFixedArrayType(arrayType.Trace, arrayType.BaseType, 
+                            ASTNumericLitteral.From(arrayLit.Trace, arrayLit.Values.Count));
+
             var semicolonTok = Tokens.Dequeue();
             if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 

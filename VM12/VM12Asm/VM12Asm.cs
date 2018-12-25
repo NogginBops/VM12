@@ -641,6 +641,7 @@ namespace VM12Asm
             bool hold = false;
             bool open = false;
 
+            long t12Time = 0;
             long preprocessTime = 0;
             long parseTime = 0;
             long assemblyTime = 0;
@@ -775,6 +776,8 @@ namespace VM12Asm
                         }
                     }
 
+                    watch.Restart();
+
                     if (T12.Compiler.Compiling == false)
                     {
                         T12.Compiler.StartCompiling(dirInf, HandleMessage);
@@ -784,6 +787,9 @@ namespace VM12Asm
 
                     // We need to invoke the t12 compiler!
                     T12.Compiler.Compile(fi);
+
+                    watch.Stop();
+                    t12Time += watch.ElapsedTicks;
 
                     fi = new FileInfo(Path.ChangeExtension(fi.FullName, ".12asm"));
                 }
@@ -1087,20 +1093,22 @@ namespace VM12Asm
 
             total.Stop();
 
+            double t12_ms = ((double)t12Time / Stopwatch.Frequency) * 1000;
             double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 1000;
             double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 1000;
             double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 1000;
-            double total_ms_sum = preprocess_ms + parse_ms + assembly_ms;
+            double total_ms_sum = t12_ms + preprocess_ms + parse_ms + assembly_ms;
             double total_ms = ((double)total.ElapsedTicks / Stopwatch.Frequency) * 1000;
 
             string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");
-            Console.WriteLine($"T12: {T12.Compiler.CompiledFiles} files, {T12.Compiler.CompiledLines} lines compiled to {T12.Compiler.ResultLines} lines 12asm");
-            Console.WriteLine($"Preprocess: {preprocess_ms:F4} ms {pplines} lines");
-            Console.WriteLine($"Parse: {parse_ms:F4} ms {lines} lines");
-            Console.WriteLine($"Assembly: {assembly_ms:F4} ms {files.Count} files, {libFile.Metadata.Length} procs, {lines} lines or {tokens} tokens");
-            Console.WriteLine($"Sum: {total_ms_sum:F4} ms");
-            Console.WriteLine($"Total: {total_ms:F4} ms");
+            Console.WriteLine($"Compiled {T12.Compiler.CompiledFiles} t12 files of {T12.Compiler.CompiledLines} lines compiled to {T12.Compiler.ResultLines} lines 12asm");
+            Console.WriteLine($"T12: {t12_ms:F0} ms {T12.Compiler.CompiledLines} lines");
+            Console.WriteLine($"Preprocess: {preprocess_ms:F0} ms {pplines} lines");
+            Console.WriteLine($"Parse: {parse_ms:F0} ms {lines} lines");
+            Console.WriteLine($"Assembly: {assembly_ms:F0} ms {files.Count} files, {libFile.Metadata.Length} procs, {lines} lines or {tokens} tokens");
+            Console.WriteLine($"Sum: {total_ms_sum:F2} ms");
+            Console.WriteLine($"Total: {total_ms:F2} ms");
 
             Console.WriteLine();
             Console.WriteLine($"Done! {warningString}");
