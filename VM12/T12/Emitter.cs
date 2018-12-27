@@ -495,7 +495,7 @@ namespace T12
                 // Here there is a special case where we can optimize the loading of words and dwords
                 ASTWordLitteral litteral = expression as ASTWordLitteral;
                 // NOTE: Is adding the 'd' to the litteral the right thing to do?
-                result = new ASTDoubleWordLitteral(litteral.Trace, litteral.Value + "d", litteral.IntValue, litteral.NumberFromat);
+                result = ASTDoubleWordLitteral.From(litteral.Trace, litteral.IntValue, litteral.NumberFromat);
                 error = default;
                 return true;
             }
@@ -1129,10 +1129,11 @@ namespace T12
                 if (score > bestScore)
                 {
                     func = function;
+                    bestScore = score;
                 }
                 else if (score == bestScore)
                 {
-                    Warning(trace, $"There where two overloads to '' that fit equally good. F1: '{func}', F2: '{function}'");
+                    Warning(trace, $"There where two overloads to '{function.Name}' that fit equally good. F1: '{func}', F2: '{function}'");
                 }
             }
 
@@ -1540,9 +1541,13 @@ namespace T12
 
                                 if (folded is ASTLitteral == false)
                                     Fail(lit.Trace, $"Could not evaluate this as a constant! Got '{folded}'");
-                                
+
+                                string value = (folded as ASTLitteral).Value;
+                                if (folded is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
+                                    value = value.TrimEnd('d', 'D', 'w', 'W');
+
                                 // NOTE: We need to fix array litterals string Value
-                                builder.Append($"{(folded as ASTLitteral).Value} ");
+                                builder.Append($"{value} ");
 
                                 if (index++ % 10 == 0) builder.Append("\n\t");
                             }

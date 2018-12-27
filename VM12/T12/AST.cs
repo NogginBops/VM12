@@ -1979,14 +1979,17 @@ namespace T12
                     {
                         if (number.StartsWith("0x"))
                         {
+                            if (number.Length - 2 > 3) forceDouble = true;
                             value = Convert.ToInt32(number.Substring(2), 16);
                         }
                         else if (number.StartsWith("8x"))
                         {
+                            if (number.Length - 2 > 4) forceDouble = true;
                             value = Convert.ToInt32(number.Substring(2), 8);
                         }
                         else if (number.StartsWith("0b"))
                         {
+                            if (number.Length - 2 > 12) forceDouble = true;
                             value = Convert.ToInt32(number.Substring(2), 2);
                         }
                         else
@@ -2118,11 +2121,11 @@ namespace T12
                 case NumberFormat.Decimal:
                     return Convert.ToString(value, 10);
                 case NumberFormat.Hexadecimal:
-                    return Convert.ToString(value, 16);
+                    return "0x" + Convert.ToString(value, 16);
                 case NumberFormat.Octal:
-                    return Convert.ToString(value, 8);
+                    return "8x" + Convert.ToString(value, 8);
                 case NumberFormat.Binary:
-                    return Convert.ToString(value, 2);
+                    return "0b" + Convert.ToString(value, 2);
                 default:
                     throw new ArgumentException($"Unknown number format {format}!");
             }
