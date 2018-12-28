@@ -12,6 +12,12 @@ namespace FastVM12Asm
     {
         static void Main(string[] args)
         {
+            if (args.Length < 1)
+            {
+                Console.WriteLine("Must provide a input file!");
+                return;
+            }
+
             if (File.Exists(args[0]))
             {
                 Stopwatch watch = new Stopwatch();
@@ -19,21 +25,11 @@ namespace FastVM12Asm
                 var tokenizer = new Tokenizer(args[0]);
                 var toks = tokenizer.Tokenize();
                 watch.Stop();
-
-                Stopwatch watch2 = new Stopwatch();
-                watch2.Start();
-                string[] lines = File.ReadAllLines(args[0]);
-                VM12Asm.VM12Asm.RawFile rawFile = new VM12Asm.VM12Asm.RawFile
-                {
-                    path = args[0],
-                    processedlines = VM12Asm.VM12Asm.PreProcess(lines, Path.GetFileName(args[0])),
-                    rawlines = lines,
-                };
-                //var res = VM12Asm.VM12Asm.Parse(rawFile);
-                watch2.Stop();
                 
                 Console.WriteLine($"Tokenized in {watch.ElapsedMilliseconds}ms");
-                Console.WriteLine($"VM12Asm took {watch2.ElapsedMilliseconds}ms");
+
+                Console.WriteLine($"This is {(long)(tokenizer.GetLines() / watch.Elapsed.TotalSeconds)} lines / sec");
+
                 /*
                 foreach (var tok in toks)
                 {
@@ -45,25 +41,25 @@ namespace FastVM12Asm
             }
         }
 
-        static ConsoleColor GetColor(Tokenizer.TokenType type)
+        static ConsoleColor GetColor(TokenType type)
         {
             switch (type)
             {
-                case Tokenizer.TokenType.Call:
+                case TokenType.Call:
                     return ConsoleColor.Yellow;
-                case Tokenizer.TokenType.Comment:
+                case TokenType.Comment:
                     return ConsoleColor.DarkGreen;
-                case Tokenizer.TokenType.Label:
+                case TokenType.Label:
                     return ConsoleColor.Red;
-                case Tokenizer.TokenType.Number_litteral:
+                case TokenType.Number_litteral:
                     return ConsoleColor.Magenta;
-                case Tokenizer.TokenType.And:
+                case TokenType.And:
                     return ConsoleColor.DarkBlue;
-                case Tokenizer.TokenType.Char_litteral:
-                case Tokenizer.TokenType.String_litteral:
+                case TokenType.Char_litteral:
+                case TokenType.String_litteral:
                     return ConsoleColor.DarkCyan;
-                case Tokenizer.TokenType.Open_angle:
-                case Tokenizer.TokenType.Close_angle:
+                case TokenType.Open_angle:
+                case TokenType.Close_angle:
                     return ConsoleColor.Yellow;
                 default:
                     Console.ResetColor();

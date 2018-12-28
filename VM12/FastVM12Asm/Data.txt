@@ -1,0 +1,716 @@
+﻿& Program Program.12asm
+<character_foreground = extern> ; character_foreground
+<character_background = extern> ; character_background
+<tempChar = extern> ; tempChar
+& StdUtil StdUtil.12asm
+& GraphicsBuffer GraphicsBuffer.12asm
+<gcode_nop = extern>
+<gcode_hlt = extern>
+<gcode_hlt_rst = extern>
+<gcode_jmp = extern>
+<gcode_line = extern>
+<gcode_rectangle = extern>
+<gcode_ellipse = extern>
+<gcode_fontchar = extern>
+<gcode_true_color_sprite = extern>
+<gcode_paletted_sprite = extern>
+<gcode_fontchar_mask = extern>
+<gcode_true_color_sprite_mask = extern>
+<gcode_paletted_sprite_mask = extern>
+<gcode_fontchar_buffer = extern>
+<gcode_fontchar_buffer_color = extern>
+<gcode_nop_inst_size = extern>
+<gcode_hlt_inst_size = extern>
+<gcode_hlt_rst_inst_size = extern>
+<gcode_jmp_inst_size = extern>
+<gcode_line_inst_size = extern>
+<gcode_rectange_inst_size = extern>
+<gcode_fontchar_buffer_inst_size = extern>
+<gcode_fontchar_buffer_color_inst_size = extern>
+& Time Time.12asm
+<time = extern> ; time
+<system_timers = extern> ; system_timers
+& CommandBuffer CommandBuffer.12asm
+<command_buffer_size = extern>
+<command_buffer = extern> ; command_buffer
+& FileSystem FileSystem.12asm
+<NULL_ADDR = extern>
+<FS_BLOCK_SIZE = extern>
+<path_separator = extern>
+<current_inode = extern> ; current_inode
+& Inode Inode.12asm
+<inode_size = extern>
+<inode_type_unknown = extern>
+<inode_type_super = extern>
+<inode_type_file = extern>
+<inode_type_directory = extern>
+<inode_type_continuation = extern>
+<inode_type_offset = extern>
+<inode_cont_node_offset = extern>
+<inode_name_offset = extern>
+<inode_name_length = extern>
+<node_cache_map = extern> ; node_cache_map
+& StdMath StdMath.12asm
+!global
+<optpointer_struct_size = 3>
+<console_width = 80>
+<console_height = 1000>
+<buffer_size = 80000>
+<buffer = auto(80000)> ; [80_000]char
+<color_buffer = auto(80000)> ; [80_000]word
+<caret = auto(2)> ; dword
+<line_offset = auto(1)> ; word
+<caret_interval = 500>
+<show_caret = auto(1)> ; bool
+!private
+<init_gcode_buffer_size = 200>
+<console_gcode_buffer = auto(6)> ; GraphicsBuffer
+<vram_start = extern>
+<vram_line = 640>
+<screen_width = 80>
+<screen_height = 40>
+<screen_length = 3200>
+<max_caret = 3199>
+<max_line = 960>
+<last_time = auto(2)> ; dword
+<caret_timer = auto(2)> ; *Timer
+<text_start = auto(2)> ; dword
+<read_char = auto(1)> ; bool
+<reading_line = auto(1)> ; bool
+!global
+<rawstring_struct_size = 4>
+
+:init_console
+	0 0	; 
+	loadl #line_offset
+	load #0
+	store [SP]	; [line_offset]
+	; Args to function call ::init_graphics_buffer 0
+	loadl #console_gcode_buffer	; &[console_gcode_buffer]
+	loadl #init_gcode_buffer_size
+	::init_graphics_buffer	; init_graphics_buffer 0
+	::set_text_start	; set_text_start 1
+	loadl #caret_timer
+	; Args to function call ::add_timer 2
+	load "Caret blink timer"
+	loadl #caret_interval
+	loadl :on_flip_caret_timer
+	::add_timer	; add_timer 2
+	storel [SP]	; [caret_timer]
+	ret
+
+:on_flip_caret_timer
+	0 0	; 
+	loadl #show_caret
+	loadl #show_caret
+	load [SP]	; [show_caret]
+	setz
+	store [SP]	; [show_caret]
+	ret
+
+:set_line_offset
+	1 1	; (/line word)
+	loadl #line_offset
+	load 0	; [line]
+	store [SP]	; [line_offset]
+	ret
+
+:change_line_offset
+	1 1	; (/change word)
+	loadl #line_offset
+	; Args to function call ::clamp 0
+	loadl #line_offset
+	load [SP]	; [line_offset]
+	load 0	; [change]
+	sub
+	load #0
+	load #max_line
+	::clamp_word_word_word	; clamp 0
+	store [SP]	; [line_offset]
+	ret
+
+:screen_to_vram
+	1 5	; (/character_offset word), /chr dword, /line dword
+	load #0	; Cast from 'word' to 'dword'
+	load 0	; [character_offset]
+	load #screen_width
+	mod
+	storel 1	; [chr]
+	load #0	; Cast from 'word' to 'dword'
+	load 0	; [character_offset]
+	load #screen_width
+	div
+	storel 3	; [line]
+	loadl #vram_start	; [vram_start]
+	loadl 1	; [chr]
+	loadl #8
+	lmul
+	ladd
+	loadl #vram_line
+	loadl 3	; [line]
+	lmul
+	loadl #12
+	lmul
+	ladd
+	ret2
+
+:buffer_to_vram
+	3 8	; (/line_offset word, /buffer_offset dword), /offset dword, /result OptPointer
+	loadl 1	; [buffer_offset]
+	load #0	; Cast from 'word' to 'dword'
+	load 0	; [line_offset]
+	load #screen_width
+	mul
+	lsub
+	storel 3	; [offset]
+	; Contains
+	loadl #0
+	loadl 3	; [offset]
+	lover lsub lswap
+	load #0	; Cast from 'word' to 'dword'
+	load #max_caret	; [max_caret]
+	lswap lsub
+	linc lsub pop
+	setc	; Set to one if the value is contained in the range
+	load #0	; false
+	jneq :else_0
+	load #0	; false
+	store 5	; [result.has_value]
+	jmp :post_else_0
+	:else_0
+	load #1	; true
+	store 5	; [result.has_value]
+	; Args to function call ::screen_to_vram 0
+	loadl 3	; [offset]
+	swap pop	; cast(word)
+	::screen_to_vram	; screen_to_vram 0
+	storel 6	; [result.ptr]
+	:post_else_0
+	; [result] (3)
+	load 5	; [result]:0
+	load 6	; [result]:1
+	load 7	; [result]:2
+	retv 3	; OptPointer
+
+:screen_position_to_buffer_offset
+	3 3	; (/line_offset word, /x word, /y word)
+	load #0	; Cast from 'word' to 'dword'
+	load 1	; [x]
+	load 0	; [line_offset]
+	load 2	; [y]
+	add
+	load #screen_width
+	mul
+	add
+	ret2
+
+:set_caret_pos
+	2 2	; (/x word, /y word)
+	loadl #caret
+	; Args to function call ::screen_position_to_buffer_offset 0
+	loadl #line_offset
+	load [SP]	; [line_offset]
+	; Args to function call ::clamp 1
+	load 0	; [x]
+	load #0
+	load #screen_width
+	::clamp_word_word_word	; clamp 1
+	; Args to function call ::clamp 2
+	load 1	; [y]
+	load #0
+	load #screen_height
+	::clamp_word_word_word	; clamp 2
+	::screen_position_to_buffer_offset	; screen_position_to_buffer_offset 0
+	storel [SP]	; [caret]
+	ret
+
+:draw_console
+	0 0	; 
+	; Args to function call ::panic_string 0
+	load "DEPRECATED"
+	::panic_string	; panic_string 0
+	ret
+
+:handle_char_in
+	1 1	; (/c char)
+	loadl #reading_line
+	load [SP]	; [reading_line]
+	jz :post_if_0
+	; Args to function call ::print_char 0
+	load 0	; [c]
+	::print_char	; print_char 0
+	:post_if_0
+	ret
+
+:set_text_start
+	0 0	; 
+	loadl #text_start
+	loadl #caret
+	loadl [SP]	; [caret]
+	storel [SP]	; [text_start]
+	ret
+
+:focus_caret
+	0 1	; /caret_line word
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl #screen_width
+	ldiv
+	swap pop	; cast(word)
+	store 0	; [caret_line]
+	load 0	; [caret_line]
+	loadl #line_offset
+	load [SP]	; [line_offset]
+	sub
+	jge :else_0
+	loadl #line_offset
+	load 0	; [caret_line]
+	store [SP]	; [line_offset]
+	jmp :post_else_0
+	:else_0
+	load 0	; [caret_line]
+	loadl #line_offset
+	load [SP]	; [line_offset]
+	load #screen_height
+	add
+	load #1
+	sub
+	sub
+	jle :post_if_1
+	loadl #line_offset
+	load 0	; [caret_line]
+	load #screen_height
+	sub
+	load #1
+	add
+	store [SP]	; [line_offset]
+	:post_if_1
+	:post_else_0
+	ret
+
+:new_line
+	0 0	; 
+	loadl #buffer	; buffer[caret]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	load #0x0A
+	store [SP]	; buffer[caret]
+	loadl #caret
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl #screen_width
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl #screen_width
+	lmod
+	lsub
+	ladd
+	storel [SP]	; [caret]
+	::focus_caret	; focus_caret 0
+	ret
+
+:draw_terminal
+	0 0	; 
+	; Args to function call ::print_string_free 0
+	; Args to function call ::generate_path_string 1
+	loadl #current_inode
+	loadl [SP]	; [current_inode]
+	::generate_path_string	; generate_path_string 1
+	::print_string_free	; print_string_free 0
+	; Args to function call ::print_char 2
+	load '>'
+	::print_char	; print_char 2
+	::set_text_start	; set_text_start 3
+	ret
+
+:print_raw_string_cont
+	4 4	; (/str *char, /length dword)
+	; Args to function call ::print_raw_string 0
+	loadl 0	; [str]
+	loadl 2	; [length]
+	::print_raw_string	; print_raw_string 0
+	loadl 0	; [str]
+	ret2
+
+:print_raw_string
+	4 4	; (/str *char, /length dword)
+	loadl 0	; [str]
+	loadl #0	; null
+	jneql :post_if_0
+	ret
+	:post_if_0
+	; Args to function call ::memcpy 0
+	loadl 0	; [str]
+	loadl #buffer	; &[buffer]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	loadl 2	; [length]
+	::memcpy	; memcpy 0
+	; Args to function call ::memset 1
+	loadl #color_buffer	; &[color_buffer]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	loadl 2	; [length]
+	loadl #character_foreground
+	load [SP]	; [character_foreground]
+	::memset	; memset 1
+	loadl #caret
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl 2	; [length]
+	ladd
+	storel [SP]	; [caret]
+	ret
+
+:print_string_cont
+	2 2	; (/str string)
+	; Args to function call ::print_string 0
+	loadl 0	; [str]
+	::print_string	; print_string 0
+	loadl 0	; [str]
+	ret2
+
+:print_string_ln
+	2 2	; (/str string)
+	; Args to function call ::print_string 0
+	loadl 0	; [str]
+	::print_string	; print_string 0
+	::new_line	; new_line 1
+	ret
+
+:print_string_ln_cont
+	2 2	; (/str string)
+	; Args to function call ::print_string 0
+	loadl 0	; [str]
+	::print_string	; print_string 0
+	::new_line	; new_line 1
+	loadl 0	; [str]
+	ret2
+
+:print_string
+	2 6	; (/str string), /length dword, /data *char
+	loadl 0	; [str]
+	loadl [SP]	; << [T12.ASTExplicitCast]
+	storel 2	; [length]
+	loadl 0	; [str]
+	linc linc
+	storel 4	; [data]
+	; Args to function call ::memcpy 0
+	loadl 4	; [data]
+	loadl #buffer	; &[buffer]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	loadl 2	; [length]
+	::memcpy	; memcpy 0
+	; Args to function call ::memset 1
+	loadl #color_buffer	; &[color_buffer]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	loadl 2	; [length]
+	loadl #character_foreground
+	load [SP]	; [character_foreground]
+	::memset	; memset 1
+	loadl #caret
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl 2	; [length]
+	ladd
+	storel [SP]	; [caret]
+	ret
+
+:print_string_color_cont
+	3 3	; (/str string, /color word)
+	; Args to function call ::print_string_color 0
+	loadl 0	; [str]
+	load 2	; [color]
+	::print_string_color	; print_string_color 0
+	loadl 0	; [str]
+	ret2
+
+:print_string_color_ln
+	3 3	; (/str string, /color word)
+	; Args to function call ::print_string_color 0
+	loadl 0	; [str]
+	load 2	; [color]
+	::print_string_color	; print_string_color 0
+	::new_line	; new_line 1
+	ret
+
+:print_string_color_ln_cont
+	3 3	; (/str string, /color word)
+	; Args to function call ::print_string_color 0
+	loadl 0	; [str]
+	load 2	; [color]
+	::print_string_color	; print_string_color 0
+	::new_line	; new_line 1
+	loadl 0	; [str]
+	ret2
+
+:print_string_color
+	3 7	; (/str string, /color word), /length dword, /data *char
+	loadl 0	; [str]
+	loadl [SP]	; << [T12.ASTExplicitCast]
+	storel 3	; [length]
+	loadl 0	; [str]
+	linc linc
+	storel 5	; [data]
+	; Args to function call ::memcpy 0
+	loadl 5	; [data]
+	loadl #buffer	; &[buffer]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	loadl 3	; [length]
+	::memcpy	; memcpy 0
+	; Args to function call ::memset 1
+	loadl #color_buffer	; &[color_buffer]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	loadl 3	; [length]
+	load 2	; [color]
+	::memset	; memset 1
+	loadl #caret
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl 3	; [length]
+	ladd
+	storel [SP]	; [caret]
+	ret
+
+:print_char
+	1 1	; (/c char)
+	; Args to function call ::print_char_color 0
+	load 0	; [c]
+	loadl #character_foreground
+	load [SP]	; [character_foreground]
+	::print_char_color	; print_char_color 0
+	ret
+
+:print_char_color
+	2 2	; (/c char, /color word)
+	; Args to function call ::is_printable 0
+	load 0	; [c]
+	::is_printable	; is_printable 0
+	jz :else_0
+	loadl #read_char
+	load #1	; true
+	store [SP]	; [read_char]
+	loadl #buffer	; buffer[caret]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	load 0	; [c]
+	store [SP]	; buffer[caret]
+	loadl #color_buffer	; color_buffer[caret]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	load 1	; [color]
+	store [SP]	; color_buffer[caret]
+	loadl #caret
+	ldup
+	loadl [SP]	; [caret]
+	linc
+	storel [SP]	; [caret]++
+	jmp :post_else_0
+	:else_0
+	; Args to function call ::handle_control_char 1
+	load 0	; [c]
+	::handle_control_char	; handle_control_char 1
+	:post_else_0
+	loadl #show_caret
+	load #1	; true
+	store [SP]	; [show_caret]
+	ret
+
+:print_char_arr_A.char
+	4 4	; (/chars []char)
+	; Args to function call ::print_char_arr 0
+	; [chars] (4)
+	load 0	; [chars]:0
+	load 1	; [chars]:1
+	load 2	; [chars]:2
+	load 3	; [chars]:3
+	loadl #character_foreground
+	load [SP]	; [character_foreground]
+	::print_char_arr_A.char_word	; print_char_arr 0
+	ret
+
+:print_char_arr_A.char_word
+	5 7	; (/chars []char, /color word), /i dword
+	; For loop T12.ASTBinaryOp(<) 0
+	loadl #0
+	storel 5	; [i]
+	:for_cond_0
+	loadl 5	; [i]
+	loadl 0	; [chars.length]
+	lsub
+	jgel :for_end_0
+	; Args to function call ::print_char_color 0
+	loadl 2	; [chars.data]
+	loadl 5	; [i]
+	ladd
+	load [SP]	; T12.ASTMemberExpression[i]
+	load 4	; [color]
+	::print_char_color	; print_char_color 0
+	:post_for_statement_0
+	linc 5	; [i]++
+	jmp :for_cond_0
+	:for_end_0
+	ret
+
+:clear_line
+	0 0	; 
+	; Args to function call ::memset 0
+	loadl #buffer	; &[buffer]
+	loadl #text_start
+	loadl [SP]	; [text_start]
+	ladd
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl #text_start
+	loadl [SP]	; [text_start]
+	lsub
+	load #0
+	::memset	; memset 0
+	loadl #caret
+	loadl #text_start
+	loadl [SP]	; [text_start]
+	storel [SP]	; [caret]
+	ret
+
+:handle_control_char
+	1 1	; (/c char)
+	; Args to function call ::is_control 0
+	load 0	; [c]
+	::is_control	; is_control 0
+	jz :post_if_0
+	load 0	; [c]
+	load #0x08
+	jneq :else_1
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl #text_start
+	loadl [SP]	; [text_start]
+	lsub
+	jgzl :post_if_2
+	ret
+	:post_if_2
+	loadl #caret
+	ldup
+	loadl [SP]	; [caret]
+	ldec
+	storel [SP]	; [caret]--
+	loadl #buffer	; buffer[caret]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	load ' '
+	store [SP]	; buffer[caret]
+	loadl #color_buffer	; color_buffer[caret]
+	loadl #caret
+	loadl [SP]	; [caret]
+	ladd
+	load #0
+	store [SP]	; color_buffer[caret]
+	jmp :post_else_1
+	:else_1
+	load 0	; [c]
+	load #0x0A
+	jneq :else_3
+	loadl #reading_line
+	load [SP]	; [reading_line]
+	load #0	; false
+	jneq :else_4
+	::new_line	; new_line 1
+	::draw_terminal	; draw_terminal 2
+	::set_text_start	; set_text_start 3
+	jmp :post_else_4
+	:else_4
+	loadl #reading_line
+	load #0	; false
+	store [SP]	; [reading_line]
+	:post_else_4
+	jmp :post_else_3
+	:else_3
+	load 0	; [c]
+	load #0x12
+	jneq :else_5
+	::clear_line	; clear_line 4
+	; Args to function call ::print_string 5
+	; Args to function call ::get_command 6
+	loadl #command_buffer	; &[command_buffer]
+	loadl #0
+	::get_command	; get_command 6
+	::print_string	; print_string 5
+	jmp :post_else_5
+	:else_5
+	load 0	; [c]
+	load #0x14
+	jneq :post_if_6
+	::clear_line	; clear_line 7
+	:post_if_6
+	:post_else_5
+	:post_else_3
+	:post_else_1
+	:post_if_0
+	ret
+
+:read_line_raw
+	0 6	; /text_start dword, /retStr RawString
+	::set_text_start	; set_text_start 0
+	loadl #caret
+	loadl [SP]	; [caret]
+	storel 0	; [text_start]
+	loadl #read_char
+	load #0	; false
+	store [SP]	; [read_char]
+	loadl #reading_line
+	load #1	; true
+	store [SP]	; [reading_line]
+	; While loop reading_line 0
+	:while_condition_0
+	loadl #reading_line
+	load [SP]	; [reading_line]
+	jz :while_end_0
+	eni hlt
+	::handle_messages	; handle_messages 1
+	loadl #read_char
+	load [SP]	; [read_char]
+	jz :post_if_0
+	loadl #read_char
+	load #0	; false
+	store [SP]	; [read_char]
+	::focus_caret	; focus_caret 2
+	:post_if_0
+	jmp :while_condition_0
+	:while_end_0
+	loadl #buffer	; &[buffer]
+	loadl 0	; [text_start]
+	ladd
+	storel 2	; [retStr.data]
+	loadl #caret
+	loadl [SP]	; [caret]
+	loadl 0	; [text_start]
+	lsub
+	storel 4	; [retStr.length]
+	; [retStr] (4)
+	load 2	; [retStr]:0
+	load 3	; [retStr]:1
+	load 4	; [retStr]:2
+	load 5	; [retStr]:3
+	retv 4	; RawString
+
+:read_line_alloc_string
+	0 0	; 
+	; Args to function call ::raw_to_safe 0
+	::read_line_raw	; read_line_raw 1
+	::raw_to_safe	; raw_to_safe 0
+	ret2
+

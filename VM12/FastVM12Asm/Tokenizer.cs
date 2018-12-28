@@ -11,6 +11,59 @@ using System.Diagnostics;
 
 namespace FastVM12Asm
 {
+    public struct FileData
+    {
+        public string Path;
+        public string Data;
+    }
+    
+    public enum TokenType
+    {
+        // TODO: Should this be instructions or just different types of tokens?
+        Flag, // !<flag>
+
+        // NOTE: Maybe fix better name
+        Open_angle,
+        Close_angle,
+        Open_paren,
+        Close_paren,
+        Equals,
+        And,
+        Comma,
+        Numbersign,
+
+        Instruction, // ladd
+        Identifier, // names of constants?
+        Label,  // :<name>
+        Call,
+        Register,
+
+        Number_litteral, // 234, 0xFFF ....
+        String_litteral, // "something"
+        Char_litteral, // 'a'
+
+        // Is this really a type to have?
+        File_litteral, // <name>.12asm or .t12?
+
+        Comment,
+    }
+
+    public struct Token
+    {
+        public TokenType Type;
+        public Opcode InstructionOpcode;
+
+        public FileData File;
+        public int Line;
+        public int Index;
+        public int Length;
+
+        public override string ToString()
+        {
+            return $"{Type}{{{File.Data.Substring(Index, Length)}}}";
+        }
+    }
+
     public class Tokenizer
     {
         [Flags]
@@ -36,61 +89,8 @@ namespace FastVM12Asm
         const CharCategory Whitespace = CharCategory.Whitespace;
         const CharCategory Punctuation = CharCategory.Punctuation;
         const CharCategory Symbol = CharCategory.Symbol;
-
-        public enum TokenType
-        {
-            // TODO: Should this be instructions or just different types of tokens?
-            Flag, // !<flag>
-
-            // NOTE: Maybe fix better name
-            Open_angle,
-            Close_angle,
-            Open_paren,
-            Close_paren,
-            Equals,
-            And,
-            Comma,
-            Numbersign,
-            
-            Instruction, // ladd
-            Identifier, // names of constants?
-            Label,  // :<name>
-            Call,
-            Register,
-
-            Number_litteral, // 234, 0xFFF ....
-            String_litteral, // "something"
-            Char_litteral, // 'a'
-
-            // Is this really a type to have?
-            File_litteral, // <name>.12asm or .t12?
-            
-            Comment,
-        }
-
-        public struct File
-        {
-            public string Path;
-            public string Data;
-        }
         
-        public struct Token
-        {
-            public TokenType Type;
-            public Opcode InstructionOpcode;
-            
-            public File File;
-            public int Line;
-            public int Index;
-            public int Length;
-
-            public override string ToString()
-            {
-                return $"{Type}{{{File.Data.Substring(Index, Length)}}}";
-            }
-        }
-        
-        private File CurrentFile;
+        private FileData CurrentFile;
         private string Data;
         private int Index;
         private int Line;
@@ -103,6 +103,8 @@ namespace FastVM12Asm
             Data = CurrentFile.Data;
             Index = 0;
         }
+
+        public int GetLines() => Line;
 
         public List<Token> Tokenize()
         {
