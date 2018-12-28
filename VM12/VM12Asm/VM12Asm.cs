@@ -13,7 +13,7 @@ namespace VM12Asm
 {
     public class VM12Asm
     {
-        enum TokenType
+        public enum TokenType
         {
             Instruction,
             Litteral,
@@ -33,7 +33,7 @@ namespace VM12Asm
             }
         }
 
-        struct Token
+        public struct Token
         {
             public readonly int Line;
             public readonly TokenType Type;
@@ -90,7 +90,7 @@ namespace VM12Asm
             }
         }
 
-        class Constant
+        public class Constant
         {
             public string name;
             public RawFile file;
@@ -113,7 +113,7 @@ namespace VM12Asm
             }
         }
 
-        class Proc
+        public class Proc
         {
             public string name;
             public int line;
@@ -130,14 +130,14 @@ namespace VM12Asm
             }
         }
 
-        class RawFile
+        public class RawFile
         {
             public string path;
             public string[] rawlines;
             public string[] processedlines;
         }
 
-        class AsemFile
+        public class AsemFile
         {
             public readonly RawFile Raw;
             public readonly Dictionary<string, string> Usings;
@@ -168,7 +168,7 @@ namespace VM12Asm
             }
         }
 
-        class LibFile
+        public class LibFile
         {
             public readonly ProcMetadata[] Metadata;
             public readonly short[] Instructions;
@@ -182,7 +182,7 @@ namespace VM12Asm
             }
         }
 
-        class ProcMetadata
+        public class ProcMetadata
         {
             public RawFile source;
             public AsemFile assembledSource;
@@ -1276,7 +1276,7 @@ namespace VM12Asm
             }
         }
 
-        static string[] PreProcess(string[] lines, string fileName)
+        public static string[] PreProcess(string[] lines, string fileName)
         {
             pplines += lines.Length;
 
@@ -1435,7 +1435,7 @@ namespace VM12Asm
             return newLines.ToArray();
         }
 
-        static AsemFile Parse(RawFile file)
+        public static AsemFile Parse(RawFile file)
         {
             Log(verbose, $"Parsing {Path.GetFileName(file.path)}");
 
@@ -1667,7 +1667,7 @@ namespace VM12Asm
             return new AsemFile(file, usings, constants, procs, breakpoints, flags);
         }
 
-        static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable, out bool success)
+        public static LibFile Assemble(Dictionary<string, AsemFile> files, bool executable, out bool success)
         {
             // TODO: We should really have all the data we are itterating in the same place
             // because with our use of Dictionary atm we are not optimizing for itteration!

@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12ImageConverter", "VM12I
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "T12", "T12\T12.csproj", "{F4E41638-2DF1-412B-AF94-A7A311C66EF2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastVM12Asm", "FastVM12Asm\FastVM12Asm.csproj", "{37452316-1078-476C-9DDF-CF6F549C10B1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{F4E41638-2DF1-412B-AF94-A7A311C66EF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F4E41638-2DF1-412B-AF94-A7A311C66EF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F4E41638-2DF1-412B-AF94-A7A311C66EF2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{37452316-1078-476C-9DDF-CF6F549C10B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{37452316-1078-476C-9DDF-CF6F549C10B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{37452316-1078-476C-9DDF-CF6F549C10B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{37452316-1078-476C-9DDF-CF6F549C10B1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
