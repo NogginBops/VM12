@@ -1878,10 +1878,17 @@ namespace T12
                     }
                 case ASTIfStatement ifStatement:
                     {
+                        var condType = CalcReturnType(ifStatement.Condition, scope, typeMap, functionMap, constMap, globalMap);
+                        if (TryGenerateImplicitCast(ifStatement.Condition, ASTBaseType.Bool, scope, typeMap, functionMap, constMap, globalMap, out var typedCond, out string error) == false)
+                            Fail(ifStatement.Condition.Trace, $"Cannot implicitly convert expression of type {condType} to {ASTBaseType.Bool}! Cast error: '{error}'");
+
+                        // Now we don't have to handle doing jumps on things that are bigger than one word as the condition will be a bool!
+
                         int ifIndex = context.LabelContext.IfLabels++;
                         if (ifStatement.IfFalse == null)
                         {
                             // If-statement without else
+                            // NOTE: Here we are checking if the uncasted condition is a binary op, because optimized jump can do smart things
                             if (ifStatement.Condition is ASTBinaryOp)
                             {
                                 // Here we can optimize the jump.
@@ -1891,7 +1898,7 @@ namespace T12
                             {
                                 // FIXME: We do not handle return types with a size > 1
                                 // We don't know how to optimize this so we eval the whole expression
-                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, typedCond, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine($"\tjz :post_if_{ifIndex}");
                             }
 
@@ -1901,6 +1908,7 @@ namespace T12
                         }
                         else
                         {
+                            // NOTE: Here we are checking if the uncasted condition is a binary op, because optimized jump can do smart things
                             if (ifStatement.Condition is ASTBinaryOp)
                             {
                                 // Here we can optimize the jump.
@@ -1909,7 +1917,7 @@ namespace T12
                             else
                             {
                                 // We don't know how to optimize this so we eval the whole expression
-                                EmitExpression(builder, ifStatement.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, typedCond, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 builder.AppendLine($"\tjz :else_{ifIndex}");
                             }
 
@@ -2629,9 +2637,22 @@ namespace T12
                         var ifTrueType = CalcReturnType(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
                         var ifFalseType = CalcReturnType(conditional.IfFalse, scope, typeMap, functionMap, constMap, globalMap);
 
+                        // TODO: Do a proper binary cast for the two result alternatives (with the good error message!)
+                        /*
+                        var tempBinOp = new ASTBinaryOp(conditional.Trace, ASTBinaryOp.BinaryOperatorType.Unknown, conditional.IfTrue, conditional.IfFalse);
+                        TypedExpressionPair exprPair = GenerateBinaryCast(tempBinOp, scope, typeMap, functionMap, constMap, globalMap);
+                        */
+
                         if (TryGenerateImplicitCast(conditional.IfFalse, ifTrueType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedIfFalse, out string error) == false)
                             Fail(conditional.Trace, $"Cannot return two different types {ifTrueType} and {ifFalseType} from a conditional operator!");
 
+                        var condType = CalcReturnType(conditional.Condition, scope, typeMap, functionMap, constMap, globalMap);
+                        if (TryGenerateImplicitCast(conditional.Condition, ASTBaseType.Bool, scope, typeMap, functionMap, constMap, globalMap, out var typedCond, out error) == false)
+                            Fail(conditional.Condition.Trace, $"Cannot implicitly convert expression of type {condType} to {ASTBaseType.Bool}! Cast error: '{error}'");
+
+                        // Now we don't have to handle doing jumps on things that are bigger than one word as the condition will be a bool!
+                        
+                        // NOTE: We check if the un-casted condition is a binary op, then optimized jump can do smart things
                         if (conditional.Condition is ASTBinaryOp)
                         {
                             // Optimize jump for binary operations
@@ -2639,7 +2660,7 @@ namespace T12
                         }
                         else
                         {
-                            EmitExpression(builder, conditional.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, typedCond, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             builder.AppendLine($"\tjz :else_cond_{condIndex}");
                         }
                         
@@ -3384,8 +3405,8 @@ namespace T12
                                     member.In = null;
 
                                     member.Type = ASTBaseType.DoubleWord;
-                                    member.Offset = 0;
-                                    member.Index = 0;
+                                    member.Offset = 2;
+                                    member.Index = 1;
                                     member.Size = 2;
                                     break;
                                 case "data":
@@ -3393,8 +3414,8 @@ namespace T12
                                     member.In = null;
 
                                     member.Type = ASTPointerType.Of(arrayType.BaseType);
-                                    member.Offset = 2;
-                                    member.Index = 1;
+                                    member.Offset = 0;
+                                    member.Index = 0;
                                     member.Size = 2;
                                     break;
                                 default:
