@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Debugging;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -14,30 +15,36 @@ namespace VM12
 {
     public unsafe partial class HeapView : Form
     {
-        public struct Heap
+        internal struct Heap
         {
+            public VM12 vm12;
+            public int metadata_address;
             public int* metadata;
             public int metadataSize;
+            public int heap_address;
             public int* heap;
             public int blockSize;
             public int heapSize;
 
-            public Heap(int* metadata, int metadataSize, int* heap, int blockSize)
+            internal Heap(VM12 vm12, int metadata_address, int* metadata, int metadataSize, int heap_address, int* heap, int blockSize)
             {
+                this.vm12 = vm12;
+                this.metadata_address = metadata_address;
                 this.metadata = metadata;
                 this.metadataSize = metadataSize;
+                this.heap_address = heap_address;
                 this.heap = heap;
                 this.blockSize = blockSize;
 
-                heapSize = (metadataSize / 2) * blockSize;
+                this.heapSize = (metadataSize / 2) * blockSize;
             }
         }
 
         private Heap heap;
 
-        private Bitmap img;
+        private volatile Bitmap img;
         
-        public HeapView(Heap heap)
+        internal HeapView(Heap heap)
         {
             InitializeComponent();
 
@@ -45,18 +52,19 @@ namespace VM12
 
             heapViewRefreshTimer.Enabled = true;
 
-            img = new Bitmap(1920, 1080, PixelFormat.Format24bppRgb);
+            img = new Bitmap(heapViewImg.Width * 2, heapViewImg.Height * 2, PixelFormat.Format24bppRgb);
 
             heapViewImg.Image = img;
-            heapViewImg.Width = 100;
+            //heapViewImg.Width = 100;
+
+            //heapViewImg.Dock = DockStyle.Fill;
+            heapViewImg.SizeMode = PictureBoxSizeMode.StretchImage;
 
             RedrawImage();
         }
 
         // TODO: Calculate heap regions before drawing
-
-        // FIXME: Drawing performance is really bad
-
+        
         const int min_horizontal_width = 4;
 
         int[] prevHeap = new int[0];
@@ -98,31 +106,48 @@ namespace VM12
             }
         }
 
-        private void RedrawImage()
+        private (float vCount, float hCount) GetCellLayout()
         {
-            Graphics g = Graphics.FromImage(img);
-            
-            g.FillRectangle(Brushes.White, 0, 0, heapViewImg.Width, heapViewImg.Height);
-
-            int cells = (heap.metadataSize / 2);
-            
             float vCount = 256;
             float hCount = 128;
-            
-            if (heapViewImg.Width >= heapViewImg.Height)
+
+            if (img.Width >= img.Height)
             {
                 vCount = 128;
                 hCount = 256;
             }
 
-            // TODO: Scroll bars when view is too small
+            return (vCount, hCount);
+        }
 
-            float vSide = Math.Max(heapViewImg.Height / vCount, 4);
+        private (float width, float height) CalcCellSize(int width, int height)
+        {
+            // TODO: Calc this with the number of cells to display!
+            int cells = (heap.metadataSize / 2);
 
-            float hSide = Math.Max(heapViewImg.Width / hCount, 4);
+            var (vCount, hCount) = GetCellLayout();
             
+            // TODO: Scroll bars when view is too small
+            float hSide = width / hCount;
+            float vSide = height / vCount;
+
+            return (hSide, vSide);
+        }
+
+        private void RedrawImage()
+        {
+            Graphics g = Graphics.FromImage(img);
+            
+            g.FillRectangle(Brushes.White, 0, 0, img.Width, img.Height);
+
+            int cells = (heap.metadataSize / 2);
+            var (vCount, hCount) = GetCellLayout();
+            var (hSide, vSide) = CalcCellSize(img.Width, img.Height);
+
+            Console.WriteLine($"vSide: {vSide}, hSide: {hSide}, width: {img.Width}, height: {img.Height}");
+
             // TODO: Better colors
-            Color[] colors = { Color.Red, Color.Blue, Color.Green, Color.Cyan, Color.Magenta, Color.Yellow, Color.Black };
+            Color[] colors = { Color.Red, Color.Blue, Color.Green, Color.Cyan, Color.Magenta, Color.DarkGoldenrod, Color.Black };
 
             Color GetColor(int index)
             {
@@ -171,12 +196,13 @@ namespace VM12
                 
                 for (int y = 0; y < vCount; ++y)
                 {
-                    g.DrawLine(p, 0, y * vSide, heapViewImg.Width, y * vSide);
+                    g.DrawLine(p, 0, y * vSide, img.Width, y * vSide);
                 }
 
                 for (int x = 0; x < hCount; x++)
                 {
-                    g.DrawLine(p, x * hSide, 0, x * hSide, heapViewImg.Height);
+                    //if (x * hSide > img.Width) System.Diagnostics.Debugger.Break();
+                    g.DrawLine(p, x * hSide, 0, x * hSide, img.Height);
                 }
             }
         }
@@ -200,9 +226,29 @@ namespace VM12
             heapViewRefreshTimer.Enabled = refreshToolStripMenuItem.Checked;
         }
 
-        private void heapViewImg_DoubleClick(object sender, EventArgs e)
+        MemoryInspector inspector = new MemoryInspector();
+        private void heapViewImg_MouseDoubleClick(object sender, MouseEventArgs e)
         {
+            var (vCount, hCount) = GetCellLayout();
+            var (hSide, vSide) = CalcCellSize(heapViewImg.Width, heapViewImg.Height);
+
+            int cell_x = (int)(e.X / hSide);
+            int cell_y = (int)(e.Y / vSide);
+
+            int index = cell_x + (int)(cell_y * hCount);
             
+            int address = heap.heap_address + (index * heap.blockSize);
+
+            Console.WriteLine($"X: {cell_x}, Y: {cell_y}, Index: {index}, Address: {address} vSide: {vSide}, hSide: {hSide}, Location: {e.Location}");
+
+            // TODO: Get the start address of the allocation!
+            // TODO: Figure out the length of the allocation!
+
+            if (inspector.IsDisposed)
+                inspector = new MemoryInspector();
+
+            inspector.SetVM12(heap.vm12, address, heap.blockSize);
+            inspector.Show();
         }
     }
 }

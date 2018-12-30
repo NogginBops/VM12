@@ -31,13 +31,14 @@ namespace Debugging
             memEndAddress.ValueTextChanged += MemEndAddress_ValueTextChanged;
         }
 
-        internal void SetVM12(VM12 vm12)
+        internal void SetVM12(VM12 vm12, int address = 0, int length = 100)
         {
             this.vm12 = vm12;
             memoryView.SetVM12(vm12);
+            memoryView.SetStartAndLength(address, length);
 
-            memStartAddress.ValueText = "0";
-            memLength.ValueText = "100";
+            memStartAddress.ValueText = $"0x{address:X}";
+            memLength.ValueText = $"{length}";
         }
         
         bool changingLength = false;

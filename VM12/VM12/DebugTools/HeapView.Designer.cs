@@ -82,11 +82,12 @@
             this.heapViewImg.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
             this.heapViewImg.Dock = System.Windows.Forms.DockStyle.Fill;
             this.heapViewImg.Location = new System.Drawing.Point(0, 0);
+            this.heapViewImg.MinimumSize = new System.Drawing.Size(768, 384);
             this.heapViewImg.Name = "heapViewImg";
             this.heapViewImg.Size = new System.Drawing.Size(914, 520);
             this.heapViewImg.TabIndex = 0;
             this.heapViewImg.TabStop = false;
-            this.heapViewImg.DoubleClick += new System.EventHandler(this.heapViewImg_DoubleClick);
+            this.heapViewImg.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.heapViewImg_MouseDoubleClick);
             this.heapViewImg.Resize += new System.EventHandler(this.heapViewImg_Resize);
             // 
             // heapViewRefreshTimer
@@ -108,10 +109,12 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.AutoSize = true;
             this.ClientSize = new System.Drawing.Size(914, 544);
             this.Controls.Add(this.scrollPanel);
             this.Controls.Add(this.menuStrip);
             this.DoubleBuffered = true;
+            this.MinimumSize = new System.Drawing.Size(768, 384);
             this.Name = "HeapView";
             this.Text = "Heap View";
             this.menuStrip.ResumeLayout(false);

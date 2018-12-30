@@ -600,6 +600,7 @@ namespace VM12
 #if DEBUG
             if (vm12 != null)
             {
+                // These should not really be magic numbers!
                 const int metadata_size = 65536;
                 const int block_size = 64;
 
@@ -619,7 +620,7 @@ namespace VM12
                         int* metadata = mem + metadata_addr;
                         int* heap = mem + heap_addr;
 
-                        heap_struct = new HeapView.Heap(metadata, metadata_size, heap, block_size);
+                        heap_struct = new HeapView.Heap(vm12, metadata_addr, metadata, metadata_size, heap_addr, heap, block_size);
                     }
                 }
 
