@@ -20,13 +20,23 @@ namespace FastVM12Asm
 
             if (File.Exists(args[0]))
             {
+                {
+                    new Tokenizer(args[0]).Tokenize();
+                    new Tokenizer(args[0]).Tokenize();
+                    new Tokenizer(args[0]).Tokenize();
+                    new Tokenizer(args[0]).Tokenize();
+                    new Tokenizer(args[0]).Tokenize();
+                    new Tokenizer(args[0]).Tokenize();
+                    new Tokenizer(args[0]).Tokenize();
+                }
+                
                 Stopwatch watch = new Stopwatch();
                 watch.Start();
                 var tokenizer = new Tokenizer(args[0]);
                 var toks = tokenizer.Tokenize();
                 watch.Stop();
                 
-                Console.WriteLine($"Tokenized in {watch.ElapsedMilliseconds}ms");
+                Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.ElapsedMilliseconds}ms");
 
                 Console.WriteLine($"This is {(long)(tokenizer.GetLines() / watch.Elapsed.TotalSeconds)} lines / sec");
 

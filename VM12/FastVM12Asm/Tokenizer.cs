@@ -11,7 +11,7 @@ using System.Diagnostics;
 
 namespace FastVM12Asm
 {
-    public struct FileData
+    public class FileData
     {
         public string Path;
         public string Data;
@@ -51,10 +51,10 @@ namespace FastVM12Asm
     public struct Token
     {
         public TokenType Type;
-        public Opcode InstructionOpcode;
 
         public FileData File;
         public int Line;
+
         public int Index;
         public int Length;
 
@@ -98,8 +98,11 @@ namespace FastVM12Asm
 
         public Tokenizer(string path)
         {
-            CurrentFile.Path = path;
-            CurrentFile.Data = System.IO.File.ReadAllText(path);
+            CurrentFile = new FileData
+            {
+                Path = path,
+                Data = System.IO.File.ReadAllText(path)
+            };
             Data = CurrentFile.Data;
             Index = 0;
         }

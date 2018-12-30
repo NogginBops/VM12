@@ -431,6 +431,7 @@ namespace T12
             {
                 if (fromBase.Size == toBase.Size)
                 {
+                    // FIXME: This is not entierly correct!
                     return true;
                 }
                 // FIXME: This should not allow word -> string casts...
@@ -490,6 +491,15 @@ namespace T12
                 error = null;
                 return true;
             }
+            else if (exprType is ASTFixedArrayType fixedArrayType && targetType == ASTPointerType.Of(fixedArrayType.BaseType))
+            {
+                // This is just getting the data member of the fixed array
+                // NOTE: This might mean we try to edit ROM by accident
+                // but for now we allow this implicit convertion
+                result = new ASTMemberExpression(expression.Trace, expression, "data", null, false);
+                error = null;
+                return true;
+            }
             else if (expression is ASTWordLitteral && targetType == ASTBaseType.DoubleWord)
             {
                 // Here there is a special case where we can optimize the loading of words and dwords
@@ -544,7 +554,8 @@ namespace T12
 
                     // FIXME!!!
                     // Special case for word to char implicit cast...
-                    if (exprType == ASTBaseType.Word && targetType == ASTBaseType.Char)
+                    if ((exprType == ASTBaseType.Word && targetType == ASTBaseType.Char) ||
+                        (exprType == ASTBaseType.Char && targetType == ASTBaseType.Word))
                     {
                         result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
                         error = default;
@@ -1403,8 +1414,8 @@ namespace T12
 
                                             // We only extern it it will be a constant in 12asm
                                             // Array constants will be procs, so we don't extern them
-                                            if (constDirective.Type is ASTFixedArrayType) ;
-                                            else builder.AppendLine($"<{constDirective.Name} = extern>");
+                                            if (constDirective.Type is ASTFixedArrayType == false)
+                                                builder.AppendLine($"<{constDirective.Name} = extern>");
 
                                             constMap.Add(constDirective.Name, constDirective);
                                         }
@@ -1491,7 +1502,8 @@ namespace T12
                     {
                         constMap[externConstDirective.Name] = new ASTConstDirective(externConstDirective.Trace, externConstDirective.Type, externConstDirective.Name, null);
 
-                        builder.AppendLine($"<{externConstDirective.Name} = extern>");
+                        if (externConstDirective.Type is ASTFixedArrayType == false)
+                            builder.AppendLine($"<{externConstDirective.Name} = extern>");
 
                         break;
                     }
@@ -3370,6 +3382,7 @@ namespace T12
                                 case "length":
                                     // Hmmm, what should we do here... (for now we leave it empty)
                                     member.In = null;
+
                                     member.Type = ASTBaseType.DoubleWord;
                                     member.Offset = 0;
                                     member.Index = 0;
@@ -3378,6 +3391,7 @@ namespace T12
                                 case "data":
                                     // Hmmm, what should we do here... (for now we leave it empty)
                                     member.In = null;
+
                                     member.Type = ASTPointerType.Of(arrayType.BaseType);
                                     member.Offset = 2;
                                     member.Index = 1;
@@ -3739,7 +3753,10 @@ namespace T12
                                     Fail(addressOfExpression.Trace, $"TryResolveVariable should not return variable of type pointer! This is a compiler bug!");
                                     break;
                                 case VariableType.Constant:
-                                    Fail(addressOfExpression.Trace, $"Cannot take address of constant '{variable.ConstantName}'!");
+                                    if (constMap.TryGetValue(variable.ConstantName, out var constant) && constant.Type is ASTFixedArrayType fixedArrayType)
+                                        builder.AppendLine($"\tloadl :{variable.ConstantName}");
+                                    else
+                                        Fail(addressOfExpression.Trace, $"Cannot take address of constant '{variable.ConstantName}'!");
                                     break;
                                 case VariableType.Function:
                                     {
