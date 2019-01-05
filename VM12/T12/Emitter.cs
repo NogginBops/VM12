@@ -1930,11 +1930,14 @@ namespace T12
                         break;
                     }
                 case ASTCompoundStatement compoundStatement:
-                    foreach (var blockItem in compoundStatement.Block)
                     {
-                        EmitBlockItem(builder, blockItem, scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
+                        VarMap newScope = new VarMap(scope);
+                        foreach (var blockItem in compoundStatement.Block)
+                        {
+                            EmitBlockItem(builder, blockItem, newScope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
+                        }
+                        break;
                     }
-                    break;
                 case ASTExpressionStatement expression:
                     EmitExpression(builder, expression.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, false);
                     break;
