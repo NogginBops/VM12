@@ -2800,7 +2800,7 @@ namespace T12
                         }
 
                         if (functionCall.Arguments.Count > 0)
-                            builder.AppendLine($"\t; Args to function call ::{name} {funcCallIndex}");
+                            builder.AppendLine($"\t; Args to function call ::{name}");
                         
                         // This means adding a result type to expressions
                         foreach (var arg in functionCall.Arguments)
@@ -2825,7 +2825,7 @@ namespace T12
 
                             // Load the pointer and then call the function!
                             LoadVariable(builder, functionCall.Trace, local, typeMap, constMap);
-                            builder.AppendLine($"\t::[SP]\t; {name} {funcCallIndex}");
+                            builder.AppendLine($"\t::[SP]\t; {name}");
                         }
                         else
                         {
@@ -2835,7 +2835,7 @@ namespace T12
                             // And do to string on all arguments
 
                             // Just call the function
-                            builder.AppendLine($"\t::{functionLabel}\t; {functionCall.FunctionName} {funcCallIndex}");
+                            builder.AppendLine($"\t::{functionLabel}\t; {functionCall.FunctionName}");
                         }
                         
                         if (produceResult == false)
