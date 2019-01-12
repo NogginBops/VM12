@@ -3670,20 +3670,7 @@ namespace T12
                             if (pointerExpression.Assignment != null) Fail(pointerExpression.Assignment.Trace, $"Assigning to the pointer expression should not happen here!");
 
                             var pointerType = CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap);
-
-                            // Load the pointer value
-                            /*if (pointerType is ASTFixedArrayType fixedArray)
-                            {
-                                // If this is a fixed array, loading it will mean loading the full array, we just want a pointer to it
-                                // So we load the "data" member
-                                var fixedArrayPointerExpr = new ASTMemberExpression(pointerExpression.Trace, pointerExpression.Pointer, "data", null, false);
-                                EmitExpression(builder, fixedArrayPointerExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                            }
-                            else
-                            {
-                                
-                            }*/
-
+                            
                             // Load the pointer expression address
                             var addressOfPointerExpr = new ASTAddressOfExpression(pointerExpression.Trace, pointerExpression);
                             EmitExpression(builder, addressOfPointerExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
