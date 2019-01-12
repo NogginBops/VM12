@@ -597,7 +597,7 @@ namespace T12
                 Type = type;
             }
         }
-
+        
         internal static TypedExpressionPair GenerateBinaryCast(ASTBinaryOp binaryOp, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
             var left = binaryOp.Left;
@@ -625,6 +625,7 @@ namespace T12
 
                 int pointerTypeSize = SizeOfType(leftPType.BaseType, typeMap);
 
+                // NOTE: Here we might wan't to change the type of the expression to indicate that we have multiplied the size of the pointer!
                 // Here we transform the right thing to a mult of the pointer size
                 typedRight = new ASTBinaryOp(right.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication, ASTDoubleWordLitteral.From(left.Trace, pointerTypeSize), typedRight);
 
@@ -1701,7 +1702,47 @@ namespace T12
             }
             else if (func.Body.Last() is ASTReturnStatement == false)
             {
-                Warning(func.Trace, $"The function '{func.Name}' does not end with a return statement, because we don't do control-flow analasys we don't know if the function actually returns!");
+                // TODO: Proper control-flow analysis
+                bool EndsWithReturn(ASTBlockItem blockItem)
+                {
+                    switch (blockItem)
+                    {
+                        case ASTReturnStatement returnStatement:
+                            return true;
+                        case ASTCompoundStatement compoundStatement:
+                            return compoundStatement.Block.Last() is ASTReturnStatement;
+                        case ASTIfStatement ifStatement:
+                            {
+                                if (ifStatement.IfFalse == null) return false;
+                                return EndsWithReturn(ifStatement.IfTrue) && EndsWithReturn(ifStatement.IfFalse);
+                            }
+                        case ASTWhileStatement whileStatement:
+                            {
+                                // FIXME: Here we need real control-flow analysis
+                                Warning(blockItem.Trace, $"We don't do controlflow analysis for while loops! So we can't guarantee that the function '{func.Name}' actaully returns!");
+                                return false;
+                            }
+                        case ASTExpressionStatement expressionStatement:
+                            if (expressionStatement.Expr is ASTFunctionCall functionCall)
+                            {
+                                // HACK!!! This is really ugly but it is the best solution for now
+                                // NOTE: Function calls to 'panic' and 'panic_string' won't return. 
+                                if (functionCall.FunctionName == "panic" || functionCall.FunctionName == "panic_string")
+                                {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        default:
+                            Warning(blockItem.Trace, $"We don't do controlflow analysis on AST nodes of type '{blockItem}' in function '{func.Name}'");
+                            return false;
+                    }
+                }
+
+                if (EndsWithReturn(func.Body.Last()) == false)
+                {
+                    Warning(func.Trace, $"The function '{func.Name}' does not end with a return statement!");
+                }
             }
 
             Context context = new Context(functionContext, LoopContext.Empty, new LabelContext());

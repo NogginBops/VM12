@@ -43,8 +43,51 @@ namespace T12
                     return FoldImplicitCastExpression(implicitCast, scope, typeMap, functionMap, constMap, globalMap);
                 case ASTExplicitCast explicitCast:
                     return FoldExplicitCastExpression(explicitCast, scope, typeMap, functionMap, constMap, globalMap);
+                case ASTFunctionCall functionCall:
+                    // We don't constant-fold function calls
+                    return functionCall;
+                case ASTAddressOfExpression addressOfExpression:
+                    {
+                        ASTExpression foldedAddr = ConstantFold(addressOfExpression.Expr, scope, typeMap, functionMap, constMap, globalMap);
+                        return new ASTAddressOfExpression(addressOfExpression.Trace, foldedAddr);
+                    }
+                case ASTMemberExpression memberExpression:
+                    {
+                        // We can't constant-fold assigments!
+                        if (memberExpression.Assignment != null)
+                            return memberExpression;
+
+                        var foldedTarget = ConstantFold(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap);
+
+                        // NOTE: We could potentally load the member directly of the target is a constant or something...
+
+                        // NOTE: Do we care if we are derefing or not?
+                        return new ASTMemberExpression(memberExpression.Trace, foldedTarget, memberExpression.MemberName, null, memberExpression.Dereference);
+                    }
+                case ASTPointerExpression pointerExpression:
+                    {
+                        // We can't constant-fold assigments!
+                        if (pointerExpression.Assignment != null)
+                            return pointerExpression;
+
+                        var foldedPointer = ConstantFold(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedOffset = ConstantFold(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
+
+                        return new ASTPointerExpression(pointerExpression.Trace, foldedPointer, foldedOffset, null);
+                    }
+                case ASTPointerToVoidPointerCast pointerCast:
+                    {
+                        // FIXME!!!! Make the implicit pointer casting not happen twice!
+                        // See GenerateBinaryCast(...) for details!
+                        return pointerCast;
+
+                        var foldedPointer = ConstantFold(pointerCast.From, scope, typeMap, functionMap, constMap, globalMap);
+                        return new ASTPointerToVoidPointerCast(pointerCast.Trace, foldedPointer, pointerCast.FromType);
+                    }
+                case ASTInlineAssemblyExpression assemblyExpression:
+                    return assemblyExpression;
                 default:
-                    //Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
+                    Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
                     return expr;
             }
         }
@@ -57,6 +100,8 @@ namespace T12
             {
                 return ASTNumericLitteral.From(unaryOp.Trace, -numLit.IntValue);
             }
+
+            // By definition increment and decrement can't be constant folded, because we can't increment a constant
 
             // FIXME: For now we do this!
             return new ASTUnaryOp(unaryOp.Trace, unaryOp.OperatorType, foldedExpr);
@@ -110,6 +155,12 @@ namespace T12
 
         public static ASTExpression FoldBinaryOp(ASTBinaryOp binaryOp, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
         {
+            // FIXME!! Constant folding tries to generate a binary cast
+            // But because the cast dosn't actually change the type
+            // the emitter tries to cast again! This is a problem for
+            // pointers where we multiply the addend with the size of the pointer!
+            // 
+
             // We could cast before everything else so that that becomes part of the left and right folding!
             var binaryCast = GenerateBinaryCast(binaryOp, scope, typeMap, functionMap, constMap, globalMap);
             
@@ -202,7 +253,7 @@ namespace T12
                                     return foldedLeft;
                             }
                         }
-                        
+
                         if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
                         {
                             int value = leftWord.IntValue * rightWord.IntValue;
@@ -221,6 +272,7 @@ namespace T12
                             return CreateFoldedBinOp();
                         }
                     }
+                case ASTBinaryOp.BinaryOperatorType.Bitwise_Or:
                 case ASTBinaryOp.BinaryOperatorType.Equal:
                 case ASTBinaryOp.BinaryOperatorType.Not_equal:
                 case ASTBinaryOp.BinaryOperatorType.Division:
@@ -230,7 +282,7 @@ namespace T12
                     // FIXME: Implement these foldings!
                     return CreateFoldedBinOp();
                 default:
-                    Warning(binaryOp.Trace, $"Trying to constant fold unknown unary operator of type '{binaryOp.OperatorType}'");
+                    Warning(binaryOp.Trace, $"Trying to constant fold unknown binary operator of type '{binaryOp.OperatorType}'");
                     return CreateFoldedBinOp();
             }
         }
