@@ -86,6 +86,26 @@ namespace T12
                     }
                 case ASTInlineAssemblyExpression assemblyExpression:
                     return assemblyExpression;
+                case ASTConditionalExpression conditionalExpression:
+                    {
+                        var foldedCondition = ConstantFold(conditionalExpression.Condition, scope, typeMap, functionMap, constMap, globalMap);
+
+                        if (foldedCondition is ASTBoolLitteral boolLitteral)
+                        {
+                            if (boolLitteral.BoolValue == true)
+                            {
+                                return conditionalExpression.IfTrue;
+                            }
+                            else
+                            {
+                                return conditionalExpression.IfFalse;
+                            }
+                        }
+
+                        // For now we don't constant-fold the brances to avoid the double cast thing with pointer arithmetic!
+
+                        return new ASTConditionalExpression(conditionalExpression.Trace, foldedCondition, conditionalExpression.IfTrue, conditionalExpression.IfFalse);
+                    }
                 default:
                     Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
                     return expr;
@@ -308,6 +328,12 @@ namespace T12
                         // We could try to make the constant folding generate a 12asm constant
                         // but that seems hard
                         if (constant.Value == null)
+                            return variableExpression;
+
+                        // NOTE: We don't constant fold this atm because it breaks indexing constant arrays
+                        // Because that needs the actual constant and not the litteral to be able to take the
+                        // address of the array.
+                        if (constant.Type is ASTFixedArrayType)
                             return variableExpression;
 
                         var foldedConst = ConstantFold(constant.Value, scope, typeMap, functionMap, constMap, globalMap);
