@@ -2614,6 +2614,20 @@ namespace T12
                                     Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
                                 }
                                 break;
+                            case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
+                                if (typeSize == 1)
+                                {
+                                    builder.AppendLine("\tswap sub setge ; Less than or equal");
+                                }
+                                else if (typeSize == 2)
+                                {
+                                    builder.AppendLine("\tlswap lsub lsetge swap pop ; Less than or equal");
+                                }
+                                else
+                                {
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                }
+                                break;
                             case ASTBinaryOp.BinaryOperatorType.Greater_than:
                                 if (typeSize == 1)
                                 {
@@ -2726,19 +2740,23 @@ namespace T12
                         if (valueType is ASTBaseType == false)
                             Fail(containsExpression.Value.Trace, $"Can only do contains expressions on number types! Got '{valueType}'!");
 
-                        // TODO: Try cast them to each other!!!
-                        if (valueType != lowerType)
-                            Fail(containsExpression.LowerBound.Trace, $"Lower bound must be a number type! Got '{lowerType}'!");
+                        // FIXME! If we are comparing a word with 2 dwords we want to cast up!
 
-                        if (valueType != upperType)
-                            Fail(containsExpression.UpperBound.Trace, $"Upper bound must be a number type! Got '{upperType}'!");
+                        if (TryGenerateImplicitCast(containsExpression.LowerBound, valueType, scope, typeMap, functionMap, constMap, globalMap, out var typedLower, out var lowerError) == false)
+                            Fail(containsExpression.LowerBound.Trace, $"No implicit cast from {lowerType} to {valueType} for the lower bound '{containsExpression.LowerBound}'!");
 
+                        if (TryGenerateImplicitCast(containsExpression.UpperBound, valueType, scope, typeMap, functionMap, constMap, globalMap, out var typedUpper, out var upperError) == false)
+                            Fail(containsExpression.UpperBound.Trace, $"No implicit cast from {upperType} to {valueType} for the upper bound '{containsExpression.UpperBound}'!");
+                        
                         // All types are the same!
 
+                        // NOTE: We could do constant folding here!
                         var value = containsExpression.Value;
-                        var lower = containsExpression.LowerBound;
-                        var upper = containsExpression.UpperBound;
-
+                        var lower = typedLower;
+                        var upper = typedUpper;
+                       
+                        // NOTE: We could also try constant folding the size part!
+                        
                         int typeSize = SizeOfType(valueType, typeMap);
                         switch (typeSize)
                         {
