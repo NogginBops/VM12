@@ -2786,6 +2786,26 @@ namespace T12
                     return false;
             }
         }
+
+        internal static bool IsArithmetic(BinaryOperatorType opType)
+        {
+            switch (opType)
+            {
+                case BinaryOperatorType.Addition:
+                case BinaryOperatorType.Subtraction:
+                case BinaryOperatorType.Multiplication:
+                case BinaryOperatorType.Division:
+                case BinaryOperatorType.Modulo:
+                case BinaryOperatorType.Bitwise_And:
+                case BinaryOperatorType.Bitwise_Or:
+                case BinaryOperatorType.Bitwise_Xor:
+                case BinaryOperatorType.Bitwise_shift_left:
+                case BinaryOperatorType.Bitwise_shift_right:
+                    return true;
+                default:
+                    return false;
+            }
+        }
     }
 
     public class ASTConditionalExpression : ASTExpression

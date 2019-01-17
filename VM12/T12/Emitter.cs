@@ -2449,6 +2449,58 @@ namespace T12
                         var typedLeft = ConstantFold(exprPair.Left, scope, typeMap, functionMap, constMap, globalMap);
                         var typedRight = ConstantFold(exprPair.Right, scope, typeMap, functionMap, constMap, globalMap);
 
+                        if (ASTBinaryOp.IsEqualsOp(binaryOp.OperatorType))
+                        {
+                            void AppendSetInst(string comment)
+                            {
+                                switch (binaryOp.OperatorType)
+                                {
+                                    case ASTBinaryOp.BinaryOperatorType.Equal when typeSize == 1:
+                                        builder.AppendLineWithComment("\tsetz", comment);
+                                        break;
+                                    case ASTBinaryOp.BinaryOperatorType.Equal when typeSize == 2:
+                                        builder.AppendLineWithComment("\tlsetz or", comment);
+                                        break;
+
+                                    case ASTBinaryOp.BinaryOperatorType.Not_equal when typeSize == 1:
+                                        builder.AppendLineWithComment("\tsetnz", comment);
+                                        break;
+                                    case ASTBinaryOp.BinaryOperatorType.Not_equal when typeSize == 2:
+                                        builder.AppendLineWithComment("\tlsetnz or", comment);
+                                        break;
+
+                                    default:
+                                        Fail(binaryOp.Trace, $"Unknown case for optype {binaryOp.OperatorType} and type size {typeSize}!");
+                                        break;
+                                }
+                            }
+
+                            if (typedRight is ASTNumericLitteral rightLit && rightLit.IntValue == 0)
+                            {
+                                EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                AppendSetInst("Eql 0");
+                                return;
+                            }
+                            else if (typedLeft is ASTNumericLitteral leftLit && leftLit.IntValue == 0)
+                            {
+                                EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                AppendSetInst("Eql 0");
+                                return;
+                            }
+                            else if (typedRight is ASTNullLitteral)
+                            {
+                                EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                AppendSetInst("Eql null");
+                                return;
+                            }
+                            else if (typedLeft is ASTNullLitteral)
+                            {
+                                EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                AppendSetInst("Eql null");
+                                return;
+                            }
+                        }
+
                         EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         // FIXME: Consider the size of the result of the expression
@@ -2579,7 +2631,7 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    builder.AppendLine("\tlsub lsetz swap pop\t; Equals cmp");
+                                    builder.AppendLine("\tlsub lsetz or\t; Equals cmp");
                                 }
                                 else
                                 {
@@ -2593,7 +2645,7 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    builder.AppendLine("\tlsub lsetnz swap pop\t; Equals cmp");
+                                    builder.AppendLine("\tlsub lsetnz or\t; Equals cmp");
                                 }
                                 else
                                 {
@@ -2607,7 +2659,7 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    builder.AppendLine("\tlswap lsub lsetgz swap pop ; Less than");
+                                    builder.AppendLine("\tlswap lsub lsetgz or ; Less than");
                                 }
                                 else
                                 {
@@ -2621,7 +2673,7 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    builder.AppendLine("\tlswap lsub lsetge swap pop ; Less than or equal");
+                                    builder.AppendLine("\tlswap lsub lsetge or ; Less than or equal");
                                 }
                                 else
                                 {
@@ -2637,7 +2689,7 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    builder.AppendLine("\tlsub lsetgz swap pop\t; Greater than");
+                                    builder.AppendLine("\tlsub lsetgz or\t; Greater than");
                                 }
                                 else
                                 {
@@ -2687,11 +2739,8 @@ namespace T12
                     }
                 case ASTConditionalExpression conditional:
                     {
-                        int condIndex = context.LabelContext.ConditionalLabels++;
                         // builder.AppendLine($"\t; Ternary {conditional.Condition.GetType()} ({condIndex})");
-
-                        // NOTE: We can do a optimization for words with sel instruction
-
+                        
                         var ifTrueType = CalcReturnType(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
                         var ifFalseType = CalcReturnType(conditional.IfFalse, scope, typeMap, functionMap, constMap, globalMap);
 
@@ -2709,7 +2758,15 @@ namespace T12
                             Fail(conditional.Condition.Trace, $"Cannot implicitly convert expression of type {condType} to {ASTBaseType.Bool}! Cast error: '{error}'");
 
                         // Now we don't have to handle doing jumps on things that are bigger than one word as the condition will be a bool!
+
+                        int resultTypeSize = SizeOfType(ifTrueType, typeMap);
+
+                        var foldedTrue = ConstantFold(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedFalse = ConstantFold(typedIfFalse, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedCond = ConstantFold(typedCond, scope, typeMap, functionMap, constMap, globalMap);
                         
+                        int condIndex = context.LabelContext.ConditionalLabels++;
+
                         // NOTE: We check if the un-casted condition is a binary op, then optimized jump can do smart things
                         if (conditional.Condition is ASTBinaryOp)
                         {
@@ -2718,16 +2775,16 @@ namespace T12
                         }
                         else
                         {
-                            EmitExpression(builder, typedCond, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                            EmitExpression(builder, foldedCond, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             builder.AppendLine($"\tjz :else_cond_{condIndex}");
                         }
-                        
+
                         // We propagate the produce results to the ifTrue and ifFalse emits.
                         builder.AppendLine($"\t:if_cond_{condIndex}");
-                        EmitExpression(builder, conditional.IfTrue, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        EmitExpression(builder, foldedTrue, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         builder.AppendLine($"\tjmp :post_cond_{condIndex}");
                         builder.AppendLine($"\t:else_cond_{condIndex}");
-                        EmitExpression(builder, conditional.IfFalse, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        EmitExpression(builder, foldedFalse, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         builder.AppendLine($"\t:post_cond_{condIndex}");
                         break;
                     }
@@ -3387,6 +3444,11 @@ namespace T12
                                 // We take the "data" pointer of the fixed array and use that
                                 var data_member = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
                                 EmitExpression(builder, data_member, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType == ASTBaseType.Bool && toType == ASTBaseType.Word)
+                            {
+                                // Here we do nothing but emit the bool
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else
                             {

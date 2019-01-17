@@ -104,6 +104,22 @@ namespace T12
 
                         // For now we don't constant-fold the brances to avoid the double cast thing with pointer arithmetic!
 
+                        var ifTrue = conditionalExpression.IfTrue;
+                        var ifFalse = conditionalExpression.IfFalse;
+                        if (ifTrue is ASTNumericLitteral trueLit && ifFalse is ASTNumericLitteral falseLit)
+                        {
+                            if (trueLit.IntValue == 1 && falseLit.IntValue == 0)
+                            {
+                                // This is the same as a cast to bool!
+                                return new ASTExplicitCast(conditionalExpression.Trace, new ASTExplicitCast(conditionalExpression.Trace, foldedCondition, ASTBaseType.Bool), ASTBaseType.Word);
+                            }
+                            else if (trueLit.IntValue == 0 && falseLit.IntValue == 1)
+                            {
+                                // NOTE! This might not be optimal... we don't for now.
+                                //return ConstantFold(new ASTUnaryOp(expr.Trace, ASTUnaryOp.UnaryOperationType.Logical_negation, foldedCondition), scope, typeMap, functionMap, constMap, globalMap);
+                            }
+                        }
+
                         return new ASTConditionalExpression(conditionalExpression.Trace, foldedCondition, conditionalExpression.IfTrue, conditionalExpression.IfFalse);
                     }
                 default:
@@ -293,7 +309,6 @@ namespace T12
                         }
                     }
                 case ASTBinaryOp.BinaryOperatorType.Bitwise_Or:
-                case ASTBinaryOp.BinaryOperatorType.Equal:
                 case ASTBinaryOp.BinaryOperatorType.Not_equal:
                 case ASTBinaryOp.BinaryOperatorType.Division:
                 case ASTBinaryOp.BinaryOperatorType.Modulo:
@@ -301,6 +316,26 @@ namespace T12
                 case ASTBinaryOp.BinaryOperatorType.Logical_Or:
                     // FIXME: Implement these foldings!
                     return CreateFoldedBinOp();
+                case ASTBinaryOp.BinaryOperatorType.Equal:
+                    {
+                        if (foldedLeft is ASTNumericLitteral leftNum && leftNum.IntValue == 0)
+                        {
+                            return new ASTExplicitCast(binaryOp.Trace, foldedRight, ASTBaseType.Bool);
+                        }
+
+                        if (foldedRight is ASTNumericLitteral rightNum && rightNum.IntValue == 0)
+                        {
+                            return new ASTExplicitCast(binaryOp.Trace, foldedLeft, ASTBaseType.Bool);
+                        }
+
+                        // We can compare values statically
+                        if (foldedLeft is ASTLitteral leftLit && foldedRight is ASTLitteral rightLit)
+                        {
+                            return new ASTBoolLitteral(binaryOp.Trace, leftLit.Value == rightLit.Value);
+                        }
+
+                        return CreateFoldedBinOp();
+                    }
                 default:
                     Warning(binaryOp.Trace, $"Trying to constant fold unknown binary operator of type '{binaryOp.OperatorType}'");
                     return CreateFoldedBinOp();
