@@ -2125,6 +2125,9 @@ namespace VM12Asm
                             case TokenType.Label:
                                 if (current.Use == false)
                                 {
+                                    if (local_labels.TryGetValue(current.Value, out var local_lbl))
+                                        Error(file.Value.Raw, current.Line, $"Redining label '{current.Value}'!");
+
                                     local_labels[current.Value] = instructions.Count;
                                     
                                     Log(verbose, ConsoleColor.DarkCyan, $"Found label def {current.Value} at index: {instructions.Count:X}");
@@ -2148,7 +2151,7 @@ namespace VM12Asm
                     }
 
                     offset = instructions.Count;
-
+                    
                     proc_label_instructions[proc.Key] = local_labels;
 
                     proc_label_uses[proc.Key] = local_label_uses;
@@ -2157,15 +2160,15 @@ namespace VM12Asm
 
                     // We can't use assembledProcs because the key compares file too...
                     if (metadata.ContainsKey(proc.Value.name))
-                        Warning(file.Value.Raw, proc.Value.line, $"Redefining proc '{proc.Value}'!");
+                        Error(file.Value.Raw, proc.Value.line, $"Redefining proc '{proc.Value}'!");
 
                     assembledProcs[proc.Value] = instructions;
 
                     procmeta.size = instructions.Count;
-
+                    
                     metadata[proc.Value.name] = procmeta;
                     procMap[proc.Value.name] = proc.Value;
-
+                    
                     Log(verbose, "----------------------");
                 }
 

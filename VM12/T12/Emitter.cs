@@ -3237,17 +3237,9 @@ namespace T12
                     }
                 case ASTFixedArrayToArrayCast cast:
                     {
-                        Fail(cast.Trace, "We don't have fixed array to array type of cast yet!!");
-
-                        if (cast.From is ASTVariableExpression)
-                        {
-
-                        }
-
-                        builder.AppendLine($"\tloadl #{cast.FromType.Size}\t; Size of {cast.FromType} in elements");
-                        // We want a pointer to the value
-                        // NOTE: We might not want to create AST nodes while emitting assembly because debugging might become harder
-                        EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        builder.AppendLineWithComment($"\tloadl #{cast.FromType.Size}", $"Length of fixed array {cast.FromType}");
+                        var address = new ASTAddressOfExpression(cast.Trace, cast.From);
+                        EmitExpression(builder, address, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         break;
                     }
                 case ASTImplicitCast cast:
