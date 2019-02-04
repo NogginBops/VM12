@@ -2,22 +2,28 @@
 {
     public static class Constants
     {
-        public const int RAM_SIZE = 10_483_712; // before gram: 10_485_760
+        public const int RAM_SIZE = 10_479_616; // before gram: 10_485_760 before sndram: 10_483_712
+        public const int SNDRAM_SIZE = 4096;
         public const int GRAM_SIZE = 2048;
         public const int VRAM_SIZE = 307_200;
         public const int ROM_SIZE = 5_984_256;
 
         public const int RAM_START = 0;
-        public const int GRAM_START = RAM_SIZE;
-        public const int VRAM_START = RAM_SIZE + GRAM_SIZE;
-        public const int ROM_START = RAM_SIZE + GRAM_SIZE + VRAM_SIZE;
+        public const int SNDRAM_START = RAM_START + RAM_SIZE;
+        public const int GRAM_START = SNDRAM_START + SNDRAM_SIZE;
+        public const int VRAM_START = GRAM_START + GRAM_SIZE;
+        public const int ROM_START = VRAM_START + VRAM_SIZE;
 
         public const int RAM_END = RAM_START + RAM_SIZE - 1;
+        public const int SNDRAM_END = SNDRAM_START + SNDRAM_SIZE - 1;
         public const int GRAM_END = GRAM_START + GRAM_SIZE - 1;
         public const int VRAM_END = VRAM_START + VRAM_SIZE - 1;
         public const int ROM_END = ROM_START + ROM_SIZE - 1;
 
-        public const int MEM_SIZE = RAM_SIZE + GRAM_SIZE + VRAM_SIZE + ROM_SIZE;
+        // This should always be this!
+        public const int MEM_SIZE = 0x1_000_000;
+
+        public const bool VALID_MEM_PARTITIONS = MEM_SIZE == (RAM_SIZE + SNDRAM_SIZE + GRAM_SIZE + VRAM_SIZE + ROM_SIZE);
 
         public const int SCREEN_WIDTH = 640;
         public const int SCREEN_HEIGHT = 480;

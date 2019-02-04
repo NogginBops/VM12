@@ -491,6 +491,29 @@ namespace T12
                 // We kind of want the thing to actually have a new type when we return here...
                 return foldedFrom;
             }
+            else if (fromType == ASTBaseType.DoubleWord && explicitCast.To is ASTPointerType)
+            {
+                // We can cast a dword to a pointer statically
+                // We kind of want the thing to actually have a new type when we return here...
+                return foldedFrom;
+            }
+            else if (fromType == ASTBaseType.DoubleWord && explicitCast.To is ASTFixedArrayType)
+            {
+                // We can cast a dword to a fixed array statically
+                // We really want the thing to actually have a new type when we return here...
+                return foldedFrom;
+            }
+            else if (fromType is ASTPointerType && explicitCast.To is ASTFixedArrayType)
+            {
+                // We can cast a dword to a fixed array statically
+                // We really want the thing to actually have a new type when we return here...
+                return foldedFrom;
+            }
+            else if (foldedFrom is ASTNumericLitteral numLit && fromType is ASTPointerType fromPointerType && explicitCast.To is ASTPointerType toPointerType)
+            {
+                // We can cast a dword to a fixed array statically
+                return new ASTPointerLitteral(numLit.Trace, numLit.Value, numLit.IntValue, toPointerType);
+            }
             else
             {
                 return GenerateDefault();

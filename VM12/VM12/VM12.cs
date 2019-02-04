@@ -61,7 +61,9 @@ namespace VM12
         private Thread CoProssessor;
         private readonly ManualResetEventSlim CoProcessHaltSignal = new ManualResetEventSlim();
         private readonly ManualResetEventSlim CoProcessInterrupt = new ManualResetEventSlim();
-        
+
+        private SoundChip SoundChip;
+
         private static byte[][,] AllocateStorageMemory(int addresses, int chunkChunks, int chunkSize)
         {
             byte[][,] array = new byte[addresses / chunkChunks][,];
@@ -684,12 +686,8 @@ namespace VM12
 
             storageFile = storage;
             ReadStorageData(storageFile);
-            /*
-            using (FileStream stream = storage.OpenRead())
-            {
-                stream.Read(STORAGE, 0, (int) storage.Length);
-            }
-            */
+
+            SoundChip = new SoundChip();
         }
 
         Regex command = new Regex("^\\[(\\S+?):(.+)\\]$");
@@ -884,6 +882,7 @@ namespace VM12
         {
             Running = true;
             Started = true;
+            SoundChip.StartSoundChip(this);
 
             fixed (int* mem = MEM)
             {
@@ -1980,6 +1979,8 @@ namespace VM12
             this.SP = 0;
             this.FP = 0;
             this.PC = ROM_START;
+
+            SoundChip.StopSoundChip();
 
             CoProcessHaltSignal.Set();
             CoProcessInterrupt.Set();

@@ -53,6 +53,11 @@ namespace VM12
         
         public VM12Form()
         {
+            if (Constants.VALID_MEM_PARTITIONS == false)
+            {
+                throw new Exception("Memory partitions don't match the memory size!!");
+            }
+
             if (form != null)
             {
                 throw new InvalidOperationException("Cannot create more than one VM12Form");

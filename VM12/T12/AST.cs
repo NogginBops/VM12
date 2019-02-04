@@ -1891,7 +1891,7 @@ namespace T12
 
     public abstract class ASTLitteral : ASTExpression
     {
-        public readonly ASTType Type;
+        public ASTType Type;
 
         public readonly string Value;
         
@@ -2334,6 +2334,17 @@ namespace T12
 
             // We will figure out the type later
             return new ASTArrayLitteral(trace, ASTBaseType.Void, elements);
+        }
+    }
+
+    public class ASTPointerLitteral : ASTDoubleWordLitteral
+    {
+        public readonly ASTPointerType PType;
+
+        public ASTPointerLitteral(TraceData trace, string value, int intValue, ASTPointerType pType) : base(trace, value, intValue, NumberFormat.Hexadecimal)
+        {
+            PType = pType;
+            this.Type = pType;
         }
     }
 

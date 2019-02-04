@@ -120,5 +120,21 @@ namespace VM12
                 block_size *= 2;
             }
         }
+
+        public static int Clamp(this int value, int min, int max)
+        {
+            return value > max ? max : value < min ? min : value;
+        }
+
+        public static float Clamp(this float value, float min, float max)
+        {
+            return value > max ? max : value < min ? min : value;
+        }
+
+        public static double Clamp(this double value, double min, double max)
+        {
+            return value > max ? max : value < min ? min : value;
+        }
+
     }
 }

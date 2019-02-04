@@ -212,11 +212,11 @@ namespace VM12Asm
 
         const int _12BIT_MASK = 0x0FFF;
 
-        const int ROM_OFFSET = 0xA4B_000;
+        const int ROM_OFFSET = Constants.ROM_START;
 
-        const int ROM_SIZE = 5_984_256;
+        const int ROM_SIZE = Constants.ROM_SIZE;
 
-        const short ROM_OFFSET_UPPER_BITS = 0xA4B;
+        const short ROM_OFFSET_UPPER_BITS = Constants.ROM_START >> 12;
         
         const string compiler_generated_warning = "; This is a compiler generated file! Changes to this file will be lost.\n\n";
 
@@ -628,6 +628,11 @@ namespace VM12Asm
 
         public static void Main(params string[] args)
         {
+            if (Constants.VALID_MEM_PARTITIONS == false)
+            {
+                throw new Exception("Memory partitions don't match the memory size!!");
+            }
+
             Console.ForegroundColor = conColor;
 
             IEnumerator<string> enumerator = args.AsEnumerable().GetEnumerator();
