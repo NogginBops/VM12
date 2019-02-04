@@ -353,6 +353,8 @@ namespace VM12Asm
             { new Regex(sname("hlt_coproc")), "coproc.hlt" },
             { new Regex(sname("int_coproc")), "coproc.int" },
 
+            { new Regex(sname("int_snd_chip")), "int.snd.chip" },
+            
             { new Regex("\\[FP\\]"), "fp" },
             { new Regex("\\[PC\\]"), "pc" },
             { new Regex("\\[PT\\]"), "pt" },
@@ -483,6 +485,8 @@ namespace VM12Asm
             { "coproc.start", Opcode.Start_coproc },
             { "coproc.hlt", Opcode.Hlt_coproc },
             { "coproc.int", Opcode.Int_coproc },
+
+            { "int.snd.chip", Opcode.Int_snd_chip },
         };
 
         static Dictionary<string, int> arguments = new Dictionary<string, int>()

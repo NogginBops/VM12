@@ -138,6 +138,7 @@
 
         Start_coproc, Hlt_coproc, Int_coproc,
         Graf_clear, Graf_fill,
+        Int_snd_chip,
     }
 
     public enum Opcode_old : short

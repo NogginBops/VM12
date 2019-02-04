@@ -44,6 +44,7 @@
             this.memoryToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new Util.ExtendedPictureBox();
+            this.soundDebugToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -92,7 +93,8 @@
             this.heapViewToolStripMenuItem,
             this.debuggerToolStripMenuItem,
             this.profilerToolStripMenuItem,
-            this.memoryToolStripMenuItem});
+            this.memoryToolStripMenuItem,
+            this.soundDebugToolStripMenuItem});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -177,6 +179,13 @@
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
             // 
+            // soundDebugToolStripMenuItem
+            // 
+            this.soundDebugToolStripMenuItem.Name = "soundDebugToolStripMenuItem";
+            this.soundDebugToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.soundDebugToolStripMenuItem.Text = "Sound Debug";
+            this.soundDebugToolStripMenuItem.Click += new System.EventHandler(this.soundDebugToolStripMenuItem_Click);
+            // 
             // VM12Form
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -220,6 +229,7 @@
         private System.Windows.Forms.ToolStripMenuItem debuggerToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem profilerToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem memoryToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem soundDebugToolStripMenuItem;
     }
 }
 

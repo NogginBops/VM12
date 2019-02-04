@@ -77,7 +77,7 @@ namespace VM12
 
             GenerateLUT();
 
-            SetSize(VM12.SCREEN_HEIGHT * 2, InterpolationMode.NearestNeighbor);
+            SetSize(VM12.SCREEN_HEIGHT, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -410,7 +410,7 @@ namespace VM12
         
         private void VM12Form_KeyDown(object sender, KeyEventArgs e)
         {
-            Debug.WriteLine($"Keycode: {(int)e.KeyCode:X2}");
+            //Debug.WriteLine($"Keycode: {(int)e.KeyCode:X2}");
             
             vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 1, (int) e.KeyCode & 0xFFF }));
 
@@ -419,7 +419,7 @@ namespace VM12
 
         private void VM12Form_KeyUp(object sender, KeyEventArgs e)
         {
-            Debug.WriteLine($"Released keycode: {(int)e.KeyCode:X2}");
+            //Debug.WriteLine($"Released keycode: {(int)e.KeyCode:X2}");
 
             vm12?.Interrupt(new Interrupt(InterruptType.keyboard, new[] { 0, (int) e.KeyCode & 0xFFF }));
 
@@ -540,7 +540,7 @@ namespace VM12
                 if (showingCursor == true)
                 {
                     Cursor.Hide();
-                    Debug.WriteLine("Hide");
+                    //Debug.WriteLine("Hide");
                     showingCursor = false;
                 }
             }
@@ -559,7 +559,7 @@ namespace VM12
                 if (showingCursor == false)
                 {
                     Cursor.Show();
-                    Debug.WriteLine("Show");
+                    //Debug.WriteLine("Show");
                     showingCursor = true;
                 }
             }
@@ -681,6 +681,16 @@ namespace VM12
                 MemoryInspector inspector = new MemoryInspector();
                 inspector.SetVM12(vm12);
                 inspector.Show();
+            }
+        }
+
+        private void soundDebugToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (vm12 != null)
+            {
+                SoundDebug sndDbg = new SoundDebug();
+                sndDbg.SetVM12(vm12);
+                sndDbg.Show();
             }
         }
     }

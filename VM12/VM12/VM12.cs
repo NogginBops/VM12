@@ -62,7 +62,7 @@ namespace VM12
         private readonly ManualResetEventSlim CoProcessHaltSignal = new ManualResetEventSlim();
         private readonly ManualResetEventSlim CoProcessInterrupt = new ManualResetEventSlim();
 
-        private SoundChip SoundChip;
+        public SoundChip SoundChip { get; private set; }
 
         private static byte[][,] AllocateStorageMemory(int addresses, int chunkChunks, int chunkSize)
         {
@@ -687,7 +687,7 @@ namespace VM12
             storageFile = storage;
             ReadStorageData(storageFile);
 
-            SoundChip = new SoundChip();
+            SoundChip = new SoundChip(this);
         }
 
         Regex command = new Regex("^\\[(\\S+?):(.+)\\]$");
@@ -882,7 +882,7 @@ namespace VM12
         {
             Running = true;
             Started = true;
-            SoundChip.StartSoundChip(this);
+            SoundChip.StartSoundChip();
 
             fixed (int* mem = MEM)
             {
@@ -1936,6 +1936,10 @@ namespace VM12
                             CoProcessInterrupt.Set();
                             PC++;
                             break;
+                        case Opcode.Int_snd_chip:
+                            SoundChip.UpdateOscillators(mem);
+                            PC++;
+                            break;
                         default:
                             throw new Exception($"{op}");
                     }
@@ -1964,7 +1968,7 @@ namespace VM12
 
                     if (SP < 0)
                     {
-                        Debugger.Break();
+                       Debugger.Break();
                     }
 #endif
                     
