@@ -12,6 +12,9 @@ using NAudio.Utils;
 using NAudio.MediaFoundation;
 using NAudio.CoreAudioApi;
 using NAudio.Gui;
+using NAudio.Dsp;
+using System.Runtime.CompilerServices;
+using NAudio.Utils;
 
 namespace VM12
 {
@@ -19,13 +22,11 @@ namespace VM12
     {
         private VM12 vm12;
         public WasapiOut DriverOut;
-
-        private volatile bool ShouldRun = false;
-
+        
         private const int OscillatorCount = 30;
 
         // TODO: Measure sound from all oscillators!
-        private MixingSampleProvider MixProvider;
+        private SimpleMixerProvider MixProvider;
         private SignalGenerator[] SignalGenerators;
         private AdsrSampleProvider[] Envelopes;
         private PanningSampleProvider[] Panners;
@@ -62,7 +63,7 @@ namespace VM12
                 float release = mem[offset + Release_Offset] / 100f;
                 float pan = (mem[offset + Pan_Offset] - (0xFFF / 2)) / (float)0xFFF;
 
-                if (Envelopes[i].Triggered != trigger) Console.WriteLine($"Setting osc {i + 1} to type {generatorType} freq {freq} gain {gain} trigger {trigger} attack {attack} decay {decay} sustain {sustain} release {release} pan {pan}");
+                //if (Envelopes[i].Triggered != trigger) Console.WriteLine($"Setting osc {i + 1} to type {generatorType} freq {freq} gain {gain} trigger {trigger} attack {attack} decay {decay} sustain {sustain} release {release} pan {pan}");
 
                 SignalGenerators[i].Type = generatorType;
                 SignalGenerators[i].Frequency = freq;
@@ -75,24 +76,15 @@ namespace VM12
                 
                 // We might want to trigger them outside of this loop
                 Envelopes[i].Triggered = trigger;
-
-                Envelopes[i].Envelope.Process();
-
-                if (Envelopes[i].Envelope.State == EnvelopeGenerator.EnvelopeState.Release)
-                {
-                    Console.WriteLine("RELEASE!!!!");
-                }
             }
 
-            DebugTriggers();
+            //DebugTriggers();
         }
 
         internal SoundChip(VM12 vm12)
         {
             this.vm12 = vm12;
-
-            ShouldRun = true;
-
+            
             DriverOut = new WasapiOut(AudioClientShareMode.Shared, true, 40);
             int SampelRate = DriverOut.OutputWaveFormat.SampleRate;
 
@@ -110,14 +102,13 @@ namespace VM12
                 };
 
                 int SampleRate = SignalGenerators[i].WaveFormat.SampleRate;
-                Envelopes[i] = new AdsrSampleProvider(SignalGenerators[i]);
+                Envelopes[i] = new AdsrSampleProvider(i, SignalGenerators[i]);
 
                 Panners[i] = new PanningSampleProvider(Envelopes[i]);
                 // NOTE! We might want to change the panning strategy!
             }
 
-            MixProvider = new MixingSampleProvider(Panners);
-            MixProvider.ReadFully = true;
+            MixProvider = new SimpleMixerProvider(Panners);
 
             VolumeMeter = new MeteringSampleProvider(MixProvider);
 
@@ -146,20 +137,62 @@ namespace VM12
         {
             return VolumeMeter;
         }
+    }
 
-        internal void DebugTriggers()
+    public class SimpleMixerProvider : ISampleProvider
+    {
+        public ISampleProvider[] Providers;
+        public WaveFormat format;
+        public float[] providerBuffer;
+
+        public SimpleMixerProvider(ISampleProvider[] providers)
         {
-            int i = 1;
-            foreach (var env in Envelopes)
+            Providers = providers;
+            foreach (var prov in Providers)
             {
-                if (env.Triggered)
-                {
-                    Console.WriteLine($"Osc {i} is triggered!");
-                }
+                if (format == null) format = prov.WaveFormat;
 
-                i++;
+                if (format.SampleRate != prov.WaveFormat.SampleRate ||
+                    format.Channels != prov.WaveFormat.Channels) throw new ArgumentException($"All providers must use the same WaveFormat!! {prov}");
             }
         }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            providerBuffer = BufferHelpers.Ensure(providerBuffer, count);
+
+            int maxSamples = 0;
+
+            for (int i = 0; i < Providers.Length; i++)
+            {
+                int samplesRead = Providers[i].Read(providerBuffer, 0, count);
+
+                int outIndex = offset;
+                for (int n = 0; n < samplesRead; n++)
+                {
+                    if (n >= maxSamples)
+                    {
+                        buffer[outIndex++] = providerBuffer[n];
+                    }
+                    else
+                    {
+                        buffer[outIndex++] += providerBuffer[n];
+                    }
+                }
+
+                // Get the biggest number of samples read
+                maxSamples = Math.Max(samplesRead, maxSamples);
+            }
+            
+            for (int i = maxSamples; i < count; i++)
+            {
+                buffer[i] = 0;
+            }
+
+            return count;
+        }
+
+        public WaveFormat WaveFormat => format;
     }
 
     /// <summary>
@@ -168,20 +201,19 @@ namespace VM12
     public class AdsrSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider source;
-        private readonly EnvelopeGenerator adsr;
-        private float attackSeconds;
-        private float decaySeconds;
-        private float releaseSeconds;
-        private bool triggered;
+        public ADSREnvelope Envelope { get; }
+        private volatile bool triggered;
+        private int Ident;
         
         /// <summary>
         /// Creates a new AdsrSampleProvider with default values
         /// </summary>
-        public AdsrSampleProvider(ISampleProvider source)
+        public AdsrSampleProvider(int ident, ISampleProvider source)
         {
+            Ident = ident;
             if (source.WaveFormat.Channels > 1) throw new ArgumentException("Currently only supports mono inputs");
             this.source = source;
-            adsr = new EnvelopeGenerator();
+            Envelope = new ADSREnvelope(ident, source.WaveFormat.SampleRate, 0, 0, 0, 0);
             AttackSeconds = 0f;
             SustainLevel = 0f;
             DecaySeconds = 0f;
@@ -191,58 +223,37 @@ namespace VM12
         /// <summary>
         /// Attack time in seconds
         /// </summary>
-        public float AttackSeconds
+        public double AttackSeconds
         {
-            get
-            {
-                return attackSeconds;
-            }
-            set
-            {
-                attackSeconds = value;
-                adsr.AttackRate = attackSeconds * WaveFormat.SampleRate;
-            }
+            get => Envelope.Attack;
+            set => Envelope.Attack = value;
         }
 
         /// <summary>
         /// Decay time in seconds
         /// </summary>
-        public float DecaySeconds
+        public double DecaySeconds
         {
-            get
-            {
-                return decaySeconds;
-            }
-            set
-            {
-                decaySeconds = value;
-                adsr.DecayRate = decaySeconds * WaveFormat.SampleRate;
-            }
+            get => Envelope.Decay;
+            set => Envelope.Decay = value;
         }
 
         /// <summary>
         /// Sustain level (1 = 100%)
         /// </summary>
-        public float SustainLevel
+        public double SustainLevel
         {
-            get => adsr.SustainLevel;
-            set => adsr.SustainLevel = value;
+            get => Envelope.Sustain;
+            set => Envelope.Sustain = value;
         }
 
         /// <summary>
         /// Release time in seconds
         /// </summary>
-        public float ReleaseSeconds
+        public double ReleaseSeconds
         {
-            get
-            {
-                return releaseSeconds;
-            }
-            set
-            {
-                releaseSeconds = value;
-                adsr.ReleaseRate = releaseSeconds * WaveFormat.SampleRate;
-            }
+            get => Envelope.Release;
+            set => Envelope.Release = value;
         }
 
         /// <summary>
@@ -253,21 +264,23 @@ namespace VM12
             get => triggered;
             set {
                 if (triggered != value)
-                    adsr.Gate(triggered = value);
+                    Envelope.Gate(triggered = value);
             }
         }
-
+        
         /// <summary>
         /// Reads audio from this sample provider
         /// </summary>
         public int Read(float[] buffer, int offset, int count)
         {
-            if (adsr.State == EnvelopeGenerator.EnvelopeState.Idle) return 0; // we've finished
+            if (Envelope.State == ADSREnvelope.ADSRState.Idle) return 0;
+
             var samples = source.Read(buffer, offset, count);
             for (int n = 0; n < samples; n++)
             {
-                buffer[offset++] *= adsr.Process();
+                buffer[offset++] *= (float) Envelope.NextValue();
             }
+
             return samples;
         }
         
@@ -275,7 +288,179 @@ namespace VM12
         /// The output WaveFormat
         /// </summary>
         public WaveFormat WaveFormat { get { return source.WaveFormat; } }
+    }
 
-        public EnvelopeGenerator Envelope => adsr;
+    public class ADSREnvelope
+    {
+        public enum ADSRState
+        {
+            Idle,
+            Attack,
+            Decay,
+            Sustain,
+            Release,
+        }
+
+        public enum SmoothingType
+        {
+            Linear,
+            Square,
+            Cubic,
+            Custom,
+        }
+
+        private volatile ADSRState state;
+        public ADSRState State { get => state; private set => state = value; }
+        public double Attack;
+        public double Decay;
+        public double Sustain;
+        public double Release;
+        public double Gain;
+        
+        public int SampleRate;
+        public int SamplesInState;
+
+        // The highest volume before we got into the release state
+        private double CurrentLevel;
+
+        private SmoothingType Smoothing = SmoothingType.Square;
+        private int CustomSmoothingLevel = 10;
+
+        private int Ident;
+
+        public ADSREnvelope(int ident, int sampleRate, double attack, double decay, double sustain, double release)
+        {
+            Ident = ident;
+            Gain = 1;
+            Attack = attack;
+            Decay = decay;
+            Sustain = sustain;
+            Release = release;
+            SampleRate = sampleRate;
+        }
+
+        public double NextValue()
+        {
+            if (state == ADSRState.Idle) return 0;
+            if (state == ADSRState.Sustain) return Sustain;
+            
+            // FIXME: When we change state we want to change time!
+            double Time = SamplesInState / (double) SampleRate;
+
+            if (state == ADSRState.Attack && Time > Attack)
+            {
+                ChangeState(ADSRState.Decay);
+                CurrentLevel = Gain;
+            }
+
+            if (state == ADSRState.Decay && Time > Decay)
+            {
+                ChangeState(ADSRState.Sustain);
+                CurrentLevel = Sustain;
+            }
+
+            if (state == ADSRState.Release && Time > Release)
+            {
+                ChangeState(ADSRState.Idle);
+                CurrentLevel = 0;
+            }
+
+            SamplesInState++;
+            
+            return GetValue(Time);
+        }
+
+        public double GetValue(double Time)
+        {
+            double val;
+            double x;
+            switch (State)
+            {
+                case ADSRState.Idle:
+                    val = 0;
+                    CurrentLevel = 0;
+                    break;
+                case ADSRState.Attack:
+                    x = Math.Abs(Time - Attack) / Attack;
+                    switch (Smoothing)
+                    {
+                        case SmoothingType.Linear:
+                            val = (Gain - CurrentLevel) * -x + Gain;
+                            break;
+                        case SmoothingType.Square:
+                            val = (Gain - CurrentLevel) * -(x * x) + Gain;
+                            break;
+                        case SmoothingType.Cubic:
+                            val = (Gain - CurrentLevel) * -(x * x * x) + Gain;
+                            break;
+                        case SmoothingType.Custom:
+                            val = (Gain - CurrentLevel) * -Math.Pow(x, CustomSmoothingLevel) + Gain;
+                            break;
+                        default: throw new NotImplementedException();
+                    }
+                    CurrentLevel = val;
+                    break;
+                case ADSRState.Decay:
+                    x = Math.Abs(Time - Decay);
+                    switch (Smoothing)
+                    {
+                        case SmoothingType.Linear:
+                            val = (Gain - Sustain) * (1 / Decay) * x + Sustain;
+                            break;
+                        case SmoothingType.Square:
+                            val = (Gain - Sustain) * (1 / (Decay * Decay)) * (x * x) + Sustain;
+                            break;
+                        case SmoothingType.Cubic:
+                            val = (Gain - Sustain) * (1 / (Decay * Decay * Decay)) * (x * x * x) + Sustain;
+                            break;
+                        case SmoothingType.Custom:
+                            val = (Gain - Sustain) * (1 / Math.Pow(Decay, CustomSmoothingLevel)) * Math.Pow(x, CustomSmoothingLevel) + Sustain;
+                            break;
+                        default: throw new NotImplementedException();
+                    }
+                    CurrentLevel = val;
+                    break;
+                case ADSRState.Sustain:
+                    val = Sustain;
+                    CurrentLevel = val;
+                    break;
+                case ADSRState.Release:
+                    x = Math.Abs(Time - Release);
+                    switch (Smoothing)
+                    {
+                        case SmoothingType.Linear:
+                            val = CurrentLevel * (1 / Release) * x;
+                            break;
+                        case SmoothingType.Square:
+                            val = CurrentLevel * (1 / Release * Release) * x * x;
+                            break;
+                        case SmoothingType.Cubic:
+                            val = CurrentLevel * (1 / (Release * Release * Release)) * x * x * x;
+                            break;
+                        case SmoothingType.Custom:
+                            val = CurrentLevel * (1 / Math.Pow(Release, CustomSmoothingLevel)) * Math.Pow(x, CustomSmoothingLevel);
+                            break;
+                        default: throw new NotImplementedException();
+                    }
+                    break;
+                default: throw new NotImplementedException();
+            }
+
+            return val;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ChangeState(ADSRState state)
+        {
+            State = state;
+            SamplesInState = 0;
+            //Console.WriteLine($"{Ident} Changed to state {State}!");
+        }
+
+        public void Gate(bool trigger)
+        {
+            ChangeState(trigger ? ADSRState.Attack : ADSRState.Release);
+            if (State == ADSRState.Attack && Attack <= 0) CurrentLevel = Gain;
+        }
     }
 }

@@ -262,10 +262,13 @@ namespace T12
 
                         if (functionMap.TryGetValue(functionCall.FunctionName, out var functions) == false)
                             Fail(functionCall.Trace, $"No function called '{functionCall.FunctionName}'!");
+
+                        List<ASTType> argumentTypes = functionCall.Arguments.Select(a => CalcReturnType(a, scope, typeMap, functionMap, constMap, globalMap)).ToList();
+
+                        if(TryFindBestFunctionMatch(functionCall.Trace, functions,  argumentTypes, typeMap, out var func) == false)
+                            Fail(functionCall.Trace, $"No overload for function '{functionCall.FunctionName}' taking arguments of types {string.Join(", ",  argumentTypes)}!");
                         
-                        // Here we need to find the function that maches best to a list of imput argument types..
-                        // FIXME: Implement!!!!!!
-                        return functions[0].ReturnType;
+                        return func.ReturnType;
                     }
                 case ASTVirtualFunctionCall virtualFucntionCall:
                     {

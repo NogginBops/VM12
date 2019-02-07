@@ -1111,7 +1111,7 @@ namespace VM12Asm
 
             string warningString = $"Assembled with {Warnings.Count} warning{(Warnings.Count > 0 ? "" : "s")}.";
             Console.WriteLine($"Success! {warningString}");
-            Console.WriteLine($"Compiled {T12.Compiler.CompiledFiles} t12 files of {T12.Compiler.CompiledLines} lines compiled to {T12.Compiler.ResultLines} lines 12asm");
+            Console.WriteLine($"Compiled {T12.Compiler.CompiledFiles} t12 files of {T12.Compiler.CompiledLines} lines compiled to {T12.Compiler.ResultLines} lines 12asm (T12 has saved you from typing {T12.Compiler.ResultLines - T12.Compiler.CompiledLines} lines 12asm)");
             Console.WriteLine($"T12: {t12_ms:F0} ms {T12.Compiler.CompiledLines} lines");
             Console.WriteLine($"Preprocess: {preprocess_ms:F0} ms {pplines} lines");
             Console.WriteLine($"Parse: {parse_ms:F0} ms {lines} lines");

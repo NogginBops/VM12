@@ -102,8 +102,7 @@ namespace VM12
 
             if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
 
-            Console.WriteLine($"Writing to address {address}:");
-
+            //Console.WriteLine($"Writing to address {address}:");
             fixed (byte* storage_data = S[s_index])
             {
                 for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
@@ -111,11 +110,10 @@ namespace VM12
                     storage_data[group_index + i * 2] = (byte) (data[i] >> 12 & 0xFFF);
                     storage_data[group_index + i * 2 + 1] = (byte) (data[i] & 0xFFF);
 
-                    Console.Write($"{data[i]:X}, ");
+                    //Console.Write($"{data[i]:X}, ");
                 }
             }
-
-            Console.WriteLine();
+            //Console.WriteLine();
 
             S_HIT[address] = true;
         }
@@ -143,16 +141,16 @@ namespace VM12
 
             if (S[s_index] == null) S[s_index] = new byte[STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE];
 
-            Console.WriteLine($"Reading from address {address}:");
+            //Console.WriteLine($"Reading from address {address}:");
             fixed (byte* storage_data = S[s_index])
             {
                 for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
                 {
                     data[i] = storage_data[group_index + i * 2] << 12 | storage_data[group_index + i * 2 + 1];
-                    Console.Write($"{data[i]:X}, ");
+                    //Console.Write($"{data[i]:X}, ");
                 }
             }
-            Console.WriteLine();
+            //Console.WriteLine();
         }
 
         private static byte[,] GetChunk(int address, out int offset)
