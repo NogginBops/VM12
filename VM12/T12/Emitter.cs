@@ -3398,6 +3398,11 @@ namespace T12
                                 // We don't have to do anything to convert a dword to a function pointer!
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
+                            else if (fromType == ASTPointerType.Of(ASTBaseType.Void) && toType is ASTFunctionPointerType)
+                            {
+                                // We don't have to do anything to convert a *void to a function pointer!
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            }
                             else if (fromType == ASTBaseType.String && (toType == ASTPointerType.Of(ASTBaseType.Word) || toType == ASTPointerType.Of(ASTBaseType.Char)))
                             {
                                 // FIXME: Make proper strings! Now we are doing different things for different casts!!

@@ -84,6 +84,11 @@ namespace T12
                         var foldedPointer = ConstantFold(pointerCast.From, scope, typeMap, functionMap, constMap, globalMap);
                         return new ASTPointerToVoidPointerCast(pointerCast.Trace, foldedPointer, pointerCast.FromType);
                     }
+                case ASTFixedArrayToArrayCast fixedArrayToArrayCast:
+                    {
+                        // When we fix the thing in GenerateBinaryCast(...) we can do something more here.
+                        return fixedArrayToArrayCast;
+                    }
                 case ASTInlineAssemblyExpression assemblyExpression:
                     return assemblyExpression;
                 case ASTConditionalExpression conditionalExpression:
@@ -314,6 +319,8 @@ namespace T12
                 case ASTBinaryOp.BinaryOperatorType.Modulo:
                 case ASTBinaryOp.BinaryOperatorType.Bitwise_And:
                 case ASTBinaryOp.BinaryOperatorType.Logical_Or:
+                case ASTBinaryOp.BinaryOperatorType.Less_than:
+                case ASTBinaryOp.BinaryOperatorType.Greater_than:
                     // FIXME: Implement these foldings!
                     return CreateFoldedBinOp();
                 case ASTBinaryOp.BinaryOperatorType.Equal:

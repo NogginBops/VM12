@@ -8,6 +8,7 @@ using System.IO;
 using Util;
 using System.Globalization;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace FastVM12Asm
 {
@@ -31,6 +32,9 @@ namespace FastVM12Asm
         And,
         Comma,
         Numbersign,
+        Asterisk,
+        Plus,
+        Minus,
 
         Instruction, // ladd
         Identifier, // names of constants?
@@ -107,6 +111,7 @@ namespace FastVM12Asm
             Index = 0;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int GetLines() => Line;
 
         public List<Token> Tokenize()
@@ -154,6 +159,18 @@ namespace FastVM12Asm
                         break;
                     case '#':
                         Tokens.Add(CreateToken(TokenType.Numbersign, Index, 1));
+                        Next();
+                        break;
+                    case '*':
+                        Tokens.Add(CreateToken(TokenType.Asterisk, Index, 1));
+                        Next();
+                        break;
+                    case '+':
+                        Tokens.Add(CreateToken(TokenType.Plus, Index, 1));
+                        Next();
+                        break;
+                    case '-':
+                        Tokens.Add(CreateToken(TokenType.Minus, Index, 1));
                         Next();
                         break;
                     case ':':
@@ -248,6 +265,7 @@ namespace FastVM12Asm
         {
             int start = Index;
 
+            if (Peek() == '@') Next();
             if (Expect('"') == false) Error("Expected '\"'");
 
             // Read chars as long as the next one is not the closing '"'
@@ -332,6 +350,7 @@ namespace FastVM12Asm
             return CreateToken(TokenType.Number_litteral, start, Index - start);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int ConsumeWhitespace()
         {
             int count = 0;
@@ -343,7 +362,8 @@ namespace FastVM12Asm
 
             return count;
         }
-        
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void AdvanceLine(char lnChar)
         {
             if (lnChar == '\r') Expect('\n');
@@ -351,6 +371,7 @@ namespace FastVM12Asm
             LineStart = Index;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private char Next()
         {
             // NOTE: We might want to return -1 so we can have better error messsages.
@@ -364,34 +385,40 @@ namespace FastVM12Asm
 
             return c;
         }
-        
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private char Peek()
         {
             if (Index >= Data.Length) Error("Reached end of file!");
             return Data[Index];
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private char Peek(int tokens)
         {
             if (Index + (tokens - 1) >= Data.Length) Error("Reached end of file!");
             return Data[Index + (tokens  - 1)];
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool HasNext()
         {
             return Index < Data.Length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsNext(CharCategory category)
         {
             return IsInCharCategory(Peek(), category);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsNext(char c)
         {
             return Peek() == c;
         }
-        
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsNextNewLine()
         {
             char c = Peek();
@@ -403,6 +430,7 @@ namespace FastVM12Asm
         /// </summary>
         /// <param name="toMatch">The stirng to match.</param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Expect(string toMatch)
         {
             // NOTE: The toMatch string should not contain new lines!
@@ -417,6 +445,7 @@ namespace FastVM12Asm
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Expect(char c)
         {
             if (Peek() == c)
@@ -435,6 +464,7 @@ namespace FastVM12Asm
         /// </summary>
         /// <param name="unicodeCategory"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Expect(CharCategory category)
         {
             char c = Peek();
@@ -459,11 +489,13 @@ namespace FastVM12Asm
             while (IsValidIdentChar(Peek())) Next();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsValidFirstIdentChar(char c)
         {
             return char.IsLetter(c) || c == '_' || c == '.';
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsValidIdentChar(char c)
         {
             return char.IsLetterOrDigit(c) || c == '_' || c == '.';

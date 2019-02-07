@@ -99,7 +99,7 @@
         Nop,
         Pop,
         Fp, Pc, Pt,
-        Sp, Set_sp,
+        Sp, Set_sp, Set_fp,
         Load_lit, Load_lit_l,
         Load_sp, Load_sp_l,
         Load_local, Load_local_l,

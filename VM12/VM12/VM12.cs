@@ -1023,6 +1023,10 @@ namespace VM12
                             SP = mem[SP - 1] << 12 | mem[SP];
                             PC++;
                             break;
+                        case Opcode.Set_fp:
+                            FP = mem[SP - 1] << 12 | mem[SP];
+                            PC++;
+                            break;
                         case Opcode.Load_lit:
                             mem[++SP] = mem[++PC];
                             PC++;

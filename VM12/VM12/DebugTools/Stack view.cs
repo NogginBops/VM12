@@ -274,7 +274,9 @@ namespace Debugging
                     frame = frame.prev;
                 }
 
-                dgvStack.Rows[vm12.FramePointer].DefaultCellStyle = FPStyle;
+                if (dgvStack.Rows.Count > vm12.FramePointer)
+                    dgvStack.Rows[vm12.FramePointer].DefaultCellStyle = FPStyle;
+
                 //dgvStack.Rows[vm12.StackPointer].DefaultCellStyle = SPStyle;
                 dgvStack.FirstDisplayedScrollingRowIndex = dgvStack.RowCount - 1;
             }
