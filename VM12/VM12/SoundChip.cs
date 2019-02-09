@@ -322,6 +322,7 @@ namespace VM12
 
         // The highest volume before we got into the release state
         private double CurrentLevel;
+        private double ReleaseLevel;
 
         private SmoothingType Smoothing = SmoothingType.Square;
         private int CustomSmoothingLevel = 10;
@@ -363,6 +364,7 @@ namespace VM12
             {
                 ChangeState(ADSRState.Idle);
                 CurrentLevel = 0;
+                ReleaseLevel = 0;
             }
 
             SamplesInState++;
@@ -385,16 +387,16 @@ namespace VM12
                     switch (Smoothing)
                     {
                         case SmoothingType.Linear:
-                            val = (Gain - CurrentLevel) * -x + Gain;
+                            val = (Gain - ReleaseLevel) * -x + Gain;
                             break;
                         case SmoothingType.Square:
-                            val = (Gain - CurrentLevel) * -(x * x) + Gain;
+                            val = (Gain - ReleaseLevel) * -(x * x) + Gain;
                             break;
                         case SmoothingType.Cubic:
-                            val = (Gain - CurrentLevel) * -(x * x * x) + Gain;
+                            val = (Gain - ReleaseLevel) * -(x * x * x) + Gain;
                             break;
                         case SmoothingType.Custom:
-                            val = (Gain - CurrentLevel) * -Math.Pow(x, CustomSmoothingLevel) + Gain;
+                            val = (Gain - ReleaseLevel) * -Math.Pow(x, CustomSmoothingLevel) + Gain;
                             break;
                         default: throw new NotImplementedException();
                     }
@@ -442,6 +444,7 @@ namespace VM12
                             break;
                         default: throw new NotImplementedException();
                     }
+                    ReleaseLevel = val;
                     break;
                 default: throw new NotImplementedException();
             }
@@ -454,7 +457,6 @@ namespace VM12
         {
             State = state;
             SamplesInState = 0;
-            //Console.WriteLine($"{Ident} Changed to state {State}!");
         }
 
         public void Gate(bool trigger)

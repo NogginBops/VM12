@@ -278,6 +278,8 @@ namespace VM12
 
             storageFile = storage;
             ReadStorageData(storageFile);
+
+            SoundChip = new SoundChip(this);
         }
 #elif DEBUG
         
