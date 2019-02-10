@@ -2201,43 +2201,57 @@ namespace T12
                         int typeSize = SizeOfType(type, typeMap);
 
                         // TODO: Check to see if this expression has side-effects. This way we can avoid poping at the end
-                        
-
-                        // FIXME: Handle differing type sizes!!!
-
                         switch (unaryOp.OperatorType)
                         {
                             case ASTUnaryOp.UnaryOperationType.Identity:
                                 // Do nothing
-                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Negation:
-                                // FIXME: Consider the size of the result of the expression
-                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                                builder.AppendLine("\tneg");
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                if (produceResult)
+                                {
+                                    if (typeSize == 1) builder.AppendLine("\tneg");
+                                    else if (typeSize == 2) builder.AppendLine("\tlneg");
+                                    else Fail(unaryOp.Expr.Trace, $"Cannot negate a type of size {typeSize}!");
+                                }
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Compliment:
-                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                                builder.AppendLine("\tnot");
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                if (produceResult)
+                                {
+                                    if (typeSize == 1) builder.AppendLine("\tnot");
+                                    else if (typeSize == 2) builder.AppendLine("\tlnot");
+                                    else Fail(unaryOp.Expr.Trace, $"Cannot invert a type of size {typeSize}!");
+                                }
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Logical_negation:
-                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                                builder.AppendLine("\tsetz");
+                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                if (produceResult)
+                                {
+                                    if (typeSize == 1) builder.AppendLine("\tsetz");
+                                    // NOTE: For now we don't support this as we should only do this on logical types which are always 1 word!
+                                    //else if (typeSize == 2) builder.AppendLine("\tlsetz swap pop");
+                                    else Fail(unaryOp.Expr.Trace, $"Cannot negate a type of size {typeSize}!");
+                                }
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Dereference:
                                 {
-                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
 
                                     if (type is ASTPointerType == false) Fail(unaryOp.Trace, $"Cannot dereference non-pointer type '{type}'!");
 
-                                    VariableRef variable = new VariableRef
+                                    if (produceResult)
                                     {
-                                        VariableType = VariableType.Pointer,
-                                        Type = (type as ASTPointerType).BaseType,
-                                        Comment = $"<< [{unaryOp.Expr}]",
-                                    };
+                                        VariableRef variable = new VariableRef
+                                        {
+                                            VariableType = VariableType.Pointer,
+                                            Type = (type as ASTPointerType).BaseType,
+                                            Comment = $"<< [{unaryOp.Expr}]",
+                                        };
 
-                                    LoadVariable(builder, unaryOp.Trace, variable, typeMap, constMap);
+                                        LoadVariable(builder, unaryOp.Trace, variable, typeMap, constMap);
+                                    }
                                     break;
                                 }
                             case ASTUnaryOp.UnaryOperationType.Decrement:
@@ -2747,25 +2761,28 @@ namespace T12
                         var ifTrueType = CalcReturnType(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
                         var ifFalseType = CalcReturnType(conditional.IfFalse, scope, typeMap, functionMap, constMap, globalMap);
 
-                        // TODO: Do a proper binary cast for the two result alternatives (with the good error message!)
-                        /*
-                        var tempBinOp = new ASTBinaryOp(conditional.Trace, ASTBinaryOp.BinaryOperatorType.Unknown, conditional.IfTrue, conditional.IfFalse);
-                        TypedExpressionPair exprPair = GenerateBinaryCast(tempBinOp, scope, typeMap, functionMap, constMap, globalMap);
-                        */
+                        TypedExpressionPair typedExpr = default;
 
-                        if (TryGenerateImplicitCast(conditional.IfFalse, ifTrueType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedIfFalse, out string error) == false)
-                            Fail(conditional.Trace, $"Cannot return two different types {ifTrueType} and {ifFalseType} from a conditional operator!");
-
+                        // FIXME!!!!! This is really bad!! We should not try-catch!
+                        try
+                        {
+                            var tempBinOp = new ASTBinaryOp(conditional.Trace, ASTBinaryOp.BinaryOperatorType.Unknown, conditional.IfTrue, conditional.IfFalse);
+                            typedExpr = GenerateBinaryCast(tempBinOp, scope, typeMap, functionMap, constMap, globalMap);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            Fail(conditional.Trace, $"Cannot return two different types {ifTrueType} and {ifFalseType} from a conditional operator! Got '{ifTrueType}' and '{ifFalseType}'!");
+                        }
+                        
                         var condType = CalcReturnType(conditional.Condition, scope, typeMap, functionMap, constMap, globalMap);
-                        if (TryGenerateImplicitCast(conditional.Condition, ASTBaseType.Bool, scope, typeMap, functionMap, constMap, globalMap, out var typedCond, out error) == false)
+                        if (TryGenerateImplicitCast(conditional.Condition, ASTBaseType.Bool, scope, typeMap, functionMap, constMap, globalMap, out var typedCond, out string error) == false)
                             Fail(conditional.Condition.Trace, $"Cannot implicitly convert expression of type {condType} to {ASTBaseType.Bool}! Cast error: '{error}'");
 
                         // Now we don't have to handle doing jumps on things that are bigger than one word as the condition will be a bool!
+                        int resultTypeSize = SizeOfType(typedExpr.Type, typeMap);
 
-                        int resultTypeSize = SizeOfType(ifTrueType, typeMap);
-
-                        var foldedTrue = ConstantFold(conditional.IfTrue, scope, typeMap, functionMap, constMap, globalMap);
-                        var foldedFalse = ConstantFold(typedIfFalse, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedTrue = ConstantFold(typedExpr.Left, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedFalse = ConstantFold(typedExpr.Right, scope, typeMap, functionMap, constMap, globalMap);
                         var foldedCond = ConstantFold(typedCond, scope, typeMap, functionMap, constMap, globalMap);
                         
                         int condIndex = context.LabelContext.ConditionalLabels++;
