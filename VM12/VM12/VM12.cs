@@ -13,6 +13,7 @@ using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using SKON;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace VM12
 {
@@ -77,6 +78,7 @@ namespace VM12
         public static readonly byte[][,] S = AllocateStorageMemory(MEM_SIZE, STORAGE_CHUNK_GROUPING, STORAGE_CHUNK_SIZE);
         public static readonly bool[] S_HIT = new bool[MEM_SIZE / STORAGE_CHUNK_SIZE];
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void WriteStorage(byte* data, int address)
         {
             int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
@@ -95,6 +97,7 @@ namespace VM12
             S_HIT[address] = true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void WriteStorage(int* data, int address)
         {
             int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
@@ -118,6 +121,7 @@ namespace VM12
             S_HIT[address] = true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ReadStorage(byte* data, int address)
         {
             int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
@@ -134,6 +138,7 @@ namespace VM12
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ReadStorage(int* data, int address)
         {
             int group_index = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
@@ -153,6 +158,7 @@ namespace VM12
             //Console.WriteLine();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static byte[,] GetChunk(int address, out int offset)
         {
             offset = (address % STORAGE_CHUNK_GROUPING) * STORAGE_CHUNK_SIZE;
@@ -163,6 +169,7 @@ namespace VM12
 
         private Interrupt[] intrr = new Interrupt[Enum.GetValues(typeof(InterruptType)).Length];
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Interrupt(Interrupt interrupt)
         {
             if (interrupt == null)
@@ -190,23 +197,17 @@ namespace VM12
 #endif
         }
 
+        private static readonly int[] interruptTypeLut = new int[16]
+        {
+            0,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            4, 3, 2, 1
+        };
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int InterruptTypeToInt(InterruptType type)
         {
-            switch (type)
-            {
-                case InterruptType.stop:
-                    return 0;
-                case InterruptType.h_timer:
-                    return 1;
-                case InterruptType.v_blank:
-                    return 2;
-                case InterruptType.keyboard:
-                    return 3;
-                case InterruptType.mouse:
-                    return 4;
-                default:
-                    return -1;
-            }
+            return interruptTypeLut[(((int) type) & 0xF0) >> 4];
         }
 
         bool carry = false;
@@ -243,16 +244,16 @@ namespace VM12
         public event EventHandler HitBreakpoint = null;
 #endif
 
-        int PC = ROM_START;
-        int SP = -1;
-        int FP = -1;
-        int locals = 0;
+        private int PC = ROM_START;
+        private int SP = -1;
+        private int FP = -1;
+        private int locals = 0;
 
         // Graphics instruction pointer
-        int GP = -1;
-        long graphicsTime = 0;
+        private int GP = -1;
+        private long graphicsTime = 0;
 
-        long programTime = 0;
+        private long programTime = 0;
 
         public bool Started { get; set; } = false;
         public bool Running { get; set; } = false;
@@ -1950,9 +1951,9 @@ namespace VM12
                     
                     programTime++;
 
-                    // this.PC = PC;
-                    // this.SP = SP;
-                    // this.FP = FP;
+                    //this.PC = PC;
+                    //this.SP = SP;
+                    //this.FP = FP;
 
 #if DEBUG
                     if (SP > 1000)
