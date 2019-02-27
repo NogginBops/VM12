@@ -1703,6 +1703,10 @@ namespace T12
                 var returnStatement = new ASTReturnStatement(trace, null);
                 func.Body.Add(returnStatement);
             }
+            else if (func.Body.Count == 0)
+            {
+                Fail(func.Trace, $"The function '{func.Name}' must return a value!");
+            }
             else if (func.Body.Last() is ASTReturnStatement == false)
             {
                 // TODO: Proper control-flow analysis
@@ -2813,10 +2817,16 @@ namespace T12
                         var valueType = ResolveType(CalcReturnType(containsExpression.Value, scope, typeMap, functionMap, constMap, globalMap), typeMap);
                         var lowerType = ResolveType(CalcReturnType(containsExpression.LowerBound, scope, typeMap, functionMap, constMap, globalMap), typeMap);
                         var upperType = ResolveType(CalcReturnType(containsExpression.UpperBound, scope, typeMap, functionMap, constMap, globalMap), typeMap);
-
+                        
+                        // FIXME: We can only do this on numeric types!!! Not string, void etc
                         if (valueType is ASTBaseType == false)
-                            Fail(containsExpression.Value.Trace, $"Can only do contains expressions on number types! Got '{valueType}'!");
-
+                        {
+                            if ((valueType is ASTAliasedType alias && alias.RealType is ASTBaseType) == false)
+                            {
+                                Fail(containsExpression.Value.Trace, $"Can only do contains expressions on number types! Got '{valueType}'!");
+                            }
+                        }
+                        
                         // FIXME! If we are comparing a word with 2 dwords we want to cast up!
 
                         if (TryGenerateImplicitCast(containsExpression.LowerBound, valueType, scope, typeMap, functionMap, constMap, globalMap, out var typedLower, out var lowerError) == false)
