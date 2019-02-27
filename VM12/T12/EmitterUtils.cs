@@ -219,9 +219,9 @@ namespace T12
                         }
                     }
 
-                    if (typeSize % 2 != 0)
+                    if (wordsLeft == 1)
                     {
-                        builder.AppendLine("\tloadl [SP]");
+                        builder.AppendLine("\tload [SP]");
                     }
 
                     //for (int i = 0; i < typeSize / 2; i++)

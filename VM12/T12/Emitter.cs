@@ -426,6 +426,10 @@ namespace T12
             {
                 return true;
             }
+            else if (from == ASTBaseType.String && to == ASTArrayType.Of(ASTBaseType.Char))
+            {
+                return true;
+            }
             else if (from is ASTBaseType && to == ASTBaseType.Bool)
             {
                 return true;
@@ -538,6 +542,12 @@ namespace T12
                 // So we just say that we can conver this. We rely on the fact that we never actually check
                 // to see if the expression results in a pointer when generating the cast
                 result = new ASTPointerToVoidPointerCast(expression.Trace, expression, ASTPointerType.Of(ASTBaseType.Word));
+                error = default;
+                return true;
+            }
+            else if (exprType == ASTBaseType.String && targetType == ASTArrayType.Of(ASTBaseType.Char))
+            {
+                result = new ASTStringToArrayCast(expression.Trace, expression, targetType as ASTArrayType);
                 error = default;
                 return true;
             }
@@ -3267,9 +3277,29 @@ namespace T12
                     }
                 case ASTFixedArrayToArrayCast cast:
                     {
-                        builder.AppendLineWithComment($"\tloadl #{cast.FromType.Size}", $"Length of fixed array {cast.FromType}");
                         var address = new ASTAddressOfExpression(cast.Trace, cast.From);
-                        EmitExpression(builder, address, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        EmitExpression(builder, address, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        if (produceResult) builder.AppendLineWithComment($"\tloadl #{cast.FromType.Size}", $"Length of fixed array {cast.FromType}");
+                        break;
+                    }
+                case ASTStringToArrayCast cast:
+                    {
+                        if (cast.From is ASTStringLitteral litteral)
+                        {
+                            var ptr = new ASTExplicitCast(cast.Trace, litteral, ASTPointerType.Of(ASTBaseType.Char));
+                            EmitExpression(builder, ptr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            if (produceResult) builder.AppendLineWithComment($"\tloadl #{litteral.Contents.Length}", $"Length of string litteral '{litteral.Contents}'");
+                        }
+                        else
+                        {
+                            // Get the length and the string and the pointer to the string
+                            // NOTE: There might be some better way of doing this?
+                            var ptr = new ASTExplicitCast(cast.Trace, cast.From, ASTPointerType.Of(ASTBaseType.Char));
+                            EmitExpression(builder, ptr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+
+                            var length = new ASTUnaryOp(cast.Trace, ASTUnaryOp.UnaryOperationType.Dereference, new ASTExplicitCast(cast.Trace, cast.From, ASTPointerType.Of(ASTBaseType.DoubleWord)));
+                            EmitExpression(builder, length, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        }
                         break;
                     }
                 case ASTImplicitCast cast:

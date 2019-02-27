@@ -3245,6 +3245,17 @@ namespace T12
         public ASTFixedArrayToArrayCast(TraceData trace, ASTExpression from, ASTFixedArrayType fromType, ASTArrayType to) : base(trace, from, to)
         {
             FromType = fromType;
+            To = to;
+        }
+    }
+
+    public class ASTStringToArrayCast : ASTCastExpression
+    {
+        public new readonly ASTArrayType To;
+
+        public ASTStringToArrayCast(TraceData trace, ASTExpression from, ASTArrayType to) : base(trace, from, to)
+        {
+            To = to;
         }
     }
 
@@ -3253,7 +3264,7 @@ namespace T12
     #endregion
 
     #region Types
-    
+
     public abstract class ASTType : ASTNode, IEquatable<ASTType>
     {
         public readonly string TypeName;
@@ -3578,7 +3589,9 @@ namespace T12
         public readonly ASTType BaseType;
 
         public override ASTType DerefType => BaseType;
-        
+
+        public static ASTArrayType Of(ASTType type) => new ASTArrayType(type.Trace, type);
+
         public ASTArrayType(TraceData trace, ASTType baseType) : this(trace, baseType, $"[]{baseType.TypeName}") { }
 
         protected ASTArrayType(TraceData trace, ASTType baseType, string name) : base(trace, name)

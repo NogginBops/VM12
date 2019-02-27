@@ -110,7 +110,7 @@ namespace VM12
             {
                 for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
                 {
-                    storage_data[group_index + i * 2] = (byte) (data[i] >> 12 & 0xFFF);
+                    storage_data[group_index + i * 2] = (byte) (data[i] >> 8 & 0xFFF);
                     storage_data[group_index + i * 2 + 1] = (byte) (data[i] & 0xFFF);
 
                     //Console.Write($"{data[i]:X}, ");
@@ -151,7 +151,7 @@ namespace VM12
             {
                 for (int i = 0; i < STORAGE_CHUNK_SIZE / 2; i++)
                 {
-                    data[i] = storage_data[group_index + i * 2] << 12 | storage_data[group_index + i * 2 + 1];
+                    data[i] = storage_data[group_index + i * 2] << 8 | storage_data[group_index + i * 2 + 1];
                     //Console.Write($"{data[i]:X}, ");
                 }
             }
