@@ -466,7 +466,11 @@ namespace T12
             // because it is not garaneed that the folded will have the same type...
             var fromType = CalcReturnType(explicitCast.From, scope, typeMap, functionMap, constMap, globalMap);
 
-            if (foldedFrom is ASTVariableExpression varExpr && fromType is ASTPointerType && explicitCast.To is ASTPointerType)
+            if (fromType == explicitCast.To)
+            {
+                return foldedFrom;
+            }
+            else if (foldedFrom is ASTVariableExpression varExpr && fromType is ASTPointerType && explicitCast.To is ASTPointerType)
             {
                 if (TryResolveVariable(varExpr.Name, scope, globalMap, constMap, functionMap, typeMap, out var variable) == false)
                     return GenerateDefault();
@@ -516,10 +520,14 @@ namespace T12
                 // We really want the thing to actually have a new type when we return here...
                 return foldedFrom;
             }
-            else if (foldedFrom is ASTNumericLitteral numLit && fromType is ASTPointerType fromPointerType && explicitCast.To is ASTPointerType toPointerType)
+            else if (foldedFrom is ASTNumericLitteral numLit && explicitCast.To is ASTPointerType toPointerType)
             {
                 // We can cast a dword to a fixed array statically
-                return new ASTPointerLitteral(numLit.Trace, numLit.Value, numLit.IntValue, toPointerType);
+                return new ASTPointerLitteral(explicitCast.Trace, numLit.Value, numLit.IntValue, toPointerType);
+            }
+            else if (foldedFrom is ASTNumericLitteral lit && fromType is ASTPointerType && explicitCast.To == ASTBaseType.DoubleWord)
+            {
+                return ASTDoubleWordLitteral.From(explicitCast.Trace, lit.IntValue, lit.NumberFromat);
             }
             else
             {

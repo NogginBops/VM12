@@ -113,8 +113,7 @@ namespace T12
         internal static void Warning(TraceData trace, string warning)
         {
             Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromWarning(trace, warning));
-
-            // FIXME: We want to save warnings so that VM12Asm can read them
+            
             if (trace.StartLine == trace.EndLine)
             {
                 Console.WriteLine($"WARNING ({Path.GetFileName(trace.File)}:{trace.StartLine}): '{warning}'");
@@ -2074,9 +2073,20 @@ namespace T12
                         EmitStatement(builder, doWhile.Body, scope, varList, ref local_index, typeMap, context.With(newLoopContext), functionMap, constMap, globalMap);
 
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
-                        // Here we need to invert the condition before we try and do an optimized jump!
-                        EmitExpression(builder, doWhile.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                        builder.AppendLine($"\tjnz :do_while_{doWhileIndex}");
+
+                        if (doWhile.Condition is ASTBinaryOp binaryCond)
+                        {
+                            // Here we need to invert the condition before we try and do an optimized jump!
+                            // FIXME: Ensure that it's properly inverted! We don't handle &&/|| atm!
+                            var invertedCond = new ASTBinaryOp(binaryCond.Trace, ASTBinaryOp.InvertBooleanOp(binaryCond.OperatorType), binaryCond.Left, binaryCond.Right);
+                            GenerateOptimizedBinaryOpJump(builder, invertedCond, $":do_while_{doWhileIndex}", scope, varList, typeMap, context.With(newLoopContext), functionMap, constMap, globalMap);
+                        }
+                        else
+                        {
+                            EmitExpression(builder, doWhile.Condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                            builder.AppendLine($"\tjnz :do_while_{doWhileIndex}");
+                        }
+
                         builder.AppendLine($"\t{newLoopContext.EndLabel}");
 
                         break;
@@ -3458,6 +3468,30 @@ namespace T12
                             else if (fromType == ASTPointerType.Of(ASTBaseType.Void) && toType is ASTFunctionPointerType)
                             {
                                 // We don't have to do anything to convert a *void to a function pointer!
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType is ASTFunctionPointerType fromFuncType && toType is ASTFunctionPointerType toFuncType)
+                            {
+                                if (fromFuncType.ParamTypes.Count != toFuncType.ParamTypes.Count)
+                                    Fail(cast.Trace, $"Cannot cast {fromFuncType} to {toFuncType} because they have different numner of arguemnts!");
+
+                                for (int i = 0; i < fromFuncType.ParamTypes.Count; i++)
+                                {
+                                    int fromSize = SizeOfType(fromFuncType.ParamTypes[i], typeMap);
+                                    int toSize = SizeOfType(toFuncType.ParamTypes[i], typeMap);
+
+                                    if (fromSize != toSize)
+                                        Fail(cast.Trace, $"Cannot cast {fromFuncType} to {toFuncType} because the sizes of arg {i} don't match! {fromFuncType.ParamTypes[i]}({fromSize}) != {toFuncType.ParamTypes[i]}({toSize})");
+                                }
+
+                                int fromRetSize = SizeOfType(fromFuncType.ReturnType, typeMap);
+                                int toRetSize = SizeOfType(toFuncType.ReturnType, typeMap);
+
+                                // If the return types have different size
+                                if (fromRetSize != toRetSize)
+                                    Fail(cast.Trace, $"Cannot cast {fromFuncType} to {toFuncType} because the sizes of the return type don't match! {fromFuncType.ReturnType}({fromRetSize}) != {toFuncType.ReturnType}({toRetSize})");
+
+                                // Emit the compatible function pointer
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.String && (toType == ASTPointerType.Of(ASTBaseType.Word) || toType == ASTPointerType.Of(ASTBaseType.Char)))

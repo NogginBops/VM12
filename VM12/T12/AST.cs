@@ -115,9 +115,15 @@ namespace T12
         public static void Fail(Token tok, string error)
         {
             Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromError(tok, error));
-            // TODO: Do something better!
-            //throw new FormatException(error);
+            
             throw new FormatException($"Error in file {Path.GetFileName(tok.File)} at line {tok.Line}: '{error}'");
+        }
+
+        internal static void Warning(Token tok, string warning)
+        {
+            Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromWarning(tok, warning));
+
+            Console.WriteLine($"WARNING ({Path.GetFileName(tok.File)}:{tok.Line}): '{warning}'");
         }
     }
     
@@ -2815,6 +2821,32 @@ namespace T12
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        internal static BinaryOperatorType InvertBooleanOp(BinaryOperatorType opType)
+        {
+            switch (opType)
+            {
+                case BinaryOperatorType.Equal:
+                    return BinaryOperatorType.Not_equal;
+                case BinaryOperatorType.Not_equal:
+                    return BinaryOperatorType.Equal;
+                case BinaryOperatorType.Less_than:
+                    return BinaryOperatorType.Greater_than_or_equal;
+                case BinaryOperatorType.Less_than_or_equal:
+                    return BinaryOperatorType.Greater_than;
+                case BinaryOperatorType.Greater_than:
+                    return BinaryOperatorType.Less_than_or_equal;
+                case BinaryOperatorType.Greater_than_or_equal:
+                    return BinaryOperatorType.Less_than;
+                
+                // We can't really invert these so they will be here for now
+                case BinaryOperatorType.Logical_And:
+                case BinaryOperatorType.Logical_Or:
+                default:
+                    Warning(default, $"Cannot invert op type '{opType}'!");
+                    return opType;
             }
         }
     }
