@@ -3404,6 +3404,14 @@ namespace T12
                                 var dataMember = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
                                 EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
+                            else if (fromType is ASTArrayType fromArrType && toType is ASTArrayType toArrType)
+                            {
+                                if (SizeOfType(fromArrType.BaseType, typeMap) != SizeOfType(toArrType.BaseType, typeMap))
+                                    Fail(cast.Trace, $"Cannot cast from {fromArrType} to {toArrType} because the elements have different sizes! {SizeOfType(fromArrType.BaseType, typeMap)} != {SizeOfType(toArrType.BaseType, typeMap)}");
+
+                                // Just emit the array
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            }
                             else if (fromType is ASTFixedArrayType && (toType is ASTPointerType || toType == ASTBaseType.DoubleWord))
                             {
                                 // We get the data member from the array
