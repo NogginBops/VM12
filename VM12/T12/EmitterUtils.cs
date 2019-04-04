@@ -184,6 +184,8 @@ namespace T12
                             break;
                     }
                     break;
+                default:
+                    throw new NotImplementedException($"OverSP with targetSize {targetSize} and overSize {overSize}");
             }
         }
 
@@ -223,33 +225,6 @@ namespace T12
                     {
                         builder.AppendLine("\tload [SP]");
                     }
-
-                    //for (int i = 0; i < typeSize / 2; i++)
-                    //{
-                    //    // TODO: This could probably be done better
-                    //    // Duplicate the pointer, load the one word, swap the word with the pointer underneath, increment the pointer
-                    //    // Only save the pointer if it is not the last value we are loading
-
-                    //    bool lastValue = (i * 2) == typeSize;
-
-                    //    if (lastValue == false)
-                    //    {
-                    //        builder.AppendLine("\tldup");
-                    //    }
-
-                    //    builder.AppendLine("\tloadl [SP]");
-
-                    //    if (lastValue == false)
-                    //    {
-                    //        builder.AppendLine("\tlswap\t; Swap the loaded value with the pointer underneath");
-                    //        builder.AppendLine("\tlinc linc\t; Increment pointer");
-                    //    }
-                    //}
-
-                    //if (typeSize % 2 != 0)
-                    //{
-                    //    builder.AppendLine("\tloadl [SP]");
-                    //}
                     break;
             }
         }
@@ -270,9 +245,14 @@ namespace T12
                             break;
                         default:
                             builder.AppendLine($"\t; {var.Comment} ({typeSize})");
-                            for (int i = 0; i < typeSize; i++)
+                            for (int i = 0; i < typeSize / 2; i++)
                             {
-                                builder.AppendLine($"\tload {var.LocalAddress + i}\t; {var.Comment}:{i}");
+                                builder.AppendLine($"\tloadl {var.LocalAddress + (i * 2)}\t; {var.Comment}:{i * 2} {(i * 2) + 1}");
+                            }
+
+                            if (typeSize % 2 == 1)
+                            {
+                                builder.AppendLine($"\tload {var.LocalAddress + typeSize - 1}\t; {var.Comment}:{typeSize - 1}");
                             }
                             break;
                     }
@@ -385,9 +365,14 @@ namespace T12
 
                             // We assume the value is on the stack
                             // Because the stack is fifo the first value on the stack will be the last value of the type.
-                            for (int i = typeSize - 1; i >= 0; i--)
+                            if (typeSize % 2 == 1)
                             {
-                                builder.AppendLine($"\tstore {var.LocalAddress + i}\t; {var.Comment}:{i}");
+                                builder.AppendLine($"\tstore {var.LocalAddress + (typeSize - 1)}\t; {var.Comment}:{typeSize - 1}");
+                            }
+
+                            for (int i = (typeSize / 2) - 1; i >= 0; i--)
+                            {
+                                builder.AppendLine($"\tstorel {var.LocalAddress + (i * 2)}\t; {var.Comment}:{(i * 2) + 1} {i * 2}");
                             }
                             break;
                     }

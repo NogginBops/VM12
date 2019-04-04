@@ -2638,7 +2638,7 @@ namespace T12
 
         public override string ToString()
         {
-            return $"{base.ToString()}({OperatorTypeToString(OperatorType)})";
+            return $"{Left} {OperatorTypeToString(OperatorType)} {Right}";
         }
 
         public static BinaryOperatorType TokenToOperatorType(Token token)
@@ -2929,6 +2929,11 @@ namespace T12
 
             return new ASTFunctionCall(trace, funcName, arguments);
         }
+
+        public override string ToString()
+        {
+            return $"{FunctionName}(...)";
+        }
     }
 
     public class ASTVirtualFunctionCall : ASTExpression
@@ -3079,6 +3084,12 @@ namespace T12
             };
 
             return new ASTMemberExpression(trace, targetExpr, memberName, assignment, dereference);
+        }
+
+        public override string ToString()
+        {
+            // NOTE: Meybe the assignmen should be included
+            return $"{TargetExpr}{(Dereference ? "->" : ".")}{MemberName}";
         }
     }
     
@@ -3256,6 +3267,11 @@ namespace T12
             };
 
             return new ASTExplicitCast(trace, expression, castType);
+        }
+
+        public override string ToString()
+        {
+            return $"cast({To}) {From}";
         }
     }
 

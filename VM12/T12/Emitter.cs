@@ -2005,7 +2005,7 @@ namespace T12
                         int forIndex = context.LabelContext.ForLabel++;
                         LoopContext newLoopContext = new LoopContext($":post_for_statement_{forIndex}", $":for_end_{forIndex}");
 
-                        builder.AppendLine($"\t; For loop {forWithDecl.Condition} {forIndex}");
+                        builder.AppendLine($"\t; For loop {forIndex} ({forWithDecl.Condition})");
                         
                         VarMap new_scope = new VarMap(scope);
                         EmitDeclaration(builder, forWithDecl.Declaration, new_scope, varList, ref local_index, typeMap, context, functionMap, constMap, globalMap);
@@ -2043,7 +2043,7 @@ namespace T12
                         int whileIndex = context.LabelContext.WhileLabel++;
                         LoopContext newLoopContext = new LoopContext($":while_condition_{whileIndex}", $":while_end_{whileIndex}");
 
-                        builder.AppendLine($"\t; While loop {whileStatement.Condition} {whileIndex}");
+                        builder.AppendLine($"\t; While loop {whileIndex} ({whileStatement.Condition})");
                         builder.AppendLine($"\t{newLoopContext.ContinueLabel}");
 
                         if (whileStatement.Condition is ASTBinaryOp binaryCond)
@@ -2067,7 +2067,7 @@ namespace T12
                         int doWhileIndex = context.LabelContext.DoWhileLabel++;
                         LoopContext newLoopContext = new LoopContext($":do_while_condition_{doWhileIndex}", $":do_while_end_{doWhileIndex}");
 
-                        builder.AppendLine($"\t; Do while loop {doWhile.Condition} {doWhileIndex}");
+                        builder.AppendLine($"\t; Do while loop {doWhileIndex} ({doWhile.Condition})");
                         builder.AppendLine($"\t:do_while_{doWhileIndex}");
 
                         EmitStatement(builder, doWhile.Body, scope, varList, ref local_index, typeMap, context.With(newLoopContext), functionMap, constMap, globalMap);
@@ -2490,8 +2490,10 @@ namespace T12
                         var typedLeft = ConstantFold(exprPair.Left, scope, typeMap, functionMap, constMap, globalMap);
                         var typedRight = ConstantFold(exprPair.Right, scope, typeMap, functionMap, constMap, globalMap);
 
+                        // Optimization for equals operations where we can use the setX instructions
                         if (ASTBinaryOp.IsEqualsOp(binaryOp.OperatorType))
                         {
+                            // Appends the appropriate setX instruction
                             void AppendSetInst(string comment)
                             {
                                 switch (binaryOp.OperatorType)
@@ -2642,9 +2644,10 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    builder.AppendLine("\tor");
+                                    builder.AppendLine("\tslswap or");
                                     builder.AppendLine("\tslswap slswap");
-                                    builder.AppendLine("\tor swap");
+                                    builder.AppendLine("\tor");
+                                    builder.AppendLine("\tswap");
                                 }
                                 else
                                 {
@@ -2658,7 +2661,10 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    throw new NotImplementedException();
+                                    builder.AppendLine("\tslswap xor");
+                                    builder.AppendLine("\tslswap slswap");
+                                    builder.AppendLine("\txor");
+                                    builder.AppendLine("\tswap");
                                 }
                                 else
                                 {
@@ -3562,7 +3568,7 @@ namespace T12
                         var test = memberExpression;
                         
                         ASTType targetType = ResolveType(CalcReturnType(memberExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
-                        
+
                         var structType = targetType;
                         
                         // If we are dereferencing, figure out what type we are dealing with.
@@ -3662,38 +3668,30 @@ namespace T12
                                 Fail(memberExpression.Assignment.Trace, $"Can't generate implicit cast from type '{retType}' to type '{member.Type}'! (Cast error: {error})");
                         }
 
+                        // Optimization for when accessing members of members without derefencing
                         // We look at the expression we should get the memeber from
-                        // If that expression is another member expression that does not dereference
-                        // Then we can just calculate an offset directly instead of loading the the whole target expression
-                        
+                        // If that expression is another member expression that does not dereference or have an assignment
+                        // then we can just calculate an offset directly instead of loading the the whole target expression
+                        // TODO: There might be some way to optimize assignments that is not super complicated but I'm not sure
                         Stack<string> membersComment = new Stack<string>();
 
-                        // FIXME: When we move to optimizing this, think about assignments!!! 
-                        // Each level can have an assignment and the typedAssignment for this ASTNode!!!
                         ASTMemberExpression target = memberExpression;
-
-                        // TODO: We don't do this optimization for now. It's somewhat complex, easier to do without
-                        // Optimization for when chaining member accesses without dereferencing (i.e. just calc the actual offset)
-                        /**
-                        while (target.TargetExpr is ASTMemberExpression next && next.Dereference == false)
+                        membersComment.Push($"{target.MemberName}");
+                        while (target.TargetExpr is ASTMemberExpression next && next.Dereference == false && next.Assignment == null)
                         {
-                            ASTType nextType = ResolveType(CalcReturnType(next.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+                            membersComment.Push($"{next.MemberName}");
 
-                            if (nextType is ASTStructType == false)
-                                Fail(next.TargetExpr.Trace, $"Type '{nextType}' does not have any members!");
+                            var nextTargetType = ResolveType(CalcReturnType(next.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
 
-                            membersComment.Push($"{target.MemberName}");
+                            if (TryGetStructMember(nextTargetType as ASTStructType, next.MemberName, typeMap, out var nextMember) == false)
+                                Fail(memberExpression.Trace, $"No member '{memberExpression.MemberName}' in struct '{structType}'!");
 
-                            memberOffset += MemberOffset(nextType as ASTStructType, next.MemberName, typeMap, out nextType);
+                            member.Offset += nextMember.Offset;
 
                             target = target.TargetExpr as ASTMemberExpression;
                         }
-                        */
 
-                        membersComment.Push($"{target.MemberName}");
-                        membersComment.Push($"{target.TargetExpr}");
-
-                        string comment = $"[{membersComment.Aggregate((s1, s2) => $"{s1}.{s2}")}]";
+                        string memberComment = $"{membersComment.Aggregate((s1, s2) => $"{s1}.{s2}")}";
 
                         if (target.TargetExpr is ASTVariableExpression varExpr)
                         {
@@ -3709,20 +3707,12 @@ namespace T12
                                 case VariableType.Local:
                                     {
                                         // The local variable pointer
-                                        VariableRef memberRef = new VariableRef()
-                                        {
-                                            VariableType = VariableType.Local,
-                                            LocalAddress = variable.LocalAddress + (target.Dereference == false ? member.Offset : 0),
-                                            Type = member.Type,
-                                            Comment = comment,
-                                        };
-
                                         if (target.Dereference)
                                         {
                                             // Load the target pointer
                                             LoadVariable(builder, target.Trace, variable, typeMap, constMap);
                                             // Add the member offset
-                                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
+                                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {memberComment} offset");
                                             
                                             if (typedAssigmnent != null)
                                             {
@@ -3731,17 +3721,25 @@ namespace T12
                                                 // Load the value to store
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
-                                                StoreSP(builder, typedAssigmnent.Trace, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                                StoreSP(builder, typedAssigmnent.Trace, member.Size, $"[{target.TargetExpr}->{memberComment}] = {target.Assignment}");
                                             }
                                             
                                             if (produceResult)
                                             {
                                                 // Load the result from the pointer
-                                                LoadSP(builder, member.Size, comment);
+                                                LoadSP(builder, member.Size, $"[{target.TargetExpr}->{memberComment}]");
                                             }
                                         }
                                         else
                                         {
+                                            VariableRef memberRef = new VariableRef()
+                                            {
+                                                VariableType = VariableType.Local,
+                                                LocalAddress = variable.LocalAddress + member.Offset,
+                                                Type = member.Type,
+                                                Comment = $"[{target.TargetExpr}.{memberComment}]",
+                                            };
+
                                             if (typedAssigmnent != null)
                                             {
                                                 // Load the assignment value
@@ -3771,13 +3769,12 @@ namespace T12
                                     {
                                         if (target.Dereference)
                                         {
-
                                             // Load the global pointer
                                             builder.AppendLine($"\tloadl #{variable.GlobalName}\t; [{variable.GlobalName}]");
                                             // Deref that pointer
                                             LoadSP(builder, SizeOfType(variable.Type, typeMap), $"<< [{variable.GlobalName}]");
                                             // Add the member offset
-                                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {target.MemberName} offset");
+                                            if (member.Offset != 0) builder.AppendLine($"\tloadl #{member.Offset} ladd\t; {memberComment} offset");
 
                                             if (typedAssigmnent != null)
                                             {
@@ -3786,13 +3783,13 @@ namespace T12
                                                 // Load the value to store
                                                 EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                                 // Store the loaded value at the pointer
-                                                StoreSP(builder, typedAssigmnent.Trace, member.Size, $"{target.TargetExpr}->{target.MemberName} = {target.Assignment}");
+                                                StoreSP(builder, typedAssigmnent.Trace, member.Size, $"{target.TargetExpr}->{memberComment} = {target.Assignment}");
                                             }
 
                                             if (produceResult)
                                             {
                                                 // Load the result from the pointer
-                                                LoadSP(builder, member.Size, $"[{target.TargetExpr}->{target.MemberName}]");
+                                                LoadSP(builder, member.Size, $"[{target.TargetExpr}->{memberComment}]");
                                             }
                                         }
                                         else
@@ -3802,7 +3799,7 @@ namespace T12
                                                 // NOTE: This might not be the right thing to do...
                                                 VariableType = VariableType.Pointer,
                                                 Type = member.Type,
-                                                Comment = comment,
+                                                Comment = $"{variable.GlobalName}.{memberComment}",
                                             };
 
                                             if (typedAssigmnent != null)
@@ -3879,7 +3876,7 @@ namespace T12
                         }
                         else
                         {
-                            if (memberExpression.Dereference)
+                            if (target.Dereference)
                             {
                                 EmitExpression(builder, target.TargetExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
@@ -3891,7 +3888,7 @@ namespace T12
                                 {
                                     VariableType = VariableType.Pointer,
                                     Type = member.Type,
-                                    Comment = comment,
+                                    Comment = $"{target.TargetExpr}->{memberComment}",
                                 };
                                 
                                 if (typedAssigmnent != null)
@@ -3906,7 +3903,7 @@ namespace T12
 
                                 if (produceResult)
                                 {
-                                    LoadVariable(builder, memberExpression.Trace, pointerRef, typeMap, constMap);
+                                    LoadVariable(builder, target.Trace, pointerRef, typeMap, constMap);
                                 }
                             }
                             else
@@ -3930,12 +3927,12 @@ namespace T12
 
                                     EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
-                                    StoreSP(builder, typedAssigmnent.Trace, member.Size, $"[{comment}] = {typedAssigmnent}");
+                                    StoreSP(builder, typedAssigmnent.Trace, member.Size, $"[{target.TargetExpr}.{memberComment}] = {typedAssigmnent}");
                                 }
 
                                 if (produceResult)
                                 {
-                                    LoadSP(builder, member.Size, comment);
+                                    LoadSP(builder, member.Size, $"[{target.TargetExpr}.{memberComment}]");
                                 }
                             }
                         }
