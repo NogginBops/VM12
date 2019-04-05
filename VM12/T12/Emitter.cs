@@ -3683,6 +3683,10 @@ namespace T12
 
                             var nextTargetType = ResolveType(CalcReturnType(next.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
 
+                            // If we get here and structType is not a struct we fail
+                            if (structType is ASTStructType == false && structType is ASTArrayType == false)
+                                Fail(memberExpression.TargetExpr.Trace, $"Type '{structType}' does not have members!");
+
                             if (TryGetStructMember(nextTargetType as ASTStructType, next.MemberName, typeMap, out var nextMember) == false)
                                 Fail(memberExpression.Trace, $"No member '{memberExpression.MemberName}' in struct '{structType}'!");
 
@@ -3691,9 +3695,47 @@ namespace T12
                             target = target.TargetExpr as ASTMemberExpression;
                         }
 
+
                         string memberComment = $"{membersComment.Aggregate((s1, s2) => $"{s1}.{s2}")}";
 
-                        if (target.TargetExpr is ASTVariableExpression varExpr)
+                        if (target.TargetExpr is ASTMemberExpression membExpression && membExpression.Dereference == true && target.Dereference == false && membExpression.Assignment == null)
+                        {
+                            // NOTE: We don't do this optimization for assigmnent because they are hard to think about
+                            var membPointerType = ResolveType(CalcReturnType(membExpression.TargetExpr, scope, typeMap, functionMap, constMap, globalMap), typeMap);
+
+                            var membType = DerefType(membExpression.Trace, membPointerType);
+
+                            if (TryGetStructMember(membType as ASTStructType, membExpression.MemberName, typeMap, out var memb) == false)
+                                Fail(memberExpression.Trace, $"No member '{membExpression.MemberName}' in struct '{structType}'!");
+
+                            // Load the base pointer
+                            EmitExpression(builder, membExpression.TargetExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+
+                            member.Offset += memb.Offset;
+
+                            if (member.Offset != 0)
+                            {
+                                builder.AppendLineWithComment($"\tloadl #{member.Offset}", $"Offset to [{membExpression.TargetExpr}->{membExpression.MemberName}.{memberComment}]");
+                                builder.AppendLine($"\tladd");
+                            }
+
+                            if (typedAssigmnent != null)
+                            {
+                                // Duplicate the pointer if we are going to produce a result
+                                if (produceResult) builder.AppendLine("\tldup");
+                                // Load the value to store
+                                EmitExpression(builder, typedAssigmnent, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                // Store the loaded value at the pointer
+                                StoreSP(builder, typedAssigmnent.Trace, member.Size, $"[{membExpression.TargetExpr}->{membExpression.MemberName}.{memberComment}] = {target.Assignment}");
+                            }
+
+                            if (produceResult)
+                            {
+                                // Load the result from the pointer
+                                LoadSP(builder, member.Size, $"[{membExpression.TargetExpr}->{membExpression.MemberName}.{memberComment}]");
+                            }
+                        }
+                        else if (target.TargetExpr is ASTVariableExpression varExpr)
                         {
                             // This is an optimization for when we know where the variable is comming from
 
