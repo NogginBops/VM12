@@ -572,24 +572,24 @@ namespace T12
                     error = default;
                     return true;
                 }
-                else if (exprType is ASTBaseType && targetType is ASTBaseType)
+                else if (UnAliasType(ResolveType(exprType, typeMap)) is ASTBaseType exprBaseType && targetType is ASTBaseType targetBaseType)
                 {
-                    int exprSize = (exprType as ASTBaseType).Size;
-                    int targetSize = (targetType as ASTBaseType).Size;
+                    int exprSize = exprBaseType.Size;
+                    int targetSize = targetBaseType.Size;
 
                     // FIXME!!!
                     // Special case for word to char implicit cast...
                     if ((exprType == ASTBaseType.Word && targetType == ASTBaseType.Char) ||
                         (exprType == ASTBaseType.Char && targetType == ASTBaseType.Word))
                     {
-                        result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
+                        result = new ASTImplicitCast(expression.Trace, expression, exprBaseType, targetBaseType);
                         error = default;
                         return true;
                     }
                     // FIXME: This should not allow word -> string cast
                     if (exprSize < targetSize)
                     {
-                        result = new ASTImplicitCast(expression.Trace, expression, exprType as ASTBaseType, targetType as ASTBaseType);
+                        result = new ASTImplicitCast(expression.Trace, expression, exprBaseType, targetBaseType);
                         error = default;
                         return true;
                     }
@@ -1552,42 +1552,89 @@ namespace T12
                             if ((constDirective.Type is ASTArrayType == false) && (constDirective.Type is ASTFixedArrayType == false))
                                 Fail(constDirective.Trace, $"Cannot define const '{constDirective.Name}' of type '{constType}' as an array!");
 
-                            builder.AppendLine($":{constDirective.Name}");
-                            
                             if (constDirective.Type is ASTFixedArrayType farray && farray.Size.IntValue != arrayLitteral.Values.Count)
                                 Fail(constDirective.Trace, $"Missmatching length, '{constDirective.Name}' is an array of '{farray.Size.IntValue}' elements, got '{arrayLitteral.Values.Count}' elements");
 
                             // TODO: Support nested array litterals
-                            
                             var baseType = (constDirective.Type as ASTDereferenceableType).DerefType;
-                            
+
                             // FIXME: Support arrays of strings!!
                             // We need to somehow make a list of string procs before we create the
                             // array proc.
                             // And the array proc should be a list of references to
                             // the string procs
-
-                            int index = 1;
-                            builder.Append("\t");
-                            foreach (var lit in arrayLitteral.Values)
+                            if (baseType == ASTBaseType.String)
                             {
-                                if (TryGenerateImplicitCast(lit, baseType, new VarMap(), typeMap, functionMap, constMap, globalMap, out var casted, out string error) == false)
-                                    Fail(lit.Trace, $"Cannot cast element in index {index - 1}, '{lit} to the type of the array {baseType}!'");
+                                // Here we generate the string procs needed for the array
+                                // We need to manually de-duplicate them
+                                // We would actually like this to be done by the assemblers autostring function
+                                // but we don't have a facility for that yet.
+                                Dictionary<string, string> elementDict = new Dictionary<string, string>();
+                                string[] labels = new string[arrayLitteral.Values.Count];
 
-                                var folded = ConstantFold(casted, new VarMap(), typeMap, functionMap, constMap, globalMap);
+                                int element = 0;
+                                foreach (var str in arrayLitteral.Values)
+                                {
+                                    if (TryGenerateImplicitCast(str, baseType, new VarMap(), typeMap, functionMap, constMap, globalMap, out var casted, out string error) == false)
+                                        Fail(str.Trace, $"Cannot cast element in index {element}, '{str} to the type of the array {baseType}!'");
 
-                                if (folded is ASTLitteral == false)
-                                    Fail(lit.Trace, $"Could not evaluate this as a constant! Got '{folded}'");
+                                    var folded = ConstantFold(casted, new VarMap(), typeMap, functionMap, constMap, globalMap);
 
-                                string value = (folded as ASTLitteral).Value;
-                                if (folded is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
-                                    value = value.TrimEnd('d', 'D', 'w', 'W');
+                                    if (folded is ASTStringLitteral == false)
+                                        Fail(str.Trace, $"Could not evaluate this string as a constant! Got '{folded}'");
 
-                                // NOTE: We need to fix array litterals string Value
-                                builder.Append($"{value} ");
+                                    string value = (folded as ASTStringLitteral).Value;
 
-                                if (index++ % 10 == 0) builder.Append("\n\t");
+                                    if (elementDict.TryGetValue(value, out string label))
+                                    {
+                                        labels[element] = label;
+                                        element++;
+                                        continue;
+                                    }
+                                    else
+                                    {
+                                        label = $":{constDirective.Name}_element_{element}";
+                                        elementDict[value] = label;
+                                        labels[element] = label;
+                                        element++;
+                                    }
+
+                                    builder.AppendLine($"{label}");
+                                    builder.AppendLine($"\t{value}");
+                                }
+
+                                builder.AppendLine($":{constDirective.Name}");
+                                foreach (var label in labels)
+                                {
+                                    builder.AppendLine($"\t{label}*");
+                                }
                             }
+                            else
+                            {
+                                builder.AppendLine($":{constDirective.Name}");
+
+                                int index = 1;
+                                builder.Append("\t");
+                                foreach (var lit in arrayLitteral.Values)
+                                {
+                                    if (TryGenerateImplicitCast(lit, baseType, new VarMap(), typeMap, functionMap, constMap, globalMap, out var casted, out string error) == false)
+                                        Fail(lit.Trace, $"Cannot cast element in index {index - 1}, '{lit} to the type of the array {baseType}!'");
+
+                                    var folded = ConstantFold(casted, new VarMap(), typeMap, functionMap, constMap, globalMap);
+
+                                    if (folded is ASTLitteral == false)
+                                        Fail(lit.Trace, $"Could not evaluate this as a constant! Got '{folded}'");
+
+                                    string value = (folded as ASTLitteral).Value;
+                                    if (folded is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
+                                        value = value.TrimEnd('d', 'D', 'w', 'W');
+
+                                    builder.Append($"{value} ");
+
+                                    if (index++ % 10 == 0) builder.Append("\n\t");
+                                }
+                            }
+
                             builder.AppendLine();
                             builder.AppendLine();
                         }

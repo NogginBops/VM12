@@ -226,7 +226,7 @@ namespace VM12Asm
 
         private static readonly Dictionary<Regex, string> preprocessorConversions = new Dictionary<Regex, string>()
         {
-            { new Regex(";.*"), "" },
+            //{ new Regex(";.*"), "" },
             { new Regex("#reg.*"), "" },
             { new Regex("#endreg.*"), "" },
             { new Regex("(?<!:)\\bload\\s+(#\\S+)"), "load.lit $1" },
@@ -1289,6 +1289,35 @@ namespace VM12Asm
 
         public static string[] PreProcess(string[] lines, string fileName)
         {
+            // FIXME: This feels very slow and does a lot of allocations!!!
+            string RemoveCommnents(string removeCommentLine)
+            {
+                string noCommentLine;
+
+                if (removeCommentLine.Contains(';'))
+                {
+                    string preCommentRemovedLine = removeCommentLine;
+                    StringBuilder commentRemovedLine = new StringBuilder(preCommentRemovedLine.Length);
+
+                    int quoteCounter = 0;
+                    for (int index = 0; index < preCommentRemovedLine.Length; index++)
+                    {
+                        if (preCommentRemovedLine[index] == '"') quoteCounter++;
+                        else if (preCommentRemovedLine[index] == ';' && quoteCounter % 2 == 0) break;
+
+                        commentRemovedLine.Append(preCommentRemovedLine[index]);
+                    }
+
+                    noCommentLine = commentRemovedLine.ToString();
+                }
+                else
+                {
+                    noCommentLine = removeCommentLine;
+                }
+
+                return noCommentLine;
+            }
+
             pplines += lines.Length;
 
             RawFile file = new RawFile() { path = fileName, rawlines = lines };
@@ -1321,7 +1350,7 @@ namespace VM12Asm
                     continue;
                 }
 
-                string line = Regex.Replace(lines[i], ";.*", "");
+                string line = RemoveCommnents(lines[i]);
 
                 var match = macroDefLoose.Match(line);
                 if (match.Success)
@@ -1416,6 +1445,7 @@ namespace VM12Asm
 
             for (int i = 0; i < newLines.Count; i++)
             {
+                newLines[i] = RemoveCommnents(newLines[i]);
                 foreach (var conversion in preprocessorConversions)
                 {
                     newLines[i] = conversion.Key.Replace(newLines[i], conversion.Value);
@@ -1428,6 +1458,7 @@ namespace VM12Asm
                     int forward = i + 1;
                     do
                     {
+                        newLines[forward] = RemoveCommnents(newLines[forward]);
                         foreach (var conversion in preprocessorConversions)
                         {
                             newLines[forward] = conversion.Key.Replace(newLines[forward], conversion.Value);
