@@ -1561,6 +1561,12 @@ namespace T12
                             
                             var baseType = (constDirective.Type as ASTDereferenceableType).DerefType;
                             
+                            // FIXME: Support arrays of strings!!
+                            // We need to somehow make a list of string procs before we create the
+                            // array proc.
+                            // And the array proc should be a list of references to
+                            // the string procs
+
                             int index = 1;
                             builder.Append("\t");
                             foreach (var lit in arrayLitteral.Values)
