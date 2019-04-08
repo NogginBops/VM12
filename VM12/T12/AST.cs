@@ -168,6 +168,11 @@ namespace T12
                     var interrupt = ASTInterrupt.Parse(Tokens);
                     functions.Add(interrupt);
                 }
+                else if (peek.Type == TokenType.Keyword_Intrinsic)
+                {
+                    var intrinsic = ASTIntrinsicFunction.Parse(Tokens);
+                    functions.Add(intrinsic);
+                }
                 else
                 {
                     Fail(peek, $"Unknown token {peek} in program!");
@@ -917,6 +922,85 @@ namespace T12
             };
 
             return new ASTInterrupt(trace, interruptType, parameters, body);
+        }
+    }
+
+    public class ASTIntrinsicFunction : ASTFunction
+    {
+        public new readonly List<ASTStringLitteral> Body;
+
+        public ASTIntrinsicFunction(TraceData data, string name, ASTType returnType, List<(ASTType, string)> parameters, List<ASTStringLitteral> body) : base(data, name, returnType, parameters, null)
+        {
+            Body = body;
+        }
+
+        public static new ASTIntrinsicFunction Parse(Queue<Token> Tokens)
+        {
+            var intrinsicTok = Tokens.Dequeue();
+            if (intrinsicTok.Type != TokenType.Keyword_Intrinsic) Fail(intrinsicTok, "Expected intrinsic!");
+
+            var typeTok = Tokens.Peek();
+            if (typeTok.IsType == false) Fail(typeTok, "Expected a type!");
+            var returnType = ASTType.Parse(Tokens);
+
+            var identTok = Tokens.Dequeue();
+            if (identTok.Type != TokenType.Identifier) Fail(identTok, "Expected an identifier!");
+            var name = identTok.Value;
+
+            List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
+
+            // Confirm that we have a opening parenthesis
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
+
+            // We peeked so we can handle this loop more uniform by always dequeueing at the start
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_parenthesis)
+            {
+                ASTType type = ASTType.Parse(Tokens);
+
+                var paramIdentTok = Tokens.Dequeue();
+                if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
+                string param_name = paramIdentTok.Value;
+
+                parameters.Add((type, param_name));
+
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
+                // Dequeue the comma
+                Tokens.Dequeue();
+
+                peek = Tokens.Peek();
+            }
+
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected ')'");
+
+            var openBraceTok = Tokens.Dequeue();
+            if (openBraceTok.Type != TokenType.Open_brace) Fail(openBraceTok, "Expected '{'");
+
+            List<ASTStringLitteral> body = new List<ASTStringLitteral>();
+            while (Tokens.Peek().Type != TokenType.Close_brace)
+            {
+                if (Tokens.Peek().Type != TokenType.String_Litteral)
+                    Fail(Tokens.Peek(), $"Assembly statements can only contain assembly strings! Got {Tokens.Peek()}");
+
+                var string_lit = ASTStringLitteral.Parse(Tokens);
+                body.Add(string_lit);
+            }
+
+            var closeBraceTok = Tokens.Dequeue();
+            if (closeBraceTok.Type != TokenType.Close_brace) Fail(closeBraceTok, "Expected closing brace");
+
+            var trace = new TraceData
+            {
+                File = intrinsicTok.File,
+                StartLine = closeBraceTok.Line,
+                EndLine = closeBraceTok.Line,
+            };
+
+            return new ASTIntrinsicFunction(trace, name, returnType, parameters, body);
         }
     }
 
@@ -3211,6 +3295,21 @@ namespace T12
         }
     }
     
+    // This is a internal representation of multiple expressions emitted like one big expression.
+    public class ASTInternalCompoundExpression : ASTExpression
+    {
+        public readonly ASTType ResultType;
+        public readonly List<ASTExpression> Expressions;
+        public readonly string Comment;
+
+        public ASTInternalCompoundExpression(TraceData trace, ASTType result, List<ASTExpression> expressions, string comment = null) : base(trace)
+        {
+            ResultType = result;
+            Expressions = expressions;
+            Comment = comment;
+        }
+    }
+
     #region Casts
 
     public abstract class ASTCastExpression : ASTExpression

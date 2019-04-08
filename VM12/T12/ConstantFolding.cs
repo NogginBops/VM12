@@ -127,6 +127,22 @@ namespace T12
 
                         return new ASTConditionalExpression(conditionalExpression.Trace, foldedCondition, conditionalExpression.IfTrue, conditionalExpression.IfFalse);
                     }
+                case ASTStringToArrayCast stringToArrayCast:
+                    {
+                        var stringVal = ConstantFold(stringToArrayCast.From, scope, typeMap, functionMap, constMap, globalMap);
+
+                        if (stringVal is ASTStringLitteral stringLitteral)
+                        {
+                            // TODO: More formally handle "raw" string litterals!!!
+                            return new ASTInternalCompoundExpression(stringToArrayCast.Trace, stringToArrayCast.To, new List<ASTExpression> {
+                                new ASTStringLitteral(stringToArrayCast.Trace, $"@{stringLitteral.Value}"),
+                                ASTDoubleWordLitteral.From(stringToArrayCast.Trace, stringLitteral.Contents.Length, ASTNumericLitteral.NumberFormat.Decimal),
+                            },
+                            $"Constant folded string '{stringLitteral.Contents}' to []char");
+                        }
+
+                        return new ASTStringToArrayCast(stringToArrayCast.Trace, stringVal, stringToArrayCast.To);
+                    }
                 default:
                     Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
                     return expr;
@@ -256,8 +272,7 @@ namespace T12
                         }
                         else if (foldedLeft is ASTNumericLitteral leftNumLit && leftNumLit.IntValue == 0)
                         {
-                            // FIXME: Negate the right part!!
-                            return CreateFoldedBinOp();
+                            return new ASTUnaryOp(binaryOp.Trace, ASTUnaryOp.UnaryOperationType.Negation, foldedRight);
                         }
                         else if (foldedRight is ASTNumericLitteral rightNumLit && rightNumLit.IntValue == 0)
                         {

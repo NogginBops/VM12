@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -345,6 +346,9 @@ namespace T12
                 case ASTInlineAssemblyExpression assemblyExpression:
                     // Just trust that the programmer is right.
                     return assemblyExpression.ResultType;
+                case ASTInternalCompoundExpression compoundExpression:
+                    // Just trust that the compiler is right.
+                    return compoundExpression.ResultType;
                 default:
                     Fail(expression.Trace, $"Unknown expression type {expression}, this is a compiler bug!");
                     break;
@@ -498,6 +502,15 @@ namespace T12
                 return true;
             }
             else if (exprType is ASTFixedArrayType fixedArrayType && targetType == ASTPointerType.Of(fixedArrayType.BaseType))
+            {
+                // This is just getting the data member of the fixed array
+                // NOTE: This might mean we try to edit ROM by accident
+                // but for now we allow this implicit convertion
+                result = new ASTMemberExpression(expression.Trace, expression, "data", null, false);
+                error = null;
+                return true;
+            }
+            else if (exprType is ASTFixedArrayType && targetType == ASTPointerType.Of(ASTBaseType.Void))
             {
                 // This is just getting the data member of the fixed array
                 // NOTE: This might mean we try to edit ROM by accident
@@ -975,6 +988,12 @@ namespace T12
             }
         }
 
+        internal static ASTType UnAliasType(ASTType type)
+        {
+            while (type is ASTAliasedType alias) type = alias.RealType;
+            return type;
+        }
+
         internal static ASTType ResolveType(ASTType type, TypeMap typeMap)
         {
             if (type is ASTTypeRef)
@@ -1065,23 +1084,6 @@ namespace T12
             return true;
         }
 
-        private static int MemberOffset(ASTStructType type, string memberName,  TypeMap typeMap, out ASTType memberType)
-        {
-            int memberIndex = type.Members.FindIndex(m => m.Name == memberName);
-            if (memberIndex < 0) Fail(type.Trace, $"No member called '{memberName}' in struct '{type}'");
-
-            memberType = ResolveType(type.Members[memberIndex].Type, typeMap);
-
-            // Calculate the offset
-            int memberOffset = 0;
-            for (int i = 0; i < memberIndex; i++)
-            {
-                memberOffset += SizeOfType(type.Members[i].Type, typeMap);
-            }
-
-            return memberOffset;
-        }
-        
         private static ASTType DerefType(TraceData trace, ASTType pointerType)
         {
             if (pointerType is ASTDereferenceableType derefType)
@@ -1308,6 +1310,10 @@ namespace T12
 
             foreach (var func in file.Functions)
             {
+                // We don't emit anything for intrinsics
+                if (func is ASTIntrinsicFunction)
+                    continue;
+
                 EmitFunction(builder, func, typeMap, functionMap, constMap, globalMap, debugBuilder);
                 builder.AppendLine();
             }
@@ -2847,9 +2853,22 @@ namespace T12
                         // FIXME: We can only do this on numeric types!!! Not string, void etc
                         if (valueType is ASTBaseType == false)
                         {
-                            if ((valueType is ASTAliasedType alias && alias.RealType is ASTBaseType) == false)
+                            if (UnAliasType(valueType) is ASTBaseType)
                             {
-                                Fail(containsExpression.Value.Trace, $"Can only do contains expressions on number types! Got '{valueType}'!");
+                                // This is valid
+                            }
+                            else if (valueType is ASTPointerType)
+                            {
+                                // This is valid
+
+                                // FIXME: This is a bad hack!!!
+                                // It allows us to check contains for any type of pointers for the value, upper, and lower.
+                                // Usefull for fixed arrays .end member wich is a void pointer
+                                valueType = ASTPointerType.Of(ASTBaseType.Void);
+                            }
+                            else
+                            {
+                                Fail(containsExpression.Value.Trace, $"Can only do contains expressions on number/pointer types! Got '{valueType}'!");
                             }
                         }
                         
@@ -2864,12 +2883,19 @@ namespace T12
                         // All types are the same!
 
                         // NOTE: We could do constant folding here!
-                        var value = containsExpression.Value;
-                        var lower = typedLower;
-                        var upper = typedUpper;
-                       
+                        var value = ConstantFold(containsExpression.Value, scope, typeMap, functionMap, constMap, globalMap);
+                        var lower = ConstantFold(typedLower, scope, typeMap, functionMap, constMap, globalMap);
+                        var upper = ConstantFold(typedUpper, scope, typeMap, functionMap, constMap, globalMap);
+
                         // NOTE: We could also try constant folding the size part!
-                        
+                        // We could do this two ways, either we create an expression and try to constant fold it
+                        // Or we try to recognize typlical scenarios like "someArray : someArray.end"
+                        // and do fast optimizations for that. Because I don't think that the constant folding 
+                        // would get that that is the same as "someArray.lenth" for this size part.
+                        // We could also improve the constnat folding, but that might be very hard...?
+
+                        // FIXME: If the cost of loading min two times is less than 5 instructions we just want to load it twice
+
                         int typeSize = SizeOfType(valueType, typeMap);
                         switch (typeSize)
                         {
@@ -2918,9 +2944,12 @@ namespace T12
                         bool virtualCall = false;
                         string functionLabel;
 
+                        bool intrinsicCall = false;
+                        ASTIntrinsicFunction intrinsicFunc = null;
+
                         // FIXME: Function calls should really just be working on expressions! Or something like that
                         // Then we could do a function that returns a function pointer and then call that function directly
-
+                        
                         List<ASTType> argumentTypes = functionCall.Arguments.Select(a => CalcReturnType(a, scope, typeMap, functionMap, constMap, globalMap)).ToList();
 
                         // Is there is something in our scope that is a better match for this function we use that and make this a virtual call
@@ -2945,6 +2974,12 @@ namespace T12
                             returnType = function.ReturnType;
 
                             functionLabel = GetFunctionLabel(function, typeMap, functionMap);
+
+                            if (function is ASTIntrinsicFunction intrinsicFunction)
+                            {
+                                intrinsicCall = true;
+                                intrinsicFunc = intrinsicFunction;
+                            }
                         }
                         else
                         {
@@ -2952,7 +2987,6 @@ namespace T12
                             return;
                         }
                         
-                        // FIXME!!! Check types!!!
                         // This won't be needed as we check the types when we find the function above
                         if (functionCall.Arguments.Count != parameters.Count)
                             Fail(functionCall.Trace, $"Missmaching number of arguments for function {name}! Calling with {functionCall.Arguments.Count} expected {parameters.Count}");
@@ -2972,8 +3006,17 @@ namespace T12
                         }
 
                         if (functionCall.Arguments.Count > 0)
-                            builder.AppendLine($"\t; Args to function call ::{name}");
-                        
+                        {
+                            if (intrinsicCall)
+                            {
+                                builder.AppendLine($"\t; Args to intrinsic '{intrinsicFunc.Name}'");
+                            }
+                            else
+                            {
+                                builder.AppendLine($"\t; Args to function call ::{name}");
+                            }
+                        }
+
                         // This means adding a result type to expressions
                         foreach (var arg in functionCall.Arguments)
                         {
@@ -2982,7 +3025,14 @@ namespace T12
                             EmitExpression(builder, foldedArg, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         }
 
-                        if (virtualCall)
+                        if (intrinsicCall)
+                        {
+                            foreach (var line in intrinsicFunc.Body)
+                            {
+                                builder.AppendLine($"\t{line.Contents}");
+                            }
+                        }
+                        else if (virtualCall)
                         {
                             // If this is a virtual call
                             // Load the function pointer
@@ -3581,6 +3631,12 @@ namespace T12
                         // If the type is a fixed array we handle the cases here
                         if (structType is ASTFixedArrayType fixedArrayType)
                         {
+                            if (memberExpression.Assignment != null)
+                                Fail(memberExpression.Trace, $"We don't support assignments to fixed array type members! (yet?)");
+
+                            if (memberExpression.Dereference == true)
+                                Fail(memberExpression.Trace, $"Cannot dereference members of a fixed array! Use '.' instead of '->'.");
+
                             // All of these branches should end here!
                             switch (memberExpression.MemberName)
                             {
@@ -3599,14 +3655,37 @@ namespace T12
                                     }
                                 case "end":
                                     {
-                                        // TODO: Constant fold this!
-                                        // Here we just load the expression that results in the fixedArray, all we are really doing here is changing the type
-                                        // Then add the length - 1 to that pointer
-                                        var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
-                                        EmitExpression(builder, dataExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
-                                        if (produceResult) builder.AppendLine($"\tloadl #{fixedArrayType.Size}\t; length of [{memberExpression.TargetExpr}] {fixedArrayType}");
-                                        if (produceResult) builder.AppendLine($"\tloadl #{SizeOfType(fixedArrayType.BaseType, typeMap)}\t; size of type {fixedArrayType.BaseType}");
-                                        if (produceResult) builder.AppendLine($"\tlmul ldec ladd\t; Multiply the length by the size decrement and add to the pointer");
+                                        if (memberExpression.TargetExpr is ASTVariableExpression varExpr && TryResolveVariable(varExpr.Name, scope, globalMap, constMap, functionMap, typeMap, out var variable))
+                                        {
+                                            switch (variable.VariableType)
+                                            {
+                                                case VariableType.Global:
+                                                    builder.AppendLine($"\tloadl #(#{variable.GlobalName} {(fixedArrayType.Size.IntValue * SizeOfType(fixedArrayType.BaseType, typeMap)) - 1} +)\t; The end of the fixed array of type '{fixedArrayType}'");
+                                                    break;
+                                                case VariableType.Pointer:
+                                                    Fail(memberExpression.Trace, $"TryResolveVariable should not return variable of type pointer! This is a compiler bug!");
+                                                    break;
+                                                case VariableType.Constant:
+                                                    Fail(memberExpression.Trace, $"It does not make sense to get the end address of a constant!? {varExpr}");
+                                                    break;
+                                                case VariableType.Function:
+                                                    // It kind of does make sense.... Hmmm
+                                                    Fail(memberExpression.Trace, $"It does not make sense to get the end address of a function!? {varExpr}");
+                                                    break;
+                                                default:
+                                                    Fail(memberExpression.Trace, $"Unknown variable type: '{variable.VariableType}'!");
+                                                    // Here we do the default thing!!
+                                                    break;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // TODO: Constant fold this!
+                                            var dataExpr = new ASTAddressOfExpression(memberExpression.TargetExpr.Trace, memberExpression.TargetExpr);
+                                            EmitExpression(builder, dataExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                            if (produceResult) builder.AppendLine($"\tloadl #({(fixedArrayType.Size.IntValue * SizeOfType(fixedArrayType.BaseType, typeMap)) - 1})\t; Offset to end address of type '{fixedArrayType}'");
+                                        }
+
                                         return;
                                     }
                                 default:
@@ -4171,6 +4250,17 @@ namespace T12
                                     builder.AppendLine("\tpop");
                                 }
                             }
+                        }
+                        break;
+                    }
+                case ASTInternalCompoundExpression compoundExpression:
+                    {
+                        if (compoundExpression.Comment != null)
+                            builder.AppendLine($"\t; {compoundExpression.Comment}");
+
+                        foreach (var expr in compoundExpression.Expressions)
+                        {
+                            EmitExpression(builder, expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                         }
                         break;
                     }

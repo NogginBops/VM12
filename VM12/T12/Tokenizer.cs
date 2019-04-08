@@ -105,6 +105,7 @@ namespace T12
 
         Keyword_Assembly,
         Keyword_Interrupt,
+        Keyword_Intrinsic,
 
         Identifier,
         Numeric_Litteral,
@@ -334,6 +335,7 @@ namespace T12
 
             ( TokenType.Keyword_Assembly, new Regex("\\Gassembly\\b") ),
             ( TokenType.Keyword_Interrupt, new Regex("\\Ginterrupt\\b") ),
+            ( TokenType.Keyword_Intrinsic, new Regex("\\Gintrinsic\\b") ),
 
             ( TokenType.Identifier, new Regex("\\G[a-zA-Z_]\\w*") ),
             // TODO: We can do better dword litterals
