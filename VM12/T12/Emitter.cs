@@ -1296,6 +1296,9 @@ namespace T12
                 if (ast.Files.TryGetValue(import.File, out var importFile) == false)
                     Fail(import.Trace, $"Could not find import file '{import.File}'!");
                 
+                if (importMap.ContainsKey(import.File))
+                    Fail(import.Trace, $"File '{import.File}' is already imported!");
+
                 importMap.Add(import.File, importFile.File);
             }
 
