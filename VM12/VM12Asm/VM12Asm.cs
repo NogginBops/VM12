@@ -372,7 +372,7 @@ namespace VM12Asm
 
         static Regex num = new Regex("^(?<!\\S)(0x[0-9A-Fa-f_]+|8x[0-7_]+|0b[0-1_]+|-?[0-9_]+)(?!\\S)$");
 
-        static Regex chr = new Regex("'(.)'");
+        static Regex chr = new Regex("^'(.)'$");
 
         static Regex str = new Regex("^\\s*(@)?(\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\")$");
 
