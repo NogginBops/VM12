@@ -647,6 +647,7 @@ namespace VM12Asm
             string name = null;
             bool generateStringSource = true;
             bool generateProcMapSource = true;
+            bool generateTypeMapSource = true;
             bool executable = true;
             bool overwrite = false;
             bool hold = false;
@@ -832,89 +833,118 @@ namespace VM12Asm
                 }
             }
 
+            #region Compiler generated files
+
+            // Auto strings
+            {
+                RawFile rawAutoStrings = new RawFile();
+                rawAutoStrings.path = "AutoStrings.12asm";
+                rawAutoStrings.rawlines = autoStringsFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                rawAutoStrings.processedlines = rawAutoStrings.rawlines;
+
+                lines -= rawAutoStrings.rawlines.Length;
+
+                watch.Restart();
+                AsemFile autoStringAsem = Parse(rawAutoStrings);
+                watch.Stop();
+                parseTime += watch.ElapsedTicks;
+
+                files["AutoStrings.12asm"] = autoStringAsem;
+
+                if (generateStringSource)
+                {
+                    File.WriteAllText(Path.Combine(dirInf.FullName, "AutoStrings.12asm"), compiler_generated_warning + autoStringsFile.ToString());
+                }
+            }
+
+            // Proc map
+            {
+                procMapFile.Clear();
+
+                procMapFile.AppendLine("!noprintouts");
+                procMapFile.AppendLine("!no_map");
+                procMapFile.AppendLine("!global");
+                procMapFile.AppendLine("");
+
+                int insertIndex = procMapFile.Length;
+
+                StringBuilder sb = new StringBuilder();
+                procMapFile.AppendLine($":__proc_map__");
+
+                int procsMapped = 0;
+
+                foreach (var f in files)
+                {
+                    if (f.Value.Flags.Contains("!no_map") == false)
+                    {
+                        foreach (var proc in f.Value.Procs)
+                        {
+                            int offset = sb.Length;
+                            procMapFile.AppendLine($"\t{proc.Key}* #(sizeof({proc.Key})) 0x{offset:X6} 0x{proc.Key.Length:X6}");
+                            sb.Append(proc.Key);
+                            procsMapped++;
+                        }
+                    }
+                }
+
+                procMapFile.AppendLine();
+
+                procMapFile.AppendLine($":__proc_map_strings__");
+                procMapFile.AppendLine($"\t@\"{sb}\"");
+
+                procMapFile.Insert(insertIndex, $"<proc_map_entries = {procsMapped}>\n" +
+                                                $"<proc_map_strings_length = {sb.Length}>\n" +
+                                                $"<proc_map_length = #({procsMapped} 8 *)>\n\n");
+
+                RawFile rawProcMap = new RawFile();
+                rawProcMap.path = "ProcMapData.12asm";
+                rawProcMap.rawlines = procMapFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                rawProcMap.processedlines = rawProcMap.rawlines;
+
+                lines -= rawProcMap.rawlines.Length;
+
+                watch.Restart();
+                AsemFile procMapAsem = Parse(rawProcMap);
+                watch.Stop();
+                parseTime += watch.ElapsedTicks;
+
+                files["ProcMapData.12asm"] = procMapAsem;
+
+                if (generateProcMapSource)
+                {
+                    File.WriteAllText(Path.Combine(dirInf.FullName, "ProcMapData.12asm"), compiler_generated_warning + procMapFile.ToString());
+                }
+            }
+
+            // Type map
+            {
+                RawFile rawTypeMap = new RawFile();
+                rawTypeMap.path = "TypeMapData.12asm";
+                string typeMapString = T12.Compiler.GetTypeMapData();
+                rawTypeMap.rawlines = typeMapString.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                rawTypeMap.processedlines = rawTypeMap.rawlines;
+
+                lines -= rawTypeMap.processedlines.Length;
+
+                watch.Restart();
+                AsemFile typeMapAsem = Parse(rawTypeMap);
+                watch.Stop();
+                parseTime += watch.ElapsedTicks;
+
+                files["TypeMapData.12asm"] = typeMapAsem;
+
+                if (generateTypeMapSource)
+                {
+                    File.WriteAllText(Path.Combine(dirInf.FullName, "TypeMapData.12asm"), compiler_generated_warning + typeMapString);
+                }
+            }
+
+            #endregion
+
             if (T12.Compiler.Compiling == true)
             {
                 T12.Compiler.StopCompiling();
             }
-
-            #region AutoStrings
-
-            RawFile rawAutoStrings = new RawFile();
-            rawAutoStrings.path = "AutoStrings.12asm";
-            rawAutoStrings.rawlines = autoStringsFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-            rawAutoStrings.processedlines = rawAutoStrings.rawlines;
-
-            lines -= rawAutoStrings.rawlines.Length;
-
-            watch.Restart();
-            AsemFile autoStringAsem = Parse(rawAutoStrings);
-            watch.Stop();
-            parseTime += watch.ElapsedTicks;
-
-            files["AutoStrings.12asm"] = autoStringAsem;
-
-            if (generateStringSource)
-            {
-                File.WriteAllText(Path.Combine(dirInf.FullName, "AutoStrings.12asm"), compiler_generated_warning + autoStringsFile.ToString());
-            }
-
-            procMapFile.Clear();
-
-            procMapFile.AppendLine("!noprintouts");
-            procMapFile.AppendLine("!no_map");
-            procMapFile.AppendLine("!global");
-            procMapFile.AppendLine("");
-
-            int insertIndex = procMapFile.Length;
-
-            StringBuilder sb = new StringBuilder();
-            procMapFile.AppendLine($":__proc_map__");
-
-            int procsMapped = 0;
-
-            foreach (var f in files)
-            {
-                if (f.Value.Flags.Contains("!no_map") == false)
-                {
-                    foreach (var proc in f.Value.Procs)
-                    {
-                        int offset = sb.Length;
-                        procMapFile.AppendLine($"\t{proc.Key}* #(sizeof({proc.Key})) 0x{offset:X6} 0x{proc.Key.Length:X6}");
-                        sb.Append(proc.Key);
-                        procsMapped++;
-                    }
-                }
-            }
-
-            procMapFile.AppendLine();
-
-            procMapFile.AppendLine($":__proc_map_strings__");
-            procMapFile.AppendLine($"\t@\"{sb}\"");
-
-            procMapFile.Insert(insertIndex, $"<proc_map_entries = {procsMapped}>\n" +
-                                            $"<proc_map_strings_length = {sb.Length}>\n" +
-                                            $"<proc_map_length = #({procsMapped} 8 *)>\n\n");
-
-            RawFile rawProcMap = new RawFile();
-            rawProcMap.path = "ProcMapData.12asm";
-            rawProcMap.rawlines = procMapFile.ToString().Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-            rawProcMap.processedlines = rawProcMap.rawlines;
-
-            lines -= rawProcMap.rawlines.Length;
-
-            watch.Restart();
-            AsemFile procMapAsem = Parse(rawProcMap);
-            watch.Stop();
-            parseTime += watch.ElapsedTicks;
-
-            files["ProcMapData.12asm"] = procMapAsem;
-
-            if (generateProcMapSource)
-            {
-                File.WriteAllText(Path.Combine(dirInf.FullName, "ProcMapData.12asm"), compiler_generated_warning + procMapFile.ToString());
-            }
-
-            #endregion
 
             if (verbose)
             {

@@ -143,6 +143,14 @@ namespace T12
 
                         return new ASTStringToArrayCast(stringToArrayCast.Trace, stringVal, stringToArrayCast.To);
                     }
+                case ASTContainsExpression containsExpression:
+                    {
+                        var foldedVar = ConstantFold(containsExpression.Value, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedLower = ConstantFold(containsExpression.LowerBound, scope, typeMap, functionMap, constMap, globalMap);
+                        var foldedUpper = ConstantFold(containsExpression.UpperBound, scope, typeMap, functionMap, constMap, globalMap);
+
+                        return new ASTContainsExpression(containsExpression.Trace, foldedVar, foldedLower, foldedUpper);
+                    }
                 default:
                     Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
                     return expr;

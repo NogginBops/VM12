@@ -97,6 +97,8 @@ namespace T12
     
     public static partial class Emitter
     {
+        internal static TypeMap GlobalTypeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType)kvp.Value);
+
         internal static void Fail(TraceData trace, string error)
         {
             Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromError(trace, error));
@@ -1690,6 +1692,7 @@ namespace T12
                         builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
                         
                         typeMap.Add(name, structDeclaration.DeclaredType);
+                        GlobalTypeMap.Add(name, structDeclaration.DeclaredType);
                         break;
                     }
                 default:
@@ -3829,7 +3832,6 @@ namespace T12
 
                             target = target.TargetExpr as ASTMemberExpression;
                         }
-
 
                         string memberComment = $"{membersComment.Aggregate((s1, s2) => $"{s1}.{s2}")}";
 

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.IO;
 using System.Diagnostics;
 using System.Text;
@@ -119,6 +120,112 @@ namespace T12
             CurrentErrorHandler = errorHandler;
         }
 
+        public static string GetTypeMapData()
+        {
+            StringBuilder sb = new StringBuilder();
+
+            sb.AppendLine("!noprintout");
+            sb.AppendLine("!global");
+            sb.AppendLine();
+            int lengthDataIndex = sb.Length;
+            sb.AppendLine();
+            sb.AppendLine($":__no_members__");
+            sb.AppendLine($"\tnop");
+            sb.AppendLine();
+            sb.AppendLine($":__types__");
+
+            /*
+            struct Type
+            {
+	            dword ID;
+	            dword Size;
+	            dword Name_offset;
+	            dword Name_length;
+	            []Member Members;
+            }
+            */
+
+            int typeID = 1;
+
+            StringBuilder nameString = new StringBuilder(100);
+
+            List<StringBuilder> MemberProcs = new List<StringBuilder>();
+
+            /*
+            struct Member
+            {
+	            *Type Type;
+	            dword Name_offset;
+                dword Name_length;
+            }
+            */
+
+            var types = Emitter.GlobalTypeMap.Select(kvp => (kvp.Key, kvp.Value)).ToList();
+            var indexList = types.Select(t => t.Value).ToList();
+
+            List<(string Name, ASTType Type)> AdditionalTypes = new List<(string, ASTType)>();
+
+            foreach (var type in types)
+            {
+                // FIXME: We could format some of these in decimal and pad with zeroes
+                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type.Value, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{type.Value.TypeName.Length:X6} {(type.Value is ASTStructType sType ? $":__{type.Value.TypeName}_members* 0x{sType.Members.Count:X6}" : ":__no_members__* 0x000000")}");
+
+                nameString.Append(type.Value.TypeName);
+
+                if (type.Value is ASTStructType structType)
+                {
+                    StringBuilder members = new StringBuilder();
+                    members.AppendLine($":__{structType.TypeName}_members");
+                    foreach (var member in structType.Members)
+                    {
+                        var membType = member.Type;
+
+                        int index = indexList.IndexOf(membType);
+                        if (index == -1)
+                        {
+                            AdditionalTypes.Add((membType.TypeName, membType));
+                            index = indexList.Count;
+                            indexList.Add(membType);
+                        }
+
+                        members.AppendLine($"\t0x{index * 12:X6} 0x{nameString.Length:X6} 0x{member.Name.Length:X6}");
+
+                        nameString.Append(member.Name);
+                    }
+
+                    MemberProcs.Add(members);
+                }
+
+                typeID++;
+            }
+
+            foreach (var additionalType in AdditionalTypes)
+            {
+                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(additionalType.Type, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{additionalType.Type.TypeName.Length:X6} :__no_members__* 0x000000");
+
+                nameString.Append(additionalType.Type.TypeName);
+
+                typeID++;
+            }
+
+            sb.AppendLine();
+
+            foreach (var memberProc in MemberProcs)
+            {
+                sb.Append(memberProc).AppendLine();
+            }
+
+            sb.AppendLine();
+            sb.AppendLine($":__type_names__");
+
+            sb.Append("\t@\"").Append(nameString).Append('"').AppendLine();
+
+            sb.Insert(lengthDataIndex, $"<type_map_entries = {typeID - 1}>\n<type_map_strings_length = {nameString.Length}>\n<type_map_length = {typeID * 12}>");
+
+
+            return sb.ToString();
+        }
+
         public static void StopCompiling()
         {
             Compiling = false;
@@ -127,6 +234,7 @@ namespace T12
             BaseDirectory = null;
             DirectoryFiles = null;
             CurrentErrorHandler = null;
+            Emitter.GlobalTypeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType) kvp.Value);
         }
 
         public static void Compile(FileInfo infile)

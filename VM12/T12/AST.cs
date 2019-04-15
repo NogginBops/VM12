@@ -2057,97 +2057,93 @@ namespace T12
             }
 
             var peek = Tokens.Peek();
-            switch (peek.Type)
-            {
-                case TokenType.Numeric_Litteral:
-                    // Remove any underscores
-                    string number = peek.Value.Replace("_", "");
+            if (peek.Type != TokenType.Numeric_Litteral)
+                Fail(peek, $"Expected numeric litteral! Got {peek}");
 
-                    bool forceDouble = false;
-                    int value;
-                    try
+            // Remove any underscores
+            string number = peek.Value.Replace("_", "");
+
+            bool forceDouble = false;
+            int value;
+            try
+            {
+                if (number.StartsWith("0x"))
+                {
+                    if (number.Length - 2 > 3) forceDouble = true;
+                    value = Convert.ToInt32(number.Substring(2), 16);
+                }
+                else if (number.StartsWith("8x"))
+                {
+                    if (number.Length - 2 > 4) forceDouble = true;
+                    value = Convert.ToInt32(number.Substring(2), 8);
+                }
+                else if (number.StartsWith("0b"))
+                {
+                    if (number.Length - 2 > 12) forceDouble = true;
+                    value = Convert.ToInt32(number.Substring(2), 2);
+                }
+                else
+                {
+                    forceDouble = number.EndsWith("D", true, System.Globalization.CultureInfo.InvariantCulture);
+                    number = number.TrimEnd('d', 'D', 'w', 'W');
+                    // Try normal parsing!
+                    value = Convert.ToInt32(number, 10);
+                }
+            }
+            catch (Exception e)
+            {
+                Fail(peek, $"Could not parse number '{peek.Value}'. Got error '{e.Message}'.");
+                return default;
+            }
+
+            // Dequeue the token we have just parsed
+            Tokens.Dequeue();
+
+            TraceData trace = TraceData.From(peek);
+
+            if (negate)
+            {
+                if (-value < ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE)
+                {
+                    Fail(peek, $"Numeric litteral is less than '{ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE}' and does not fit in a double word!");
+                    return default;
+                }
+                else if (-value < ASTWordLitteral.WORD_MIN_SIGNED_VALUE || forceDouble)
+                {
+                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
                     {
-                        if (number.StartsWith("0x"))
-                        {
-                            if (number.Length - 2 > 3) forceDouble = true;
-                            value = Convert.ToInt32(number.Substring(2), 16);
-                        }
-                        else if (number.StartsWith("8x"))
-                        {
-                            if (number.Length - 2 > 4) forceDouble = true;
-                            value = Convert.ToInt32(number.Substring(2), 8);
-                        }
-                        else if (number.StartsWith("0b"))
-                        {
-                            if (number.Length - 2 > 12) forceDouble = true;
-                            value = Convert.ToInt32(number.Substring(2), 2);
-                        }
-                        else
-                        {
-                            forceDouble = number.EndsWith("D", true, System.Globalization.CultureInfo.InvariantCulture);
-                            number = number.TrimEnd('d', 'D', 'w', 'W');
-                            // Try normal parsing!
-                            value = Convert.ToInt32(number, 10);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Fail(peek, $"Could not parse number '{peek.Value}'. Got error '{e.Message}'.");
+                        Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
                         return default;
                     }
 
-                    // Dequeue the token we have just parsed
-                    Tokens.Dequeue();
-
-                    TraceData trace = TraceData.From(peek);
-
-                    if (negate)
-                    {
-                        if (-value < ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE)
-                        {
-                            Fail(peek, $"Numeric litteral is less than '{ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE}' and does not fit in a double word!");
-                            return default;
-                        }
-                        else if (-value < ASTWordLitteral.WORD_MIN_SIGNED_VALUE || forceDouble)
-                        {
-                            if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
-                            {
-                                Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
-                                return default;
-                            }
-
-                            return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                        }
-                        else
-                        {
-                            return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                        }
-                    }
-                    else
-                    {
-                        if (value > ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE)
-                        {
-                            Fail(peek, $"Numeric litteral is larger than '{ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE}' and does not fit in a double word!");
-                            return default;
-                        }
-                        else if (value > ASTWordLitteral.WORD_MAX_VALUE || forceDouble)
-                        {
-                            if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
-                            {
-                                Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
-                                return default;
-                            }
-
-                            return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                        }
-                        else
-                        {
-                            return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                        }
-                    }
-                default:
-                    Fail(peek, $"Expected numeric litteral! Got {peek}");
+                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                }
+                else
+                {
+                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                }
+            }
+            else
+            {
+                if (value > ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE)
+                {
+                    Fail(peek, $"Numeric litteral is larger than '{ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE}' and does not fit in a double word!");
                     return default;
+                }
+                else if (value > ASTWordLitteral.WORD_MAX_VALUE || forceDouble)
+                {
+                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
+                    {
+                        Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
+                        return default;
+                    }
+
+                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                }
+                else
+                {
+                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                }
             }
         }
 
