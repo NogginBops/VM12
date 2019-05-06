@@ -1602,9 +1602,9 @@ namespace VM12Asm
                             Error(file, line_num, $"Exporting extern constant '{c.Groups[1].Value}'");
                         }
 
-                        if (globalConstants.ContainsKey(c.Groups[1].Value))
+                        if (globalConstants.TryGetValue(c.Groups[1].Value, out Constant existing_const))
                         {
-                            Warning(file, line_num, $"Redefining global constant '{c.Groups[1].Value}'");
+                            Warning(file, line_num, $"Redefining global constant '{c.Groups[1].Value}' already defined in '{Path.GetFileName(existing_const.file.path)} at line {existing_const.line}'!");
                         }
 
                         globalConstants[c.Groups[1].Value] = constant;
@@ -2384,6 +2384,7 @@ namespace VM12Asm
             Match external_expression = extern_expr.Match(expr.value);
             Match sizeof_expression = sizeof_expr.Match(expr.value);
             Match endof_expression = endof_expr.Match(expr.value);
+            Match proc_expression = label.Match(expr.value);
             Match sizeof_proc_expression = sizeof_proc_expr.Match(expr.value);
             Match endof_proc_expression = endof_proc_expr.Match(expr.value);
             Match auto_expression = auto.Match(expr.value);
@@ -2516,6 +2517,30 @@ namespace VM12Asm
                 delay = false;
                 return $"0x{c.Location + c.Length:X6}";
             }
+            else if (proc_expression.Success)
+            {
+                // FIXME: Should the optional star at the end of the proc affect the outcome?
+                if (metadata == null)
+                {
+                    // Delay evaluation to when we know this!
+                    delay = true;
+                    return expr.value;
+                }
+                else
+                {
+                    delay = false;
+                    string proc_name = proc_expression.Groups[1].Value;
+                    if (metadata.TryGetValue(proc_name, out var meta))
+                    {
+                        // NOTE: This will only work for executable!! But that's the only thing we support atm!
+                        return $"{meta.location + ROM_OFFSET}";
+                    }
+                    else
+                    {
+                        Error(expr.file, expr.line, $"Could not solve proc '{proc_name}' in const '{expr.value}'");
+                    }
+                }
+            }
             else if (sizeof_proc_expression.Success)
             {
                 if (metadata == null)
@@ -2528,7 +2553,6 @@ namespace VM12Asm
                 {
                     delay = false;
                     string proc_name = sizeof_proc_expression.Groups[1].Value;
-                    // FIXME: This is not performant, we can do this without doing a ToDictionary
                     if (metadata.TryGetValue(proc_name, out var meta))
                     {
                         return $"{meta.size}";
@@ -2553,7 +2577,7 @@ namespace VM12Asm
                     string proc_name = endof_proc_expression.Groups[1].Value;
                     if (metadata.TryGetValue(proc_name, out var meta))
                     {
-                        return $"{meta.location + meta.size}";
+                        return $"{meta.location + meta.size + ROM_OFFSET}";
                     }
                     else
                     {

@@ -129,8 +129,6 @@ namespace T12
             sb.AppendLine();
             int lengthDataIndex = sb.Length;
             sb.AppendLine();
-            sb.AppendLine($":__no_members__");
-            sb.AppendLine($"\tnop");
             sb.AppendLine();
             sb.AppendLine($":__types__");
 
@@ -168,7 +166,7 @@ namespace T12
             foreach (var type in types)
             {
                 // FIXME: We could format some of these in decimal and pad with zeroes
-                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type.Value, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{type.Value.TypeName.Length:X6} {(type.Value is ASTStructType sType ? $":__{type.Value.TypeName}_members* 0x{sType.Members.Count:X6}" : ":__no_members__* 0x000000")}");
+                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type.Value, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{type.Value.TypeName.Length:X6} {(type.Value is ASTStructType sType ? $":__{type.Value.TypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
 
                 nameString.Append(type.Value.TypeName);
 
@@ -188,7 +186,9 @@ namespace T12
                             indexList.Add(membType);
                         }
 
-                        members.AppendLine($"\t0x{index * 12:X6} 0x{nameString.Length:X6} 0x{member.Name.Length:X6}");
+                        const int SizeOfTypeStruct = 12;
+                        members.AppendLine($"\t#(:__types__ 0x{index:X6} {SizeOfTypeStruct} * +) 0x{nameString.Length:X6} 0x{member.Name.Length:X6}");
+                        //members.AppendLine($"\t#(:__types__ 0 +) 0x{nameString.Length:X6} 0x{member.Name.Length:X6}");
 
                         nameString.Append(member.Name);
                     }
@@ -201,7 +201,7 @@ namespace T12
 
             foreach (var additionalType in AdditionalTypes)
             {
-                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(additionalType.Type, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{additionalType.Type.TypeName.Length:X6} :__no_members__* 0x000000");
+                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(additionalType.Type, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{additionalType.Type.TypeName.Length:X6} 0x000000 0x000000");
 
                 nameString.Append(additionalType.Type.TypeName);
 
