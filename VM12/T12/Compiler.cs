@@ -158,6 +158,7 @@ namespace T12
             }
             */
 
+            // FIXME!! We need to be able to get the index of a specific type!
             var types = Emitter.GlobalTypeMap.Select(kvp => (kvp.Key, kvp.Value)).ToList();
             var indexList = types.Select(t => t.Value).ToList();
 
@@ -188,8 +189,7 @@ namespace T12
 
                         const int SizeOfTypeStruct = 12;
                         members.AppendLine($"\t#(:__types__ 0x{index:X6} {SizeOfTypeStruct} * +) 0x{nameString.Length:X6} 0x{member.Name.Length:X6}");
-                        //members.AppendLine($"\t#(:__types__ 0 +) 0x{nameString.Length:X6} 0x{member.Name.Length:X6}");
-
+                        
                         nameString.Append(member.Name);
                     }
 

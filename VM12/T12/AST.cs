@@ -2735,6 +2735,12 @@ namespace T12
                     return BinaryOperatorType.Division;
                 case TokenType.Percent:
                     return BinaryOperatorType.Modulo;
+                case TokenType.And:
+                    return BinaryOperatorType.Bitwise_And;
+                case TokenType.Pipe:
+                    return BinaryOperatorType.Bitwise_Or;
+                case TokenType.Caret:
+                    return BinaryOperatorType.Bitwise_Xor;
                 case TokenType.DoubleAnd:
                     return BinaryOperatorType.Logical_And;
                 case TokenType.DoublePipe:
@@ -2743,20 +2749,14 @@ namespace T12
                     return BinaryOperatorType.Equal;
                 case TokenType.NotEqual:
                     return BinaryOperatorType.Not_equal;
-                case TokenType.Open_angle_bracket:
-                    return BinaryOperatorType.Less_than;
-                case TokenType.Close_angle_bracket:
-                    return BinaryOperatorType.Greater_than;
                 case TokenType.Less_than_or_equal:
                     return BinaryOperatorType.Less_than_or_equal;
                 case TokenType.Greater_than_or_equal:
                     return BinaryOperatorType.Greater_than_or_equal;
-                case TokenType.And:
-                    return BinaryOperatorType.Bitwise_And;
-                case TokenType.Pipe:
-                    return BinaryOperatorType.Bitwise_Or;
-                case TokenType.Caret:
-                    return BinaryOperatorType.Bitwise_Xor;
+                case TokenType.Open_angle_bracket:
+                    return BinaryOperatorType.Less_than;
+                case TokenType.Close_angle_bracket:
+                    return BinaryOperatorType.Greater_than;
                 default:
                     Fail(token, $"Expected a binary operator token, not '{token}'");
                     return BinaryOperatorType.Unknown;
