@@ -285,7 +285,7 @@ namespace T12
                     // This means we have already emitted this file!
                     continue;
                 }
-
+                
                 var result = Emitter.EmitAsem(file.Value.File, ast);
 
                 // FIXME: Write to file
