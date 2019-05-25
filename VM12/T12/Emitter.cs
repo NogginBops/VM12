@@ -97,8 +97,6 @@ namespace T12
     
     public static partial class Emitter
     {
-        internal static TypeMap GlobalTypeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType)kvp.Value);
-
         internal static void Fail(TraceData trace, string error)
         {
             Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromError(trace, error));
@@ -345,6 +343,10 @@ namespace T12
                 case ASTAddressOfExpression addressOfExpression:
                     // Address of resturns a pointer to the type of the expression.
                     return ASTPointerType.Of(CalcReturnType(addressOfExpression.Expr, scope, typeMap, functionMap, constMap, globalMap));
+                case ASTTypeOfExpression typeExpr:
+                    // FIXME: We actually want to return a pointer to a struct...? Or do we want a offset into the type table...?
+                    // Anyways we want a more proper type! For now we are doing an offset into the type table
+                    return ASTAliasedType.Of("TypeID", ASTBaseType.DoubleWord);
                 case ASTInlineAssemblyExpression assemblyExpression:
                     // Just trust that the programmer is right.
                     return assemblyExpression.ResultType;
@@ -1270,12 +1272,23 @@ namespace T12
             return functionLabelBuilder.ToString();
         }
 
+        internal static TypeMap GenerateDefaultTypeMap()
+        {
+            // TODO: Error message for duplicate types.
+            TypeMap typeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType)kvp.Value);
+
+            // Here we add an alias for the type 'TypeID'
+            typeMap.Add("TypeID", ASTAliasedType.Of("TypeID", ASTBaseType.DoubleWord));
+
+            return typeMap;
+        }
+
         public static Assembly EmitAsem(ASTFile file, AST ast)
         {
             StringBuilder builder = new StringBuilder();
 
-            // TODO: Error message for duplicate types.
-            TypeMap typeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType)kvp.Value);
+            // Generates a default typemap with the base types and global aliases
+            TypeMap typeMap = GenerateDefaultTypeMap();
 
             ConstMap constMap = new ConstMap();
 
@@ -1633,6 +1646,8 @@ namespace T12
                                     string value = (folded as ASTLitteral).Value;
                                     if (folded is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
                                         value = value.TrimEnd('d', 'D', 'w', 'W');
+                                    else if (folded is ASTDoubleWordLitteral dwordLit && dwordLit.NumberFromat == ASTNumericLitteral.NumberFormat.Hexadecimal)
+                                        value = $"0x{dwordLit.IntValue:X6}";
 
                                     builder.Append($"{value} ");
 
@@ -1692,7 +1707,7 @@ namespace T12
                         builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
                         
                         typeMap.Add(name, structDeclaration.DeclaredType);
-                        GlobalTypeMap.Add(name, structDeclaration.DeclaredType);
+                        Compiler.AddReferencedType(structDeclaration.DeclaredType);
                         break;
                     }
                 default:
@@ -2609,6 +2624,42 @@ namespace T12
                             }
                         }
 
+                        var bin = typedLeft as ASTBinaryOp ?? typedRight as ASTBinaryOp;
+                        if (binaryOp.OperatorType == ASTBinaryOp.BinaryOperatorType.Addition && bin != null && bin.OperatorType == ASTBinaryOp.BinaryOperatorType.Multiplication)
+                        {
+                            // Here we can do a multiply add instruction optimization
+
+                            var other = ReferenceEquals(bin, typedRight) ? typedLeft : typedRight;
+
+                            if (typeSize > 2)
+                                Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
+
+                            EmitExpression(builder, other, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+
+                            // FIXME: Atm a casted binary op will not work here!
+                            // So we really want to do the optimization check earlier and do proper casting here!
+                            EmitExpression(builder, bin.Left, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            EmitExpression(builder, bin.Right, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+
+                            if (produceResult)
+                            {
+                                if (typeSize == 1)
+                                {
+                                    builder.AppendLine("\tmuladd");
+                                    //builder.AppendLine("\tmul add");
+                                }
+                                else if (typeSize == 2)
+                                {
+                                    builder.AppendLine("\tlmuladd");
+                                    //builder.AppendLine("\tlmul ladd");
+                                }
+                            }
+
+                            // We are done!
+                            break;
+                        }
+
+                        // FIXME: We could optimize the oop at the end away by not sending true at the end here!
                         EmitExpression(builder, typedLeft, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         EmitExpression(builder, typedRight, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         // FIXME: Consider the size of the result of the expression
@@ -2625,7 +2676,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Subtraction:
@@ -2639,7 +2690,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Multiplication:
@@ -2653,7 +2704,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Division:
@@ -2667,7 +2718,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Modulo:
@@ -2681,7 +2732,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_And:
@@ -2699,7 +2750,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_Or:
@@ -2716,7 +2767,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Bitwise_Xor:
@@ -2733,7 +2784,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Equal:
@@ -2747,7 +2798,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Not_equal:
@@ -2761,7 +2812,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"Cannot compare types larger than 2 words right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Less_than:
@@ -2775,7 +2826,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Less_than_or_equal:
@@ -2789,7 +2840,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Greater_than:
@@ -2805,7 +2856,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Logical_And:
@@ -2820,7 +2871,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             case ASTBinaryOp.BinaryOperatorType.Logical_Or:
@@ -2835,7 +2886,7 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {leftType} with size {typeSize}");
+                                    Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
                                 }
                                 break;
                             default:
@@ -2843,9 +2894,21 @@ namespace T12
                                 break;
                         }
 
+                        // NOTE: We could get away without this!
                         if (produceResult == false)
                         {
-                            builder.AppendLine("\tpop");
+                            if (typeSize == 1)
+                            {
+                                builder.AppendLine("\tpop");
+                            }
+                            else if (typeSize == 2)
+                            {
+                                builder.AppendLine("\tpop pop");
+                            }
+                            else
+                            {
+                                Fail(binaryOp.Trace, $"We only support types with size up to 2 right now! Got type {resultType} with size {typeSize}");
+                            }
                         }
                         break;
                     }
@@ -3214,30 +3277,55 @@ namespace T12
                             var offsetType = CalcReturnType(pointerExpression.Offset, scope, typeMap, functionMap, constMap, globalMap);
 
                             int baseTypeSize = SizeOfType(baseType, typeMap);
-                            
+
+                            if (TryGenerateImplicitCast(pointerExpression.Offset, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression toFoldIndex, out string error) == false)
+                                Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
+
+                            var foldedIndex = ConstantFold(toFoldIndex, scope, typeMap, functionMap, constMap, globalMap);
+
                             // Set up the dereferencing operation as arithmetic operations so we can do constant folding
                             // pointer + (typeSize * index)
                             // And we have to do a cast for things to be fine
                             // FIXME: We should refactor DerefPointer so we can include the pointer expression in the constant folding...
                             // TODO: We also want a way to emit a comment describing what the folded value is...
                             var offsetExpression = new ASTBinaryOp(pointerExpression.Offset.Trace, ASTBinaryOp.BinaryOperatorType.Multiplication,
-                                                        pointerExpression.Offset, ASTDoubleWordLitteral.From(pointerExpression.Trace, baseTypeSize));
+                                                        foldedIndex, ASTDoubleWordLitteral.From(pointerExpression.Trace, baseTypeSize));
 
                             // Try to cast the offset to a dword
-                            if (TryGenerateImplicitCast(offsetExpression, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression toFoldExpression, out string error) == false)
+                            if (TryGenerateImplicitCast(offsetExpression, ASTBaseType.DoubleWord, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression toFoldExpression, out error) == false)
                                 Fail(pointerExpression.Offset.Trace, $"Could not generate implicit cast for pointer offset of type {offsetType} to {ASTBaseType.DoubleWord}: {error}");
 
                             var foldedExpr = ConstantFold(toFoldExpression, scope, typeMap, functionMap, constMap, globalMap);
                             
-                            if (foldedExpr is ASTNumericLitteral numLit && numLit.IntValue == 0)
+                            if (foldedExpr is ASTNumericLitteral numLit)
                             {
-                                // Here we really don't need to add this offset
+                                if (numLit.IntValue == 0)
+                                {
+                                    // Here we really don't need to add this offset
+                                }
+                                else
+                                {
+                                    // FIXME: Make sure it's a dword and not a word litteral!!!
+                                    Debug.Assert(numLit is ASTDoubleWordLitteral);
+
+                                    EmitLitteral(builder, numLit, $"Folded offset for index {numLit.IntValue / baseTypeSize}");
+                                    builder.AppendLine("\tladd");
+                                }
                             }
                             else
                             {
-                                EmitExpression(builder, foldedExpr, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                                EmitExpression(builder, foldedIndex, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
-                                builder.AppendLine($"\tladd");
+                                if (baseTypeSize == 1)
+                                {
+                                    // Here we just do an add
+                                    builder.AppendLine($"\tladd");
+                                }
+                                else
+                                {
+                                    EmitLitteral(builder, ASTDoubleWordLitteral.From(pointerExpression.Trace, baseTypeSize), $"Size of pointer type '{baseType}'");
+                                    builder.AppendLine($"\tlmuladd");
+                                }
                             }
                             
                             VariableRef pointerRef = new VariableRef()
@@ -4125,7 +4213,7 @@ namespace T12
 
                         if (produceResult)
                         {
-                            EmitLitteral(builder, ASTNumericLitteral.From(sizeofTypeExpression.Trace, size));
+                            EmitLitteral(builder, ASTNumericLitteral.From(sizeofTypeExpression.Trace, size), $"Size of type '{sizeOfType}'");
                         }
                         break;
                     }
@@ -4286,6 +4374,18 @@ namespace T12
                         }
                         break;
                     }
+                case ASTTypeOfExpression typeOfExpression:
+                    {
+                        var typeOfType = ResolveType(typeOfExpression.Type, typeMap);
+
+                        int typeID = Compiler.AddReferencedType(typeOfType);
+
+                        if (produceResult)
+                        {
+                            EmitLitteral(builder, ASTDoubleWordLitteral.From(typeOfExpression.Trace, typeID, ASTNumericLitteral.NumberFormat.Hexadecimal), $"TypeID of '{typeOfType}'");
+                        }
+                        break;
+                    }
                 case ASTInlineAssemblyExpression assemblyStatement:
                     {
                         foreach (var line in assemblyStatement.Assembly)
@@ -4328,34 +4428,34 @@ namespace T12
             }
         }
 
-        private static void EmitLitteral(StringBuilder builder, ASTLitteral litteral)
+        private static void EmitLitteral(StringBuilder builder, ASTLitteral litteral, string comment = null)
         {
             switch (litteral)
             {
                 case ASTWordLitteral wordLitteral:
-                    builder.AppendLine($"\tload #{litteral}");
+                    builder.AppendLineWithComment($"\tload #{litteral}", comment);
                     break;
                 case ASTDoubleWordLitteral dwordLitteral:
-                    builder.AppendLine($"\tloadl #{litteral}");
+                    builder.AppendLineWithComment($"\tloadl #{litteral}", comment);
                     break;
                 case ASTCharLitteral charLitteral:
                     if (charLitteral.Value.StartsWith("'"))
-                        builder.AppendLine($"\tload {litteral}");
+                        builder.AppendLineWithComment($"\tload {litteral}", comment);
                     else
-                        builder.AppendLine($"\tload #{litteral}");
+                        builder.AppendLineWithComment($"\tload #{litteral}", comment);
                     break;
                 case ASTStringLitteral stringLitteral:
-                    builder.AppendLine($"\tload {litteral}");
+                    builder.AppendLineWithComment($"\tload {litteral}", comment);
                     break;
                 case ASTBoolLitteral boolLitteral:
                     // NOTE: Should we load the constants instead?
                     // We have moved to litterals just needing ToString to be valid for emitting,
                     // Bools don't follow this for now but should probably be changed
-                    builder.AppendLine($"\tload #{(boolLitteral.BoolValue ? 1 : 0)}\t; {(boolLitteral.BoolValue ? "true" : "false")}");
+                    builder.AppendLineWithComment($"\tload #{(boolLitteral.BoolValue ? 1 : 0)}", comment ?? (boolLitteral.BoolValue ? "true" : "false"));
                     break;
                 case ASTNullLitteral nullLitteral:
                     // The same goes for null as for bool, its not directly emittable for now!
-                    builder.AppendLine($"\tloadl #0\t; null");
+                    builder.AppendLineWithComment($"\tloadl #0", comment ?? "null");
                     break;
                 default:
                     Fail(litteral.Trace, $"Unknown litteral type {litteral.GetType()}, this is a compiler bug!");

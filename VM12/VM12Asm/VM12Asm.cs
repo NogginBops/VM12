@@ -313,6 +313,9 @@ namespace VM12Asm
             { new Regex(sname("ret1")), "ret.1" },
             { new Regex(sname("ret2")), "ret.2" },
             { new Regex(sname("retv")), "ret.v" },
+            { new Regex(sname("muladd")), "mul.add" },
+            { new Regex(sname("lmuladd")), "mul.add.l" },
+
             { new Regex("(?<!:)\\binc\\s+(\\d+)"), "inc.local $1" },
             { new Regex("(?<!:)\\blinc\\s+(\\d+)"), "inc.local.l $1" },
             { new Regex("(?<!:)\\binc.l\\s+(\\d+)"), "inc.local.l $1" },
@@ -454,6 +457,8 @@ namespace VM12Asm
             { "ret.2", Opcode.Ret_2 },
             { "ret.v", Opcode.Ret_v },
             { "memc", Opcode.Memc },
+            { "mul.add", Opcode.Mul_Add },
+            { "mul.add.l", Opcode.Mul_Add_l },
 
             { "inc.local", Opcode.Inc_local },
             { "inc.local.l", Opcode.Inc_local_l },

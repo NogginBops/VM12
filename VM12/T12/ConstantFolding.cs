@@ -39,6 +39,8 @@ namespace T12
                     return FoldVariableExpression(variableExpression, scope, typeMap, functionMap, constMap, globalMap);
                 case ASTSizeofTypeExpression sizeofTypeExpression:
                     return FoldSizeOfTypeExpression(sizeofTypeExpression, scope, typeMap, functionMap, constMap, globalMap);
+                case ASTTypeOfExpression typeOfExpression:
+                    return FoldTypeOfExpression(typeOfExpression, scope, typeMap, functionMap, constMap, globalMap);
                 case ASTImplicitCast implicitCast:
                     return FoldImplicitCastExpression(implicitCast, scope, typeMap, functionMap, constMap, globalMap);
                 case ASTExplicitCast explicitCast:
@@ -455,6 +457,15 @@ namespace T12
             {
                 return ASTWordLitteral.From(sizeofTypeExpression.Trace, typeSize, ASTNumericLitteral.NumberFormat.Decimal);
             }
+        }
+
+        public static ASTExpression FoldTypeOfExpression(ASTTypeOfExpression typeOfExpression, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)
+        {
+            var typeOfType = ResolveType(typeOfExpression.Type, typeMap);
+            int typeID = Compiler.AddReferencedType(typeOfType);
+
+            // FIXME: We want to retain the comment somehow!
+            return ASTDoubleWordLitteral.From(typeOfExpression.Trace, typeID, ASTNumericLitteral.NumberFormat.Hexadecimal);
         }
 
         public static ASTExpression FoldImplicitCastExpression(ASTImplicitCast implicitCast, VarMap scope, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap)

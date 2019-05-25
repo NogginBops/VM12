@@ -122,6 +122,7 @@
         Call, Call_v,
         Ret, Ret_1, Ret_2, Ret_v,
         Memc,
+        Mul_Add, Mul_Add_l,
         
         Inc_local, Inc_local_l,
         Dec_local, Dec_local_l,

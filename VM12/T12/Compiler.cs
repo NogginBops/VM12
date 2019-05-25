@@ -118,6 +118,27 @@ namespace T12
             CurrentAST = new AST(new Dictionary<string, (ASTFile File, FileInfo FileInfo)>());
 
             CurrentErrorHandler = errorHandler;
+
+            ReferencedTypes = new List<ASTType>();
+            foreach (var btype in Emitter.GenerateDefaultTypeMap())
+            {
+                ReferencedTypes.Add(btype.Value);
+            }
+        }
+
+        private static List<ASTType> ReferencedTypes;
+
+        public static int AddReferencedType(ASTType type)
+        {
+            int index = ReferencedTypes.IndexOf(type);
+
+            if (index == -1)
+            {
+                index = ReferencedTypes.Count;
+                ReferencedTypes.Add(type);
+            }
+
+            return index;
         }
 
         public static string GetTypeMapData()
@@ -159,19 +180,21 @@ namespace T12
             */
 
             // FIXME!! We need to be able to get the index of a specific type!
-            var types = Emitter.GlobalTypeMap.Select(kvp => (kvp.Key, kvp.Value)).ToList();
-            var indexList = types.Select(t => t.Value).ToList();
+            
+            var indexList = new List<ASTType>(ReferencedTypes);
+
+            Dictionary<string, ASTType> TypeDict = ReferencedTypes.ToDictionary(type => type.TypeName);
 
             List<(string Name, ASTType Type)> AdditionalTypes = new List<(string, ASTType)>();
 
-            foreach (var type in types)
+            foreach (var type in ReferencedTypes)
             {
                 // FIXME: We could format some of these in decimal and pad with zeroes
-                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type.Value, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{type.Value.TypeName.Length:X6} {(type.Value is ASTStructType sType ? $":__{type.Value.TypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
+                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type, TypeDict):X6} 0x{nameString.Length:X6} 0x{type.TypeName.Length:X6} {(type is ASTStructType sType ? $":__{type.TypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
 
-                nameString.Append(type.Value.TypeName);
+                nameString.Append(type.TypeName);
 
-                if (type.Value is ASTStructType structType)
+                if (type is ASTStructType structType)
                 {
                     StringBuilder members = new StringBuilder();
                     members.AppendLine($":__{structType.TypeName}_members");
@@ -201,7 +224,7 @@ namespace T12
 
             foreach (var additionalType in AdditionalTypes)
             {
-                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(additionalType.Type, Emitter.GlobalTypeMap):X6} 0x{nameString.Length:X6} 0x{additionalType.Type.TypeName.Length:X6} 0x000000 0x000000");
+                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(additionalType.Type, TypeDict):X6} 0x{nameString.Length:X6} 0x{additionalType.Type.TypeName.Length:X6} 0x000000 0x000000");
 
                 nameString.Append(additionalType.Type.TypeName);
 
@@ -234,7 +257,6 @@ namespace T12
             BaseDirectory = null;
             DirectoryFiles = null;
             CurrentErrorHandler = null;
-            Emitter.GlobalTypeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType) kvp.Value);
         }
 
         public static void Compile(FileInfo infile)

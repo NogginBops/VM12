@@ -1927,6 +1927,10 @@ namespace T12
             {
                 return ASTSizeofTypeExpression.Parse(Tokens);
             }
+            else if (peek.Type == TokenType.Keyword_Typeof)
+            {
+                return ASTTypeOfExpression.Parse(Tokens);
+            }
             else if (peek.Type == TokenType.And)
             {
                 return ASTAddressOfExpression.Parse(Tokens);
@@ -3236,6 +3240,39 @@ namespace T12
         }
     }
     
+    public class ASTTypeOfExpression : ASTExpression
+    {
+        public readonly ASTType Type;
+
+        public ASTTypeOfExpression(TraceData trace, ASTType type) : base(trace)
+        {
+            Type = type;
+        }
+
+        public static new ASTTypeOfExpression Parse(Queue<Token> Tokens)
+        {
+            var typeofTok = Tokens.Dequeue();
+            if (typeofTok.Type != TokenType.Keyword_Typeof) Fail(typeofTok, "Expected typeof!");
+
+            var openParen = Tokens.Dequeue();
+            if (openParen.Type != TokenType.Open_parenthesis) Fail(openParen, "Expected '('!");
+
+            ASTType type = ASTType.Parse(Tokens);
+
+            var closeParen = Tokens.Dequeue();
+            if (closeParen.Type != TokenType.Close_parenthesis) Fail(closeParen, "Expected ')'!");
+
+            var trace = new TraceData
+            {
+                File = typeofTok.File,
+                StartLine = typeofTok.Line,
+                EndLine = closeParen.Line,
+            };
+
+            return new ASTTypeOfExpression(trace, type);
+        }
+    }
+
     public class ASTInlineAssemblyExpression : ASTExpression
     {
         public readonly List<ASTStringLitteral> Assembly;

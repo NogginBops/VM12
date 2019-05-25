@@ -1659,6 +1659,21 @@ namespace VM12
                             SP -= 6;
                             PC++;
                             break;
+                        case Opcode.Mul_Add:
+                            int mul_add_value = mem[SP - 2] + (mem[SP - 1] * mem[SP]);
+                            carry = mul_add_value > 0xFFF;
+                            mem[SP - 2] = mul_add_value & 0xFFF;
+                            SP -= 2;
+                            PC++;
+                            break;
+                        case Opcode.Mul_Add_l:
+                            int mul_add_l_value = (mem[SP - 5] << 12 | mem[SP - 4]) + ((mem[SP - 3] << 12 | mem[SP - 2]) * (mem[SP - 1] << 12 | mem[SP]));
+                            carry = mul_add_l_value > 0xFFF_FFF ? true : false;
+                            mem[SP - 5] = (mul_add_l_value >> 12) & 0xFFF;
+                            mem[SP - 4] = mul_add_l_value & 0xFFF;
+                            SP -= 4;
+                            PC++;
+                            break;
                         case Opcode.Inc_local:
                             int inc_local_addr = FPloc + mem[PC + 1];
                             int inc_local_value = mem[inc_local_addr] + 1;

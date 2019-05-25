@@ -87,6 +87,7 @@ namespace T12
         Keyword_Cast,
         Keyword_Namespace,
         Keyword_Sizeof,
+        Keyword_Typeof,
 
         Keyword_Public,
         Keyword_Private,
@@ -317,6 +318,7 @@ namespace T12
             ( TokenType.Keyword_Cast, new Regex("\\Gcast\\b") ),
             ( TokenType.Keyword_Namespace, new Regex("\\Gnamespace\\b") ),
             ( TokenType.Keyword_Sizeof, new Regex("\\Gsizeof\\b") ),
+            ( TokenType.Keyword_Typeof, new Regex("\\Gtypeof\\b") ),
 
             ( TokenType.Keyword_Public, new Regex("\\Gpublic\\b") ),
             ( TokenType.Keyword_Private, new Regex("\\Gprivate\\b") ),
