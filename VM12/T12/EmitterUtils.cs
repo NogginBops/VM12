@@ -13,7 +13,7 @@ namespace T12
     using TypeMap = Dictionary<string, ASTType>;
     using VarList = List<(string Name, int Offset, ASTType Type)>;
     using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
-
+    using GenericMap = Dictionary<string, ASTType>;
 
     static partial class Emitter
     {
@@ -393,5 +393,252 @@ namespace T12
             }
         }
 
+        private static ASTFunction SpecializeFunction(TraceData trace, ASTGenericFunction GenericFunction, List<ASTType> GenericTypes, TypeMap typeMap, FunctionMap functionMap)
+        {
+            GenericMap GenericMap = GenerateGenericMap(trace, GenericFunction.GenericNames, GenericTypes);
+
+            List<(ASTType type, string name)> parameters = new List<(ASTType type, string name)>(GenericFunction.Parameters.Count);
+            foreach (var param in GenericFunction.Parameters)
+            {
+                ASTType type = SpecializeType(trace, param.Type, GenericMap);
+                parameters.Add((type, param.Name));
+            }
+
+            List<ASTBlockItem> body = new List<ASTBlockItem>(GenericFunction.Body.Count);
+            foreach (var blockItem in GenericFunction.Body)
+            {
+                body.Add(SpecializeBlockItem(trace, blockItem, GenericMap));
+            }
+
+            ASTType returnType = SpecializeType(trace, GenericFunction.ReturnType, GenericMap);
+
+            // FIXME: We don't want to write raw types!!! When we get *[] and stuff in the label!!
+            string postfixStr = string.Join("_", GenericFunction.GenericNames.Zip(GenericTypes, (name, type) => $"{name}{type}"));
+
+            return new ASTFunction(GenericFunction.Trace, $"{GenericFunction.Name}_{postfixStr}", returnType, parameters, body);
+        }
+
+        private static ASTBlockItem SpecializeBlockItem(TraceData trace, ASTBlockItem blockItem, GenericMap genericMap)
+        {
+            switch (blockItem)
+            {
+                case ASTDeclaration declaration:
+                    return SpecializeDeclaration(trace, declaration, genericMap);
+                case ASTStatement statement:
+                    return SpecializeStatement(trace, statement, genericMap);
+                default:
+                    // FIXME: A special fail where we can trace back to the function that specialized this func
+                    Fail(blockItem.Trace, $"Unknown block item {blockItem}, this is a compiler bug!");
+                    return default;
+            }
+        }
+
+        private static ASTDeclaration SpecializeDeclaration(TraceData trace, ASTDeclaration declaration, GenericMap genericMap)
+        {
+            switch (declaration)
+            {
+                case ASTVariableDeclaration variableDeclaration:
+                    {
+                        ASTType type = SpecializeType(trace, variableDeclaration.Type, genericMap);
+
+                        ASTExpression specializedInitializer = variableDeclaration.Initializer;
+                        if (specializedInitializer != null)
+                            specializedInitializer = SpecializeExpression(trace, specializedInitializer, genericMap); ;
+
+                        return new ASTVariableDeclaration(variableDeclaration.Trace, type, variableDeclaration.VariableName, specializedInitializer);
+                    }
+                default:
+                    Fail(declaration.Trace, $"Unknown declaration {declaration}, this is a compiler bug!");
+                    return default;
+            }
+        }
+
+        private static ASTStatement SpecializeStatement(TraceData trace, ASTStatement statement, GenericMap genericMap)
+        {
+            switch (statement)
+            {
+                case ASTReturnStatement returnStatement:
+                    {
+                        var retExpr = SpecializeExpression(trace, returnStatement.ReturnValueExpression, genericMap);
+                        return new ASTReturnStatement(returnStatement.Trace, retExpr);
+                    }
+                case ASTCompoundStatement compoundStatement:
+                    {
+                        List<ASTBlockItem> Block = new List<ASTBlockItem>(compoundStatement.Block.Count);
+                        foreach (var blockItem in compoundStatement.Block)
+                        {
+                            Block.Add(SpecializeBlockItem(trace, blockItem, genericMap));
+                        }
+
+                        return new ASTCompoundStatement(compoundStatement.Trace, Block);
+                    }
+                case ASTExpressionStatement expressionStatement:
+                    {
+                        var expr = SpecializeExpression(trace, expressionStatement.Expr, genericMap);
+                        return new ASTExpressionStatement(expressionStatement.Trace, expr);
+                    }
+                case ASTForWithDeclStatement forWithDecl:
+                    {
+                        var declType = SpecializeType(trace, forWithDecl.Declaration.Type, genericMap);
+                        var declInit = forWithDecl.Declaration.Initializer;
+                        if (declInit != null) declInit = SpecializeExpression(trace, declInit, genericMap);
+                        var declaration = new ASTVariableDeclaration(forWithDecl.Declaration.Trace, declType, forWithDecl.Declaration.VariableName, declInit);
+
+                        var condition = SpecializeExpression(trace, forWithDecl.Condition, genericMap);
+                        var postExpr = SpecializeExpression(trace, forWithDecl.PostExpression, genericMap);
+
+                        var body = SpecializeStatement(trace, forWithDecl.Body, genericMap);
+
+                        return new ASTForWithDeclStatement(forWithDecl.Trace, declaration, condition, postExpr, body);
+                    }
+                case ASTWhileStatement whileStatement:
+                    {
+                        var cond = SpecializeExpression(trace, whileStatement.Condition, genericMap);
+                        var body = SpecializeStatement(trace, whileStatement.Body, genericMap);
+
+                        return new ASTWhileStatement(whileStatement.Trace, cond, body);
+                    }
+                default:
+                    Fail(statement.Trace, $"Unknown statement {statement}, this is a compiler bug!");
+                    return default;
+            }
+        }
+
+        private static ASTExpression SpecializeOptionalExpression(TraceData trace, ASTExpression expression, GenericMap genericMap)
+        {
+            if (expression != null)
+                return SpecializeExpression(trace, expression, genericMap);
+            else
+                return null;
+        }
+
+        private static ASTExpression SpecializeExpression(TraceData trace, ASTExpression expression, GenericMap genericMap)
+        {
+            switch (expression)
+            {
+                case ASTLitteral litteral:
+                    // NOTE: For now we don't do copies of litterals
+                    // But that means that we can't start changing the contents of
+                    // ASTLitteral ast nodes
+                    return litteral;
+                case ASTVariableExpression variableExpr:
+                    {
+                        var assignmentExpr = SpecializeOptionalExpression(trace, variableExpr.AssignmentExpression, genericMap);
+                        return new ASTVariableExpression(variableExpr.Trace, variableExpr.Name, assignmentExpr);
+                    }
+                case ASTUnaryOp unaryOp:
+                    {
+                        var expr = SpecializeExpression(trace, unaryOp.Expr, genericMap);
+
+                        return new ASTUnaryOp(unaryOp.Trace, unaryOp.OperatorType, expr);
+                    }
+                case ASTBinaryOp binaryOp:
+                    {
+                        var left = SpecializeExpression(trace, binaryOp.Left, genericMap);
+                        var right = SpecializeExpression(trace, binaryOp.Right, genericMap);
+
+                        return new ASTBinaryOp(binaryOp.Trace, binaryOp.OperatorType, left, right);
+                    }
+                case ASTFunctionCall functionCall:
+                    {
+                        List<ASTExpression> arguments = new List<ASTExpression>(functionCall.Arguments.Count);
+                        foreach (var arg in functionCall.Arguments)
+                        {
+                            arguments.Add(SpecializeExpression(trace, arg, genericMap));
+                        }
+
+                        // Specialize the generic arguments and return a generic call
+                        if (functionCall is ASTGenericFunctionCall genericFunctionCall)
+                        {
+                            List<ASTType> genericTypes = new List<ASTType>(genericFunctionCall.GenericTypes.Count);
+                            foreach (var type in genericFunctionCall.GenericTypes)
+                            {
+                                genericTypes.Add(SpecializeType(trace, type, genericMap));
+                            }
+
+                            return new ASTGenericFunctionCall(functionCall.Trace, functionCall.FunctionName, genericTypes, arguments);
+                        }
+
+                        return new ASTFunctionCall(functionCall.Trace, functionCall.FunctionName, arguments);
+                    }
+                case ASTPointerExpression pointerExpression:
+                    {
+                        var pointer = SpecializeExpression(trace, pointerExpression.Pointer, genericMap);
+                        var offset = SpecializeExpression(trace, pointerExpression.Offset, genericMap);
+                        var assignment = SpecializeOptionalExpression(trace, pointerExpression.Assignment, genericMap);
+                        return new ASTPointerExpression(pointerExpression.Trace, pointer, offset, assignment);
+                    }
+                case ASTExplicitCast cast:
+                    {
+                        var from = SpecializeExpression(trace, cast.From, genericMap);
+                        var to = SpecializeType(trace, cast.To, genericMap);
+                        return new ASTExplicitCast(cast.Trace, from, to);
+                    }
+                case ASTMemberExpression memberExpression:
+                    {
+                        var targetExpr = SpecializeExpression(trace, memberExpression.TargetExpr, genericMap);
+                        var assignment = SpecializeOptionalExpression(trace, memberExpression.Assignment, genericMap);
+                        return new ASTMemberExpression(memberExpression.Trace, targetExpr, memberExpression.MemberName, assignment, memberExpression.Dereference);
+                    }
+                case ASTSizeofTypeExpression sizeofTypeExpression:
+                    {
+                        var type = SpecializeType(trace, sizeofTypeExpression.Type, genericMap);
+                        return new ASTSizeofTypeExpression(sizeofTypeExpression.Trace, type);
+                    }
+                default:
+                    Fail(expression.Trace, $"Unknown expression type {expression}, this is a compiler bug!");
+                    return default;
+            }
+        }
+
+        private static ASTType SpecializeType(TraceData trace, ASTType type, GenericMap genericMap)
+        {
+            switch (type)
+            {
+                case ASTBaseType baseType:
+                    return baseType;
+                case ASTExternType externType:
+                    return externType;
+                case ASTStructType structType:
+                    // FIXME: When we implement generic striucts we want to fix this!!
+                    return structType;
+                case ASTFunctionPointerType functionPointerType:
+                    {
+                        List<ASTType> paramTypes = new List<ASTType>(functionPointerType.ParamTypes.Count);
+                        foreach (var param in functionPointerType.ParamTypes)
+                        {
+                            paramTypes.Add(SpecializeType(trace, param, genericMap));
+                        }
+
+                        var returnType = SpecializeType(trace, functionPointerType.ReturnType, genericMap);
+
+                        return new ASTFunctionPointerType(functionPointerType.Trace, paramTypes, returnType);
+                    }
+                case ASTFixedArrayType fixedArrayType:
+                    return new ASTFixedArrayType(fixedArrayType.Trace, SpecializeType(trace, fixedArrayType.BaseType, genericMap), fixedArrayType.Size);
+                case ASTArrayType arrayType:
+                    return new ASTArrayType(arrayType.Trace, SpecializeType(trace, arrayType.BaseType, genericMap));
+                case ASTPointerType pointerType:
+                    return new ASTPointerType(pointerType.Trace, SpecializeType(trace, pointerType.BaseType, genericMap));
+                case ASTTypeRef typeRef:
+                    {
+                        if (genericMap.TryGetValue(typeRef.Name, out ASTType genType))
+                            return genType;
+                        else
+                            return typeRef;
+                    }
+                default:
+                    Fail(trace, $"Unknown type '{type}', this is a compiler bug!");
+                    return default;
+            }
+        }
+
+        private static GenericMap GenerateGenericMap(TraceData trace, List<string> names, List<ASTType> types)
+        {
+            if (names.Count != types.Count)
+                Fail(trace, $"Missmatching number of generic arguments! Got '{types.Count}' Expected '{types.Count}'");
+
+            return names.Zip(types, (name, type) => (name, type)).ToDictionary(kvp => kvp.name, kvp => kvp.type);
+        }
     }
 }

@@ -14,6 +14,7 @@ namespace T12
     using TypeMap = Dictionary<string, ASTType>;
     using VarList = List<(string Name, int Offset, ASTType Type)>;
     using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
+    using SpecializationList = List<(ASTFunction Specialization, ASTGenericFunction Source, List<ASTType> GenericTypes)>;
 
     using static ConstantFolding;
 
@@ -29,30 +30,34 @@ namespace T12
         public readonly FunctionConext FunctionConext;
         public readonly LoopContext LoopContext;
 
-        // This is not final to make it easier to increment the values.
+        // This is not a struct to make it easier to increment the values.
         // This breaks the immulabillity of this object but oh well...
         public readonly LabelContext LabelContext;
 
-        public Context(FunctionConext functionConext, LoopContext loopContext, LabelContext labelContext)
+        // A list of generic specializations and their source function
+        public readonly SpecializationList GenericSpecializations;
+
+        public Context(FunctionConext functionConext, LoopContext loopContext, LabelContext labelContext, SpecializationList genericSpecializations)
         {
             this.FunctionConext = functionConext;
             this.LoopContext = loopContext;
             this.LabelContext = labelContext;
+            this.GenericSpecializations = genericSpecializations;
         }
 
         public Context With(FunctionConext functionConext)
         {
-            return new Context(functionConext, this.LoopContext, this.LabelContext);
+            return new Context(functionConext, LoopContext, LabelContext, GenericSpecializations);
         }
 
         public Context With(LoopContext loopContext)
         {
-            return new Context(this.FunctionConext, loopContext, this.LabelContext);
+            return new Context(FunctionConext, loopContext, LabelContext, GenericSpecializations);
         }
 
         public Context With(LabelContext labelContext)
         {
-            return new Context(this.FunctionConext, this.LoopContext, labelContext);
+            return new Context(FunctionConext, LoopContext, labelContext, GenericSpecializations);
         }
     }
 
@@ -267,8 +272,33 @@ namespace T12
 
                         if(TryFindBestFunctionMatch(functionCall.Trace, functions,  argumentTypes, typeMap, out var func) == false)
                             Fail(functionCall.Trace, $"No overload for function '{functionCall.FunctionName}' taking arguments of types {string.Join(", ",  argumentTypes)}!");
-                        
-                        return func.ReturnType;
+
+                        ASTType returnType = func.ReturnType;
+                        if (functionCall is ASTGenericFunctionCall genericFunctionCall)
+                        {
+                            if (func is ASTGenericFunction genFunc)
+                            {
+                                var genMap = GenerateGenericMap(genericFunctionCall.Trace, genFunc.GenericNames, genericFunctionCall.GenericTypes);
+                                
+                                returnType = SpecializeType(functionCall.Trace, returnType, genMap);
+
+                                if (returnType is ASTTypeRef typeRef)
+                                {
+                                    // Here we try to substitue the return type
+                                    int index = genFunc.GenericNames.IndexOf(typeRef.Name);
+                                    if (index != -1)
+                                    {
+                                        returnType = genericFunctionCall.GenericTypes[index];
+                                    }
+                                }
+                            }
+                            else
+                                Fail(genericFunctionCall.Trace, "Cannot call a non-generic function with generic arguments");
+                        }
+
+                        // NOTE: For now we don't check the case where func is a generic function and the call is not generic!
+
+                        return returnType;
                     }
                 case ASTVirtualFunctionCall virtualFucntionCall:
                     {
@@ -1208,9 +1238,20 @@ namespace T12
             {
                 // When we implement generics, could a function be overloaded on generics too?
                 // If any function has the same signature we can't add this function to the map
-                if (funcList.Any(f => FunctionParamsEqual(func, f)))
+                foreach (var f in funcList)
                 {
-                    Fail(trace, $"There already is a function called '{func.Name}'. Declared in '{Path.GetFileName(func.Trace.File)}'");
+                    if (FunctionParamsEqual(func, f))
+                    {
+                        if (f is ASTGenericFunction)
+                        {
+                            // FIXME: For now we allow this but we should think about this 
+                            // so that it does the right thing
+                        }
+                        else
+                        {
+                            Fail(trace, $"There already is a function called '{func.Name}'. Declared in '{Path.GetFileName(func.Trace.File)}'");
+                        }
+                    }
                 }
 
                 funcList.Add(func);
@@ -1260,9 +1301,53 @@ namespace T12
                 functionLabelBuilder = new StringBuilder(func.Name);
             }
 
+            // FIXME: Generics will affect this generation!
             if (functionMap.TryGetValue(func.Name, out var functions) && functions.Count > 1)
             {
                 foreach (var parameter in func.Parameters)
+                {
+                    functionLabelBuilder.Append("_");
+                    AppendTypeToFunctionLabel(functionLabelBuilder, parameter.Type);
+                }
+            }
+
+            return functionLabelBuilder.ToString();
+        }
+
+        internal static string GetGenericFunctionLabel(ASTGenericFunction sourceFunction, List<ASTType> GenericTypes, TypeMap typeMap, FunctionMap functionMap)
+        {
+            void AppendTypeToFunctionLabel(StringBuilder label, ASTType type)
+            {
+                switch (type)
+                {
+                    case ASTBaseType baseType:
+                        label.Append(baseType);
+                        break;
+                    case ASTPointerType pType:
+                        label.Append("P.");
+                        AppendTypeToFunctionLabel(label, pType.BaseType);
+                        break;
+                    case ASTArrayType aType:
+                        label.Append("A.");
+                        AppendTypeToFunctionLabel(label, aType.BaseType);
+                        break;
+                    case ASTFixedArrayType fType:
+                        label.Append($"F{fType.Size}.");
+                        AppendTypeToFunctionLabel(label, fType.BaseType);
+                        break;
+                    default:
+                        label.Append(type.TypeName);
+                        break;
+                }
+            }
+
+            StringBuilder functionLabelBuilder = new StringBuilder(sourceFunction.Name);
+            functionLabelBuilder.Append("_");
+            functionLabelBuilder.Append(string.Join("_", sourceFunction.GenericNames.Zip(GenericTypes, (name, type) => $"{name}{type}")));
+
+            if (functionMap.TryGetValue(sourceFunction.Name, out var functions) && functions.Count > 1)
+            {
+                foreach (var parameter in sourceFunction.Parameters)
                 {
                     functionLabelBuilder.Append("_");
                     AppendTypeToFunctionLabel(functionLabelBuilder, parameter.Type);
@@ -1326,13 +1411,31 @@ namespace T12
 
             StringBuilder debugBuilder = new StringBuilder();
 
+            SpecializationList specializationsList = new SpecializationList();
+
             foreach (var func in file.Functions)
             {
                 // We don't emit anything for intrinsics
                 if (func is ASTIntrinsicFunction)
                     continue;
 
-                EmitFunction(builder, func, typeMap, functionMap, constMap, globalMap, debugBuilder);
+                // We don't output raw generic functions
+                if (func is ASTGenericFunction)
+                    continue;
+
+                EmitFunction(builder, func, typeMap, functionMap, constMap, globalMap, debugBuilder, specializationsList);
+                builder.AppendLine();
+            }
+
+            // We do a for-loop here so that we can modify the list of 
+            for (int i = 0; i < specializationsList.Count; i++)
+            {
+                var func = specializationsList[i].Specialization;
+
+                if (func is ASTGenericFunction || func is ASTIntrinsicFunction)
+                    Fail(func.Trace, $"Invalid specialized function of type: {func.GetType()}");
+
+                EmitFunction(builder, func, typeMap, functionMap, constMap, globalMap, debugBuilder, specializationsList);
                 builder.AppendLine();
             }
 
@@ -1716,7 +1819,7 @@ namespace T12
             }
         }
 
-        private static void EmitFunction(StringBuilder builder, ASTFunction func, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, StringBuilder debugBuilder)
+        private static void EmitFunction(StringBuilder builder, ASTFunction func, TypeMap typeMap, FunctionMap functionMap, ConstMap constMap, GlobalMap globalMap, StringBuilder debugBuilder, SpecializationList specializationsList)
         {
             // FIXME: Do control flow analysis to check that the function returns!
 
@@ -1841,7 +1944,7 @@ namespace T12
                 }
             }
 
-            Context context = new Context(functionContext, LoopContext.Empty, new LabelContext());
+            Context context = new Context(functionContext, LoopContext.Empty, new LabelContext(), specializationsList);
 
             foreach (var blockItem in func.Body)
             {
@@ -3085,6 +3188,9 @@ namespace T12
                             returnType = functionPointerType.ReturnType;
 
                             functionLabel = "[SP]";
+
+                            if (functionCall is ASTGenericFunctionCall)
+                                Fail(functionCall.Trace, "Cannot use generic arguments on a function-pointer!");
                         }
                         else if (functionMap.TryGetValue(functionCall.FunctionName, out var functions))
                         {
@@ -3097,10 +3203,52 @@ namespace T12
 
                             functionLabel = GetFunctionLabel(function, typeMap, functionMap);
 
-                            if (function is ASTIntrinsicFunction intrinsicFunction)
+                            if (functionCall is ASTGenericFunctionCall genericFunctionCall)
                             {
-                                intrinsicCall = true;
-                                intrinsicFunc = intrinsicFunction;
+                                if (function is ASTIntrinsicFunction intrinsicFunction)
+                                    Fail(functionCall.Trace, "Cannot call intrinsics with generics!");
+                                else if (function is ASTGenericFunction genericFunction)
+                                {
+                                    ASTFunction specializedFunc = null;
+                                    foreach (var item in context.GenericSpecializations)
+                                    {
+                                        if (item.Source == genericFunction && item.GenericTypes.SequenceEqual(genericFunctionCall.GenericTypes))
+                                        {
+                                            specializedFunc = item.Specialization;
+                                            break;
+                                        }
+                                    }
+
+                                    if (specializedFunc == null)
+                                    {
+                                        // Here we need to specialize the generic function!
+                                        specializedFunc = SpecializeFunction(functionCall.Trace, genericFunction, genericFunctionCall.GenericTypes, typeMap, functionMap);
+
+                                        // Add the function to the list of overloads!
+                                        // FIXME: Should we really do this as we are never actually using the fact that they are in the function map!!
+                                        AddFunctionToMap(genericFunctionCall.Trace, functionMap, specializedFunc.Name, specializedFunc);
+
+                                        // Add it to the specializations list
+                                        context.GenericSpecializations.Add((specializedFunc, genericFunction, genericFunctionCall.GenericTypes));
+                                    }
+
+                                    name = specializedFunc.Name;
+                                    parameters = specializedFunc.Parameters;
+                                    returnType = specializedFunc.ReturnType;
+
+                                    // FIXME: Fix this for generic functions!!
+                                    functionLabel = GetGenericFunctionLabel(genericFunction, genericFunctionCall.GenericTypes, typeMap, functionMap);
+                                }
+                            }
+                            else
+                            {
+                                if (function is ASTIntrinsicFunction intrinsicFunction)
+                                {
+                                    intrinsicCall = true;
+                                    intrinsicFunc = intrinsicFunction;
+                                }
+                                else if (function is ASTGenericFunction genericFunction)
+                                    Fail(functionCall.Trace, $"Cannot use generics on non-generic function '{name}'");
                             }
                         }
                         else
@@ -3108,10 +3256,10 @@ namespace T12
                             Fail(functionCall.Trace, $"No function called '{functionCall.FunctionName}'");
                             return;
                         }
-                        
+
                         // This won't be needed as we check the types when we find the function above
                         if (functionCall.Arguments.Count != parameters.Count)
-                            Fail(functionCall.Trace, $"Missmaching number of arguments for function {name}! Calling with {functionCall.Arguments.Count} expected {parameters.Count}");
+                            Fail(functionCall.Trace, $"Missmatching number of arguments for function {name}! Calling with {functionCall.Arguments.Count} expected {parameters.Count}");
                         
                         for (int i = 0; i < parameters.Count; i++)
                         {
@@ -3212,7 +3360,7 @@ namespace T12
                         // Call the pointer
 
                         if (functionPointerType.ParamTypes.Count != virtualFunctionCall.Arguments.Count)
-                            Fail(virtualFunctionCall.Trace, $"Missmaching number of arguments for type {functionPointerType}! Calling with {virtualFunctionCall.Arguments.Count} expected {functionPointerType.ParamTypes.Count}");
+                            Fail(virtualFunctionCall.Trace, $"Missmatching number of arguments for type {functionPointerType}! Calling with {virtualFunctionCall.Arguments.Count} expected {functionPointerType.ParamTypes.Count}");
 
                         List<ASTType> parameters = functionPointerType.ParamTypes;
 

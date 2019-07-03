@@ -160,6 +160,7 @@ namespace T12
                 }
                 else if (peek.IsType)
                 {
+                    // NOTE: Generic functions get parsed here too
                     var function = ASTFunction.Parse(Tokens);
                     functions.Add(function);
                 }
@@ -179,11 +180,6 @@ namespace T12
                 }
             }
             
-            while (Tokens.Count > 0 && Tokens.Peek().IsType)
-            {
-                functions.Add(ASTFunction.Parse(Tokens));
-            }
-
             if (Tokens.Count > 0) Fail(Tokens.Peek(), $"There was '{Tokens.Count}' tokens left that couldn't be parsed. Next token: '{Tokens.Peek()}'");
             
             return new ASTFile(trace, directives, functions);
@@ -714,6 +710,33 @@ namespace T12
             if (identTok.Type != TokenType.Identifier) Fail(identTok, "Expected an identifier!");
             var name = identTok.Value;
 
+            List<string> genericNames = null;
+            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+            {
+                Tokens.Dequeue();
+
+                genericNames = new List<string>();
+
+                // Parse the generic names list
+                while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+                {
+                    var nameTok = Tokens.Dequeue();
+                    if (nameTok.Type != TokenType.Identifier) Fail(nameTok, $"Expected generic name! Got '{nameTok}'");
+                    genericNames.Add(nameTok.Value);
+
+                    var contToken = Tokens.Peek();
+                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                    else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
+                    // Dequeue the comma
+                    Tokens.Dequeue();
+                }
+
+                if (genericNames.Count == 0) Fail(Tokens.Peek(), "Generic function must define atleast one generic name!");
+
+                var closeAngleTok = Tokens.Dequeue();
+                if (closeAngleTok.Type != TokenType.Close_angle_bracket) Fail(closeAngleTok, "Expected '>'");
+            }
+
             List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
 
             // Confirm that we have a opening parenthesis
@@ -721,8 +744,7 @@ namespace T12
             if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
             
             // We peeked so we can handle this loop more uniform by always dequeueing at the start
-            var peek = Tokens.Peek();
-            while (peek.Type != TokenType.Close_parenthesis)
+            while (Tokens.Peek().Type != TokenType.Close_parenthesis)
             {
                 ASTType type = ASTType.Parse(Tokens);
 
@@ -737,8 +759,6 @@ namespace T12
                 else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
                 // Dequeue the comma
                 Tokens.Dequeue();
-                
-                peek = Tokens.Peek();
             }
 
             var closeParenTok = Tokens.Dequeue();
@@ -749,11 +769,9 @@ namespace T12
 
             List<ASTBlockItem> body = new List<ASTBlockItem>();
 
-            peek = Tokens.Peek();
-            while (peek.Type != TokenType.Close_brace)
+            while (Tokens.Peek().Type != TokenType.Close_brace)
             {
                 body.Add(ASTBlockItem.Parse(Tokens));
-                peek = Tokens.Peek();
                 // This is a .net core 2+ only feature
                 //if (!Tokens.TryPeek(out peek)) Fail("Expected a closing brace!");
             }
@@ -769,7 +787,10 @@ namespace T12
                 EndLine = closeBraceTok.Line,
             };
 
-            return new ASTFunction(trace, name, returnType, parameters, body);
+            if (genericNames != null)
+                return new ASTGenericFunction(trace, name, returnType, genericNames, parameters, body);
+            else
+                return new ASTFunction(trace, name, returnType, parameters, body);
         }
     }
 
@@ -1001,6 +1022,18 @@ namespace T12
             };
 
             return new ASTIntrinsicFunction(trace, name, returnType, parameters, body);
+        }
+    }
+
+    public class ASTGenericFunction : ASTFunction
+    {
+        // NOTE: We might want to be able to match: T somefunc<*T>()
+        // Where we could then do: somefunc<*Thing>() and we would get back a Thing
+        public readonly List<string> GenericNames;
+
+        public ASTGenericFunction(TraceData trace, string name, ASTType returnType, List<string> genericNames, List<(ASTType, string)> parameters, List<ASTBlockItem> body) : base(trace, name, returnType, parameters, body)
+        {
+            GenericNames = genericNames;
         }
     }
 
@@ -1345,11 +1378,11 @@ namespace T12
 
     public class ASTCompoundStatement : ASTStatement
     {
-        public readonly ReadOnlyCollection<ASTBlockItem> Block;
+        public readonly List<ASTBlockItem> Block;
 
         public ASTCompoundStatement(TraceData trace, List<ASTBlockItem> Block) : base(trace)
         {
-            this.Block = new ReadOnlyCollection<ASTBlockItem>(Block);
+            this.Block = Block;
         }
 
         public static new ASTCompoundStatement Parse(Queue<Token> Tokens)
@@ -1905,6 +1938,44 @@ namespace T12
                 else if(peekActionTok.Type == TokenType.Open_parenthesis)
                 {
                     expr = ASTFunctionCall.Parse(Tokens);
+                }
+                else if (peekActionTok.Type == TokenType.Open_angle_bracket)
+                {
+                    // Here we need to check if this is a generic function call or a comparison
+
+                    // Set it to null so it is not undefined later
+                    expr = null;
+
+                    // We do a linear seach forward to check if this is a comparison or not
+                    IEnumerable<Token> check = Tokens;
+                    int index = 0;
+                    foreach (var peekGeneric in check.Skip(2))
+                    {
+                        if (peekGeneric.IsType || peekGeneric.Type == TokenType.Comma ||
+                            // FIXME: Do proper parsing for fixed arrays!
+                            peekGeneric.Type == TokenType.Close_squre_bracket || peekGeneric.Type == TokenType.Numeric_Litteral)
+                        {
+                            index++;
+                            continue;
+                        }
+                        else if (peekGeneric.Type == TokenType.Close_angle_bracket)
+                        {
+                            // NOTE: We might want to be able to do this, idk? For now we say no
+                            if (index == 0) Fail(peek, "Cannot call a generic function with zero arguments!");
+
+                            // This is actually a generic function call!!
+                            expr = ASTGenericFunctionCall.Parse(Tokens);
+                            break;
+                        }
+                        else
+                        {
+                            // This can't be a generic function call, so it must be a comparison
+                            expr = ASTVariableExpression.Parse(Tokens);
+                            break;
+                        }
+                    }
+
+                    if (expr == null) Fail(peekActionTok, "THIS SHOULD NOT HAPPEN!!!");
                 }
                 else
                 {
@@ -2979,26 +3050,24 @@ namespace T12
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
             string funcName = nameTok.Value;
-
+            
             var openParenTok = Tokens.Dequeue();
             if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
 
             List<ASTExpression> arguments = new List<ASTExpression>();
 
-            // We peeked so we can handle this loop more uniform by always dequeueing at the start
-            var peek = Tokens.Peek();
-            while (peek.Type != TokenType.Close_parenthesis)
+            while (Tokens.Peek().Type != TokenType.Close_parenthesis)
             {
                 var expr = ASTExpression.Parse(Tokens);
                 arguments.Add(expr);
 
+                // FIXME: This needs some cleanup
                 var contToken = Tokens.Peek();
                 if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
                 else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
+
                 // Dequeue the comma
                 Tokens.Dequeue();
-
-                peek = Tokens.Peek();
             }
 
             var closeParenTok = Tokens.Dequeue();
@@ -3065,6 +3134,84 @@ namespace T12
             };
 
             return new ASTVirtualFunctionCall(trace, target, arguments);
+        }
+    }
+
+    public class ASTGenericFunctionCall : ASTFunctionCall
+    {
+        public readonly List<ASTType> GenericTypes;
+
+        public ASTGenericFunctionCall(TraceData trace, string functionName, List<ASTType> genericTypes, List<ASTExpression> arguments) : base(trace, functionName, arguments)
+        {
+            GenericTypes = genericTypes;
+        }
+
+        // NOTE: This is parsed in ASTFunction.Parse
+        public static new ASTGenericFunctionCall Parse(Queue<Token> Tokens)
+        {
+            var nameTok = Tokens.Dequeue();
+            if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
+            string funcName = nameTok.Value;
+
+            List<ASTType> genericTypes = null;
+
+            var openAngleTok = Tokens.Dequeue();
+            if (openAngleTok.Type != TokenType.Open_angle_bracket) Fail(openAngleTok, "Expected '<'");
+
+            genericTypes = new List<ASTType>();
+
+            while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+            {
+                var type = ASTType.Parse(Tokens);
+                genericTypes.Add(type);
+
+                // FIXME: This needs some cleanup
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
+
+                // Dequeue the comma
+                Tokens.Dequeue();
+            }
+
+            var closeAngleTok = Tokens.Dequeue();
+            if (closeAngleTok.Type != TokenType.Close_angle_bracket) Fail(closeAngleTok, "Expected '>'");
+
+            var openParenTok = Tokens.Dequeue();
+            if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
+
+            List<ASTExpression> arguments = new List<ASTExpression>();
+
+            while (Tokens.Peek().Type != TokenType.Close_parenthesis)
+            {
+                var expr = ASTExpression.Parse(Tokens);
+                arguments.Add(expr);
+
+                // FIXME: This needs some cleanup
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
+
+                // Dequeue the comma
+                Tokens.Dequeue();
+            }
+
+            var closeParenTok = Tokens.Dequeue();
+            if (closeParenTok.Type != TokenType.Close_parenthesis) Fail(closeParenTok, "Expected ')'");
+
+            var trace = new TraceData
+            {
+                File = nameTok.File,
+                StartLine = nameTok.Line,
+                EndLine = closeParenTok.Line,
+            };
+
+            return new ASTGenericFunctionCall(trace, funcName, genericTypes, arguments);
+        }
+
+        public override string ToString()
+        {
+            return $"{FunctionName}<T...>(...)";
         }
     }
 

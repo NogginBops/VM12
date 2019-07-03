@@ -99,6 +99,8 @@ namespace T12
         internal static AST CurrentAST;
         internal static ErrorHandler CurrentErrorHandler;
         
+        private static List<ASTType> ReferencedTypes;
+
         public static void StartCompiling(DirectoryInfo baseDirectory, ErrorHandler errorHandler)
         {
             if (Compiling)
@@ -119,14 +121,14 @@ namespace T12
 
             CurrentErrorHandler = errorHandler;
 
+            GenericSpecializations = new List<(ASTFunction Func, ASTFile SourceFile)>();
+
             ReferencedTypes = new List<ASTType>();
             foreach (var btype in Emitter.GenerateDefaultTypeMap())
             {
                 ReferencedTypes.Add(btype.Value);
             }
         }
-
-        private static List<ASTType> ReferencedTypes;
 
         public static int AddReferencedType(ASTType type)
         {
