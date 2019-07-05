@@ -9,6 +9,8 @@ using Util;
 
 namespace T12
 {
+    using SpecializationList = List<(ASTFunction Specialization, List<ASTType> GenericTypes)>;
+    using SpecializationMap = Dictionary<ASTGenericFunction, List<(ASTFunction Specialization, List<ASTType> GenericTypes)>>;
     public class Compiler
     {
         public static void Main(params string[] args)
@@ -95,10 +97,17 @@ namespace T12
         static Dictionary<string, FileInfo> DirectoryFiles;
         public static int CompiledFiles = 0;
         public static int CompiledLines = 0;
+        public static int AppendageLines = 0;
         public static int ResultLines = 0;
         internal static AST CurrentAST;
+        internal static AST WorkingAST;
         internal static ErrorHandler CurrentErrorHandler;
-        
+
+        // FIXME: For now we will use the filename as a key here but we should really use ASTFile
+        internal static Dictionary<string, (StringBuilder File, StringBuilder Debug)> Appendages;
+
+        internal static SpecializationMap GenericSpecializations;
+
         private static List<ASTType> ReferencedTypes;
 
         public static void StartCompiling(DirectoryInfo baseDirectory, ErrorHandler errorHandler)
@@ -116,12 +125,15 @@ namespace T12
 
             CompiledFiles = 0;
             CompiledLines = 0;
+            AppendageLines = 0;
             ResultLines = 0;
             CurrentAST = new AST(new Dictionary<string, (ASTFile File, FileInfo FileInfo)>());
 
             CurrentErrorHandler = errorHandler;
 
-            GenericSpecializations = new List<(ASTFunction Func, ASTFile SourceFile)>();
+            Appendages = new Dictionary<string, (StringBuilder File, StringBuilder Debug)>();
+
+            GenericSpecializations = new SpecializationMap();
 
             ReferencedTypes = new List<ASTType>();
             foreach (var btype in Emitter.GenerateDefaultTypeMap())
@@ -259,6 +271,9 @@ namespace T12
             BaseDirectory = null;
             DirectoryFiles = null;
             CurrentErrorHandler = null;
+
+            Appendages = null;
+            GenericSpecializations = null;
         }
 
         public static void Compile(FileInfo infile)
@@ -277,9 +292,11 @@ namespace T12
             var tokens = Tokenizer.Tokenize(fileData, infile.FullName);
 
             AST ast = AST.Parse(infile, DirectoryFiles);
-            
+
+            WorkingAST = ast;
+
             // TODO: Do validaton on the AST
-            
+
             foreach (var file in ast.Files)
             {
                 if (CurrentAST.Files.ContainsKey(file.Key))
@@ -290,10 +307,11 @@ namespace T12
                 
                 var result = Emitter.EmitAsem(file.Value.File, ast);
 
+                string fileAssembly = result.assembly.ToString();
                 // FIXME: Write to file
-                File.WriteAllText(Path.ChangeExtension(file.Value.FileInfo.FullName, ".12asm"), result.assembly);
+                File.WriteAllText(Path.ChangeExtension(file.Value.FileInfo.FullName, ".12asm"), fileAssembly);
 
-                ResultLines += result.assembly.CountLines();
+                ResultLines += fileAssembly.CountLines();
 
                 // Add the emitted file to the AST
                 CurrentAST.Files.Add(file.Key, file.Value);
@@ -301,8 +319,37 @@ namespace T12
 
                 FuncDebug.Append(result.funcDebug);
             }
-            
+
+            foreach (var appendage in Appendages)
+            {
+                var str = appendage.Value.File.ToString();
+                int lines = str.CountLines();
+                ResultLines += lines;
+                AppendageLines += lines;
+                File.AppendAllText(Path.ChangeExtension(appendage.Key, ".12asm"), str);
+
+                FuncDebug.Append(appendage.Value.Debug);
+            }
+
             return;
+        }
+
+        internal static (StringBuilder File, StringBuilder Debug) AppendToFile(TraceData trace, string file)
+        {
+            if (WorkingAST.Files.ContainsKey(Path.GetFileName(file)) == false)
+                Emitter.Fail(trace, $"Tried to add appendage to unknown file '{file}'");
+
+            if (Appendages.TryGetValue(file, out var sbs) == false)
+            {
+                sbs = (new StringBuilder(), new StringBuilder());
+                Appendages[file] = sbs;
+            }
+
+            // FIXME: We want to document all files that caused specializations to happen so we need some other way to do this!
+            sbs.File.AppendLine($"; Appendage generated from file '{Path.GetFileName(trace.File)}'");
+            sbs.File.AppendLine();
+
+            return sbs;
         }
     }
 }

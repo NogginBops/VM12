@@ -29,6 +29,31 @@ namespace T12
             }
         }
 
+        private static void AppendTypeToFunctionLabel(StringBuilder label, ASTType type)
+        {
+            switch (type)
+            {
+                case ASTBaseType baseType:
+                    label.Append(baseType);
+                    break;
+                case ASTPointerType pType:
+                    label.Append("P.");
+                    AppendTypeToFunctionLabel(label, pType.BaseType);
+                    break;
+                case ASTArrayType aType:
+                    label.Append("A.");
+                    AppendTypeToFunctionLabel(label, aType.BaseType);
+                    break;
+                case ASTFixedArrayType fType:
+                    label.Append($"F{fType.Size}.");
+                    AppendTypeToFunctionLabel(label, fType.BaseType);
+                    break;
+                default:
+                    label.Append(type.TypeName);
+                    break;
+            }
+        }
+
         private static void IncrementLocal(StringBuilder builder, TraceData trace, int localAddress, ASTType type, int typeSize, string comment = "")
         {
             if ((type == ASTBaseType.Word || type == ASTBaseType.DoubleWord) == false)
@@ -412,10 +437,9 @@ namespace T12
 
             ASTType returnType = SpecializeType(trace, GenericFunction.ReturnType, GenericMap);
 
-            // FIXME: We don't want to write raw types!!! When we get *[] and stuff in the label!!
-            string postfixStr = string.Join("_", GenericFunction.GenericNames.Zip(GenericTypes, (name, type) => $"{name}{type}"));
+            string label = GetGenericFunctionLabel(trace, GenericFunction, GenericTypes, typeMap, functionMap);
 
-            return new ASTFunction(GenericFunction.Trace, $"{GenericFunction.Name}_{postfixStr}", returnType, parameters, body);
+            return new ASTFunction(GenericFunction.Trace, label, returnType, parameters, body);
         }
 
         private static ASTBlockItem SpecializeBlockItem(TraceData trace, ASTBlockItem blockItem, GenericMap genericMap)
