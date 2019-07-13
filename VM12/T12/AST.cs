@@ -602,9 +602,8 @@ namespace T12
 
         public readonly string Name;
         public readonly ASTType DeclaredType;
-        public readonly bool Alias;
         
-        public ASTStructDeclarationDirective(TraceData trace, string name, ASTType type, bool Alias = false) : base(trace)
+        public ASTStructDeclarationDirective(TraceData trace, string name, ASTType type) : base(trace)
         {
             Name = name;
             DeclaredType = type;
@@ -618,6 +617,37 @@ namespace T12
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, $"Expected struct name! Got '{nameTok}'!");
             string name = nameTok.Value;
+
+            List<string> genericNames = null;
+            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+            {
+                Tokens.Dequeue();
+
+                genericNames = new List<string>();
+
+                // Parse the generic names list
+                while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+                {
+                    var genNameTok = Tokens.Dequeue();
+                    if (genNameTok.Type != TokenType.Identifier) Fail(genNameTok, $"Expected generic name! Got '{genNameTok}'");
+                    if (genericNames.Contains(genNameTok.Value)) Fail(genNameTok, $"There is already a generic parameter called '{genNameTok.Value}'");
+                    genericNames.Add(genNameTok.Value);
+
+                    var contToken = Tokens.Peek();
+                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                    else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
+                    // Dequeue the comma
+                    Tokens.Dequeue();
+                }
+
+                if (genericNames.Count == 0) Fail(Tokens.Peek(), "Generic structs must define atleast one generic name!");
+
+                var closeAngleTok = Tokens.Dequeue();
+                if (closeAngleTok.Type != TokenType.Close_angle_bracket) Fail(closeAngleTok, "Expected '>'");
+
+                // Here we create the new name for the type
+                //name = $"{name}<{string.Join(",", genericNames)}>";
+            }
 
             var defTok = Tokens.Dequeue();
             switch (defTok.Type)
@@ -637,8 +667,11 @@ namespace T12
                             StartLine = structTok.Line,
                             EndLine = semicolonTok.Line,
                         };
-                        
-                        return new ASTStructDeclarationDirective(trace, name, ASTAliasedType.Of(name, type));
+
+                        if (genericNames != null)
+                            return new ASTStructDeclarationDirective(trace, name, new ASTGenericType(trace, ASTAliasedType.Of(name, type), genericNames));
+                        else
+                            return new ASTStructDeclarationDirective(trace, name, ASTAliasedType.Of(name, type));
                     }
                 case TokenType.Open_brace:
                     {
@@ -673,7 +706,10 @@ namespace T12
                             EndLine = closeBrace.Line,
                         };
 
-                        return new ASTStructDeclarationDirective(trace, name, new ASTStructType(trace, name, members));
+                        if (genericNames != null)
+                            return new ASTStructDeclarationDirective(trace, name, new ASTGenericType(trace, new ASTStructType(trace, name, members), genericNames));
+                        else
+                            return new ASTStructDeclarationDirective(trace, name, new ASTStructType(trace, name, members));
                     }
                 default:
                     Fail(defTok, $"Unknown struct definition token '{defTok}'!");
@@ -722,6 +758,7 @@ namespace T12
                 {
                     var nameTok = Tokens.Dequeue();
                     if (nameTok.Type != TokenType.Identifier) Fail(nameTok, $"Expected generic name! Got '{nameTok}'");
+                    if (genericNames.Contains(nameTok.Value)) Fail(nameTok, $"There is already a generic parameter called '{nameTok.Value}'");
                     genericNames.Add(nameTok.Value);
 
                     var contToken = Tokens.Peek();
@@ -1946,26 +1983,38 @@ namespace T12
                     // Set it to null so it is not undefined later
                     expr = null;
 
+                    int openAngles = 1;
+
                     // We do a linear seach forward to check if this is a comparison or not
                     IEnumerable<Token> check = Tokens;
                     int index = 0;
                     foreach (var peekGeneric in check.Skip(2))
                     {
-                        if (peekGeneric.IsType || peekGeneric.Type == TokenType.Comma ||
+                        if (peekGeneric.IsType || peekGeneric.Type == TokenType.Comma || peekGeneric.Type == TokenType.Open_angle_bracket ||
                             // FIXME: Do proper parsing for fixed arrays!
                             peekGeneric.Type == TokenType.Close_squre_bracket || peekGeneric.Type == TokenType.Numeric_Litteral)
                         {
+                            if (peekGeneric.Type == TokenType.Open_angle_bracket) openAngles++;
+
                             index++;
                             continue;
                         }
-                        else if (peekGeneric.Type == TokenType.Close_angle_bracket)
+                        else if (peekGeneric.Type == TokenType.Close_angle_bracket || peekGeneric.Type == TokenType.ShiftRight)
                         {
-                            // NOTE: We might want to be able to do this, idk? For now we say no
-                            if (index == 0) Fail(peek, "Cannot call a generic function with zero arguments!");
+                            openAngles -= peekGeneric.Type == TokenType.Close_angle_bracket ? 1 : 2;
 
-                            // This is actually a generic function call!!
-                            expr = ASTGenericFunctionCall.Parse(Tokens);
-                            break;
+                            // FIXME: For now we do this, but it's probably not an error
+                            if (openAngles < 0) Fail(peekGeneric, "Angle bracket missamatch!");
+
+                            if (openAngles == 0)
+                            {
+                                // NOTE: We might want to be able to do this, idk? For now we say no
+                                if (index == 0) Fail(peek, "Cannot call a generic function with zero arguments!");
+
+                                // This is actually a generic function call!!
+                                expr = ASTGenericFunctionCall.Parse(Tokens);
+                                break;
+                            }
                         }
                         else
                         {
@@ -3799,12 +3848,51 @@ namespace T12
                         ASTType type;
                         if (ASTBaseType.BaseTypeMap.TryGetValue(tok.Value, out ASTBaseType baseType))
                         {
+                            // FIXME: We could create somekind of copy here that contains an actual trace!
                             type = baseType;
+
+                            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+                                Fail(Tokens.Peek(), $"Base types cannot have generic arguments!!");
                         }
                         else
                         {
-                            var trace = TraceData.From(tok);
-                            type = new ASTTypeRef(trace, tok.Value);
+                            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+                            {
+                                // Remove open angle
+                                Tokens.Dequeue();
+
+                                List<ASTType> genericTypes = new List<ASTType>();
+
+                                while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+                                {
+                                    genericTypes.Add(ASTType.Parse(Tokens));
+
+                                    // FIXME: This needs some cleanup
+                                    var contToken = Tokens.Peek();
+                                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                                    else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
+
+                                    // Dequeue the comma
+                                    Tokens.Dequeue();
+                                }
+
+                                // Dequeue close angle
+                                var closeAngle = Tokens.Dequeue();
+
+                                var trace = new TraceData
+                                {
+                                    File = tok.File,
+                                    StartLine = tok.Line,
+                                    EndLine = closeAngle.Line,
+                                };
+
+                                type = new ASTGenericTypeRef(trace, tok.Value, genericTypes);
+                            }
+                            else
+                            {
+                                var trace = TraceData.From(tok);
+                                type = new ASTTypeRef(trace, tok.Value);
+                            }
                         }
 
                         return type;
@@ -3954,6 +4042,21 @@ namespace T12
         }
     }
 
+    public class ASTGenericTypeRef : ASTTypeRef
+    {
+        public readonly List<ASTType> GenericTypes;
+
+        public ASTGenericTypeRef(TraceData trace, string name, List<ASTType> genericTypes) : base (trace, name)
+        {
+            GenericTypes = genericTypes;
+        }
+
+        public override string ToString()
+        {
+            return $"{base.ToString()}<...>";
+        }
+    }
+
     public class ASTAliasedType : ASTType
     {
         public readonly string Alias;
@@ -3978,6 +4081,24 @@ namespace T12
         public ASTStructType(TraceData trace, string name, List<(ASTType, string)> members) : base(trace, name)
         {
             Members = members;
+        }
+    }
+
+    // FIXME: We probably want to convert over to using this!
+    public class ASTGenericType : ASTType
+    {
+        public readonly ASTType Type;
+        public readonly List<string> GenericNames;
+
+        public ASTGenericType(TraceData trace, ASTType type, List<string> genericNames) : base(trace, $"{type.TypeName}<...>")
+        {
+            Type = type;
+            GenericNames = genericNames;
+        }
+
+        public string GetFullTypeName()
+        {
+            return $"{Type.TypeName}<{string.Join(",", GenericNames)}>";
         }
     }
     

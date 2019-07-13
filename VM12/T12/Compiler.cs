@@ -104,7 +104,7 @@ namespace T12
         internal static ErrorHandler CurrentErrorHandler;
 
         // FIXME: For now we will use the filename as a key here but we should really use ASTFile
-        internal static Dictionary<string, (StringBuilder File, StringBuilder Debug)> Appendages;
+        internal static Dictionary<string, List<(StringBuilder File, StringBuilder Debug)>> Appendages;
 
         internal static SpecializationMap GenericSpecializations;
 
@@ -131,7 +131,7 @@ namespace T12
 
             CurrentErrorHandler = errorHandler;
 
-            Appendages = new Dictionary<string, (StringBuilder File, StringBuilder Debug)>();
+            Appendages = new Dictionary<string, List<(StringBuilder File, StringBuilder Debug)>>();
 
             GenericSpecializations = new SpecializationMap();
 
@@ -197,12 +197,16 @@ namespace T12
             
             var indexList = new List<ASTType>(ReferencedTypes);
 
-            Dictionary<string, ASTType> TypeDict = ReferencedTypes.ToDictionary(type => type.TypeName);
+            // FIXME: We don't want to have a special case for generic structs!
+            Dictionary<string, ASTType> TypeDict = ReferencedTypes.ToDictionary(type => (type is ASTGenericType genType) ? genType.Type.TypeName : type.TypeName);
 
             List<(string Name, ASTType Type)> AdditionalTypes = new List<(string, ASTType)>();
 
             foreach (var type in ReferencedTypes)
             {
+                // FIXME: For now we don't output generic types to the map!
+                if (type is ASTGenericType) continue;
+
                 // FIXME: We could format some of these in decimal and pad with zeroes
                 sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type, TypeDict):X6} 0x{nameString.Length:X6} 0x{type.TypeName.Length:X6} {(type is ASTStructType sType ? $":__{type.TypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
 
@@ -320,15 +324,17 @@ namespace T12
                 FuncDebug.Append(result.funcDebug);
             }
 
-            foreach (var appendage in Appendages)
+            foreach (var fileAppendage in Appendages)
             {
-                var str = appendage.Value.File.ToString();
-                int lines = str.CountLines();
-                ResultLines += lines;
-                AppendageLines += lines;
-                File.AppendAllText(Path.ChangeExtension(appendage.Key, ".12asm"), str);
-
-                FuncDebug.Append(appendage.Value.Debug);
+                foreach (var appendage in fileAppendage.Value)
+                {
+                    var str = appendage.File.ToString();
+                    int lines = str.CountLines();
+                    ResultLines += lines;
+                    AppendageLines += lines;
+                    File.AppendAllText(Path.ChangeExtension(fileAppendage.Key, ".12asm"), str);
+                    FuncDebug.Append(appendage.Debug);
+                }
             }
 
             return;
@@ -339,14 +345,17 @@ namespace T12
             if (WorkingAST.Files.ContainsKey(Path.GetFileName(file)) == false)
                 Emitter.Fail(trace, $"Tried to add appendage to unknown file '{file}'");
 
-            if (Appendages.TryGetValue(file, out var sbs) == false)
+            if (Appendages.TryGetValue(file, out var appendageList) == false)
             {
-                sbs = (new StringBuilder(), new StringBuilder());
-                Appendages[file] = sbs;
+                appendageList = new List<(StringBuilder File, StringBuilder Debug)>();
+                Appendages[file] = appendageList;
             }
 
+            (StringBuilder File, StringBuilder Debug) sbs = (new StringBuilder(100), new StringBuilder());
+            appendageList.Add(sbs);
+
             // FIXME: We want to document all files that caused specializations to happen so we need some other way to do this!
-            sbs.File.AppendLine($"; Appendage generated from file '{Path.GetFileName(trace.File)}'");
+            sbs.File.AppendLine($"; Appendage generated from file '{Path.GetFileName(trace.File)}' line {trace.StartLine}");
             sbs.File.AppendLine();
 
             return sbs;

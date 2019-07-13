@@ -146,6 +146,9 @@ namespace T12
                     return baseType.Size;
                 case ASTStructType structType:
                     return structType.Members.Select(member => SizeOfType(member.Type, typeMap)).Sum();
+                case ASTGenericType genericType:
+                    Fail(genericType.Trace, "Generic types do note have a size!");
+                    return -1;
                 case ASTPointerType pointerType:
                     return ASTPointerType.Size;
                 case ASTFixedArrayType fixedArrayType:
@@ -295,6 +298,7 @@ namespace T12
 
                         // NOTE: For now we don't check the case where func is a generic function and the call is not generic!
 
+                        returnType = ResolveType(returnType, typeMap);
                         return returnType;
                     }
                 case ASTVirtualFunctionCall virtualFucntionCall:
@@ -498,8 +502,10 @@ namespace T12
         {
             ASTType exprType = CalcReturnType(expression, scope, typeMap, functionMap, constMap, globalMap);
 
+            exprType = ResolveGenericType(exprType, typeMap);
+
             // NOTE: Should we always resolve? Will this result in unexpected casts?
-            
+
             if (exprType == targetType)
             {
                 result = expression;
@@ -1025,8 +1031,24 @@ namespace T12
             return type;
         }
 
+        internal static ASTType ResolveGenericType(ASTType type, TypeMap typeMap)
+        {
+            // FIXME: We want to resolve generic arrays too!
+
+            if (type is ASTGenericTypeRef genericRef)
+                return ResolveType(type.Trace, genericRef, typeMap);
+
+            if (type is ASTPointerType)
+                return ASTPointerType.Of(ResolveGenericType((type as ASTPointerType).BaseType, typeMap));
+
+            return type;
+        }
+
         internal static ASTType ResolveType(ASTType type, TypeMap typeMap)
         {
+            if (type is ASTGenericTypeRef genericRef)
+                return ResolveType(type.Trace, genericRef, typeMap);
+
             if (type is ASTTypeRef)
                 return ResolveType(type.Trace, type.TypeName, typeMap);
 
@@ -1062,12 +1084,38 @@ namespace T12
 
             // FIXME: Detect reference loops
             // NOTE: Does this ever run?
-            if (type is ASTTypeRef)
-            {
-                type = ResolveType(type.Trace, type.TypeName, typeMap);
-            }
+            if (type is ASTTypeRef tref)
+                type = ResolveType(tref.Trace, tref.Name, typeMap);
+
+            if (type is ASTGenericType genType)
+                Fail(trace, $"Could not resolve type '{genType.GetFullTypeName()}' to a non-generic type! Consider adding type-parameters to the generic type.");
 
             return type;
+        }
+
+        private static ASTType ResolveType(TraceData trace, ASTGenericTypeRef genRef, TypeMap typeMap)
+        {
+            if (typeMap.TryGetValue(genRef.Name, out ASTType type) == false)
+                Fail(trace, $"There is no type called '{genRef.Name}'");
+
+            // FIXME: Detect reference loops
+            // NOTE: Does this ever run?
+            if (type is ASTTypeRef tref)
+                type = ResolveType(tref.Trace, tref.Name, typeMap);
+
+            if (type is ASTGenericType == false) Fail(trace, $"'{type}' is not a generic type!");
+            var genType = type as ASTGenericType;
+
+            // Here we need to contruct a generic map
+            var specializedType = SpecializeType(trace, genType, GenerateGenericMap(trace, genType.GenericNames, genRef.GenericTypes));
+
+            // Add the newly spezialized type to the referenced types
+            Compiler.AddReferencedType(specializedType);
+
+            if (specializedType is ASTGenericType)
+                Fail(trace, $"We did not fully specialize the type '{genType.TypeName}<{string.Join(",", genType.GenericNames)}>' using the type parameters <{string.Join(",", genRef.GenericTypes)}>");
+
+            return specializedType;
         }
 
         internal struct StructMember
@@ -1121,6 +1169,7 @@ namespace T12
             {
                 if (derefType.DerefType is ASTStructType == false)
                 {
+                    // NOTE: Figure out why this is a fail?
                     Fail(trace, $"Type '{derefType.DerefType}' does not have any members!");
                     return default;
                 }
@@ -1167,12 +1216,14 @@ namespace T12
 
                 for (int i = 0; i < argumentTypes.Count; i++)
                 {
+                    var fType = ResolveGenericType(function.Parameters[i].Type, typeMap);
+                    var argType = ResolveGenericType(argumentTypes[i], typeMap);
                     // TODO: Do we need to resolve the types?
-                    if (function.Parameters[i].Type == argumentTypes[i])
+                    if (fType == argType)
                     {
                         score += 1;
                     }
-                    else if (HasImplicitCast(argumentTypes[i], function.Parameters[i].Type, typeMap))
+                    else if (HasImplicitCast(argumentTypes[i], fType, typeMap))
                     {
                         score += .5f;
                     }
@@ -1445,6 +1496,7 @@ namespace T12
                     }
                 case ASTImportDirective import:
                     {
+                        var test = import;
                         if (importMap.TryGetValue(import.File, out ASTFile file) == false)
                             Fail(import.Trace, $"Could not resolve import of type '{import.ImportName}' and file '{import.File}'!");
 
@@ -1782,14 +1834,23 @@ namespace T12
                     }
                 case ASTStructDeclarationDirective structDeclaration:
                     {
-                        string name = structDeclaration.Name;
+                        // If we can know the size of this struct we output that constant
+                        if (structDeclaration.DeclaredType is ASTGenericType == false)
+                        {
+                            string name = structDeclaration.Name;
 
-                        if (typeMap.TryGetValue(name, out var value))
-                            Fail(structDeclaration.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name! {(value.Trace.File != structDeclaration.Trace.File ? $"Imported from file '{value.Trace.File}'" : "")}");
-                        
-                        builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
-                        
-                        typeMap.Add(name, structDeclaration.DeclaredType);
+                            if (typeMap.TryGetValue(name, out var value))
+                                Fail(structDeclaration.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name! {(value.Trace.File != structDeclaration.Trace.File ? $"Imported from file '{value.Trace.File}'" : "")}");
+
+                            builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
+
+                            
+                        }
+
+                        // NOTE: We might want to do something about generic types!
+                        typeMap.Add(structDeclaration.Name, structDeclaration.DeclaredType);
+
+                        // FIXME: We need to handle generic types properly!!!
                         Compiler.AddReferencedType(structDeclaration.DeclaredType);
                         break;
                     }
@@ -1806,16 +1867,18 @@ namespace T12
             string functionLabel = GetFunctionLabel(func, typeMap, functionMap);
 
             VarList variableList = new VarList();
-            FunctionConext functionContext = new FunctionConext(func.Name, func.ReturnType);
+            FunctionConext functionContext = new FunctionConext(func.Name, ResolveType(func.ReturnType, typeMap));
             int local_index = 0;
 
             VarMap scope = new VarMap();
 
             foreach (var param in func.Parameters)
             {
-                variableList.Add((param.Name, local_index, param.Type));
-                scope.Add(param.Name, (local_index, param.Type));
-                local_index += SizeOfType(param.Type, typeMap);
+                var type = ResolveType(param.Type, typeMap);
+
+                variableList.Add((param.Name, local_index, type));
+                scope.Add(param.Name, (local_index, type));
+                local_index += SizeOfType(type, typeMap);
             }
             
             if (func is ASTInterrupt)
@@ -2009,18 +2072,20 @@ namespace T12
                         string varName = variableDeclaration.VariableName;
                         if (scope.ContainsKey(varName)) Fail(variableDeclaration.Trace, $"Cannot declare the variable '{varName}' more than once!");
 
+                        var varType = ResolveType(variableDeclaration.Type, typeMap);
+
                         int varOffset = local_index;
-                        scope.Add(varName, (varOffset, variableDeclaration.Type));
-                        varList.Add((varName, varOffset, variableDeclaration.Type));
-                        local_index += SizeOfType(variableDeclaration.Type, typeMap);
+                        scope.Add(varName, (varOffset, varType));
+                        varList.Add((varName, varOffset, varType));
+                        local_index += SizeOfType(varType, typeMap);
 
                         if (variableDeclaration.Initializer != null)
                         {
                             var initExpr = variableDeclaration.Initializer;
                             var initType = CalcReturnType(initExpr, scope, typeMap, functionMap, constMap, globalMap);
 
-                            if (TryGenerateImplicitCast(initExpr, variableDeclaration.Type, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedExpression, out string error) == false)
-                                Fail(variableDeclaration.Initializer.Trace, $"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{variableDeclaration.Type}'");
+                            if (TryGenerateImplicitCast(initExpr, varType, scope, typeMap, functionMap, constMap, globalMap, out ASTExpression typedExpression, out string error) == false)
+                                Fail(variableDeclaration.Initializer.Trace, $"Cannot assign expression of type '{initType}' to variable ('{variableDeclaration.VariableName}') of type '{varType}'");
                             
                             EmitExpression(builder, typedExpression, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
 
@@ -2028,7 +2093,7 @@ namespace T12
                             {
                                 VariableType = VariableType.Local,
                                 LocalAddress = varOffset,
-                                Type = variableDeclaration.Type,
+                                Type = varType,
                                 Comment = $"[{varName}]",
                             };
 
@@ -3241,7 +3306,7 @@ namespace T12
                                     intrinsicFunc = intrinsicFunction;
                                 }
                                 else if (function is ASTGenericFunction genericFunction)
-                                    Fail(functionCall.Trace, $"Cannot use generics on non-generic function '{name}'");
+                                    Fail(functionCall.Trace, $"Cannot call generic function '{name}' without generic parameters!");
                             }
                         }
                         else
@@ -3256,7 +3321,7 @@ namespace T12
                         
                         for (int i = 0; i < parameters.Count; i++)
                         {
-                            ASTType targetType = parameters[i].Type;
+                            ASTType targetType = ResolveType(parameters[i].Type, typeMap);
                             ASTType argumentType = CalcReturnType(functionCall.Arguments[i], scope, typeMap, functionMap, constMap, globalMap);
 
                             // Try and cast the arguemnt
@@ -4024,6 +4089,10 @@ namespace T12
                             // This is a normal struct type so we just try to get the member
                             if (TryGetStructMember(structType as ASTStructType, memberExpression.MemberName, typeMap, out member) == false)
                                 Fail(memberExpression.Trace, $"No member '{memberExpression.MemberName}' in struct '{structType}'!");
+
+                            // We have to do this because the specialize function doesn't fully eval nested generics!
+                            // FIXME: We might need to do that to make it easier to code and reduce bugs
+                            member.Type = ResolveGenericType(member.Type, typeMap);
                         }
                         
                         ASTExpression typedAssigmnent = null;

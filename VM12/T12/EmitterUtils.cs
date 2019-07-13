@@ -477,14 +477,32 @@ namespace T12
             }
         }
 
+        private static ASTStatement SpecializeOptionalStatement(TraceData trace, ASTStatement statement, GenericMap genericMap)
+        {
+            if (statement == null) return null;
+            else return SpecializeStatement(trace, statement, genericMap);
+        }
+
         private static ASTStatement SpecializeStatement(TraceData trace, ASTStatement statement, GenericMap genericMap)
         {
             switch (statement)
             {
+                case ASTEmptyStatement emptyStatement:
+                    {
+                        return emptyStatement;
+                    } 
                 case ASTReturnStatement returnStatement:
                     {
-                        var retExpr = SpecializeExpression(trace, returnStatement.ReturnValueExpression, genericMap);
+                        var retExpr = SpecializeOptionalExpression(trace, returnStatement.ReturnValueExpression, genericMap);
                         return new ASTReturnStatement(returnStatement.Trace, retExpr);
+                    }
+                case ASTIfStatement ifStatement:
+                    {
+                        var cond = SpecializeExpression(trace, ifStatement.Condition, genericMap);
+                        var ifTrue = SpecializeStatement(trace, ifStatement.IfTrue, genericMap);
+                        var ifFalse = SpecializeOptionalStatement(trace, ifStatement.IfFalse, genericMap);
+
+                        return new ASTIfStatement(ifStatement.Trace, cond, ifTrue, ifFalse);
                     }
                 case ASTCompoundStatement compoundStatement:
                     {
@@ -521,6 +539,14 @@ namespace T12
                         var body = SpecializeStatement(trace, whileStatement.Body, genericMap);
 
                         return new ASTWhileStatement(whileStatement.Trace, cond, body);
+                    }
+                case ASTContinueStatement continueStatement:
+                    {
+                        return continueStatement;
+                    }
+                case ASTBreakStatement breakStatement:
+                    {
+                        return breakStatement;
                     }
                 default:
                     Fail(statement.Trace, $"Unknown statement {statement}, this is a compiler bug!");
@@ -609,6 +635,11 @@ namespace T12
                         var type = SpecializeType(trace, sizeofTypeExpression.Type, genericMap);
                         return new ASTSizeofTypeExpression(sizeofTypeExpression.Trace, type);
                     }
+                case ASTAddressOfExpression addressOfExpression:
+                    {
+                        var expr = SpecializeExpression(trace, addressOfExpression.Expr, genericMap);
+                        return new ASTAddressOfExpression(addressOfExpression.Trace, expr);
+                    }
                 default:
                     Fail(expression.Trace, $"Unknown expression type {expression}, this is a compiler bug!");
                     return default;
@@ -626,6 +657,36 @@ namespace T12
                 case ASTStructType structType:
                     // FIXME: When we implement generic striucts we want to fix this!!
                     return structType;
+                case ASTGenericType genericType:
+                    {
+                        List<string> genericNamesLeft = new List<string>();
+                        foreach (var name in genericType.GenericNames)
+                        {
+                            if (genericMap.ContainsKey(name) == false)
+                                genericNamesLeft.Add(name);
+                        }
+
+                        switch (genericType.Type)
+                        {
+                            case ASTStructType structType:
+                                {
+                                    List<(ASTType Type, string Name) > members = new List<(ASTType, string)>(structType.Members.Count);
+                                    foreach (var member in structType.Members)
+                                    {
+                                        members.Add((SpecializeType(trace, member.Type, genericMap), member.Name));
+                                    }
+
+                                    // FIXME: Naming is going to be weird and should be proper (or we should have proper type comparisons)
+                                    if (genericNamesLeft.Count > 0)
+                                        return new ASTGenericType(trace, new ASTStructType(structType.Trace, structType.TypeName, members), genericNamesLeft);
+                                    else
+                                        return new ASTStructType(structType.Trace, $"{structType.TypeName}<...>", members);
+                                }
+                            default:
+                                Fail(genericType.Trace, $"We don't handle generic types where the underlying type is '{genericType.Type.GetType()}'");
+                                return null;
+                        }
+                    }
                 case ASTFunctionPointerType functionPointerType:
                     {
                         List<ASTType> paramTypes = new List<ASTType>(functionPointerType.ParamTypes.Count);
@@ -644,6 +705,40 @@ namespace T12
                     return new ASTArrayType(arrayType.Trace, SpecializeType(trace, arrayType.BaseType, genericMap));
                 case ASTPointerType pointerType:
                     return new ASTPointerType(pointerType.Trace, SpecializeType(trace, pointerType.BaseType, genericMap));
+                case ASTGenericTypeRef genericTypeRef:
+                    {
+                        bool anyTypeStillGeneric = false;
+                        List<ASTType> genericTypes = new List<ASTType>(genericTypeRef.GenericTypes.Count);
+                        foreach (var genType in genericTypeRef.GenericTypes)
+                        {
+                            var spezType = SpecializeType(trace, genType, genericMap);
+                            genericTypes.Add(spezType);
+                            if (spezType is ASTGenericType || spezType is ASTGenericTypeRef) anyTypeStillGeneric = true;
+                        }
+
+                        return new ASTGenericTypeRef(genericTypeRef.Trace, genericTypeRef.Name, genericTypes);
+
+                        // FIXME: Idk what to do here?
+                        // Wouldn't we want to output the actual specialized type here?
+                        throw new NotImplementedException();
+
+                        /*
+                        List<ASTType> genericTypes = new List<ASTType>(genericTypeRef.GenericTypes.Count);
+                        foreach (var genType in genericTypeRef.GenericTypes)
+                        {
+                            genericTypes.Add(SpecializeType(trace, genType, genericMap));
+                        }
+
+                        if (genericMap.TryGetValue(genericTypeRef.Name, out ASTType genericType))
+                            return new 
+                        }
+                        */
+
+                        //if (genericMap.TryGetValue(typeRef.Name, out ASTType genType))
+                        //    return genType;
+                        //else
+                        //    return typeRef;
+                    }
                 case ASTTypeRef typeRef:
                     {
                         if (genericMap.TryGetValue(typeRef.Name, out ASTType genType))
