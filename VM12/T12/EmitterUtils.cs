@@ -226,30 +226,10 @@ namespace T12
                     break;
                 default:
                     builder.AppendLine($"\t; {comment} ({typeSize})");
-
-                    int wordsLeft = typeSize;
-                    while (wordsLeft >= 2)
-                    {
-                        wordsLeft -= 2;
-
-                        if (wordsLeft != 0)
-                        {
-                            builder.AppendLine("\tldup");
-                        }
-
-                        builder.AppendLine("\tloadl [SP]");
-
-                        if (wordsLeft != 0)
-                        {
-                            builder.AppendLine("\tlswap\t; Swap the loaded value with the pointer underneath");
-                            builder.AppendLine("\tlinc linc\t; Increment pointer");
-                        }
-                    }
-
-                    if (wordsLeft == 1)
-                    {
-                        builder.AppendLine("\tload [SP]");
-                    }
+                    builder.AppendLine($"\t[SP] ldec");
+                    builder.AppendLine($"\tloadl #{typeSize}");
+                    builder.AppendLineWithComment($"\tmemc", "Copy the data from the pointer to the stack");
+                    builder.AppendLineWithComment($"\tadd [SP] #{typeSize}", "Set the stack pointer to after the copied data");
                     break;
             }
         }
@@ -330,43 +310,24 @@ namespace T12
                     builder.AppendLineWithComment($"\tstorel [SP]", comment);
                     break;
                 default:
-                    Warning(trace, $"Storing a type larger than 2 ({typeSize}) at a pointer on the stack! This is not optimized at all!! Approximatly {6 + (typeSize / 2 * 9)} wasted instructions");
-
-                    if (comment.Length > 0) builder.AppendLine($"\t; {comment}");
+                    builder.AppendLine($"\t; {comment} ({typeSize})");
+                    // src
                     builder.AppendLine($"\t[SP]");
-                    builder.AppendLine($"\tloadl #{typeSize + 1}"); // Go to the pointer addr
+                    builder.AppendLine($"\tloadl #{typeSize - 1}");
+                    builder.AppendLineWithComment($"\tlsub", "Here we load the start of the struct");
+                    // dest 
+                    builder.AppendLine($"\tldup");
+                    builder.AppendLine($"\tldec ldec");
+                    builder.AppendLineWithComment($"\tloadl [SP]", "Here we load the destination pointer");
+                    // len
+                    builder.AppendLineWithComment($"\tloadl #{typeSize}", "Here we load the size of the struct");
+                    // copy
+                    builder.AppendLineWithComment($"\tmemc", "Do the copying");
+                    // cleanup
+                    builder.AppendLine($"\t[SP]");
+                    builder.AppendLine($"\tloadl #{typeSize + 2}");
                     builder.AppendLine($"\tlsub");
-                    builder.AppendLine($"\tloadl [SP]");
-                    builder.AppendLine($"\tloadl #{typeSize - 2}"); // To compensate that the pointer already pointing to valid memory
-                    builder.AppendLine($"\tladd");
-
-                    while (typeSize > 0)
-                    {
-                        if (typeSize > 2)
-                        {
-                            builder.AppendLine($"\tlover ; Get the value over the pointer");
-                            builder.AppendLine($"\tlover ; Get the pointer over the pointer");
-                            builder.AppendLine($"\tlswap ; Place the pointer above the value");
-                            builder.AppendLine($"\tstorel [SP] ; Store the value at the pointer");
-                            builder.AppendLine($"\tldec ldec ; Decrement the pointer by two");
-                            builder.AppendLine($"\tlswap pop pop ; Swap the pointer under the value just stored and pop the value");
-                            typeSize -= 2;
-                        }
-                        else if (typeSize == 2)
-                        {
-                            builder.AppendLine($"\tpop pop ; Remove the temp pointer");
-                            builder.AppendLine($"\tstorel [SP]");
-                            typeSize -= 2;
-                        }
-                        else
-                        {
-                            // We can do this because we only have one value left on the stack and pointer above that
-                            builder.AppendLine($"\tpop pop ; Remove the temp pointer");
-                            builder.AppendLine($"\tstore [SP] ; Store the value at the pointer");
-                            typeSize -= 1;
-                        }
-                    }
-
+                    builder.AppendLineWithComment($"\tset [SP]", "Set sp to before the loaded data and pointer");
                     break;
             }
         }

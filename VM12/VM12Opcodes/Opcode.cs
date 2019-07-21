@@ -100,6 +100,7 @@
         Pop,
         Fp, Pc, Pt,
         Sp, Set_sp, Set_fp,
+        Add_sp_lit_l,
         Load_lit, Load_lit_l,
         Load_sp, Load_sp_l,
         Load_local, Load_local_l,

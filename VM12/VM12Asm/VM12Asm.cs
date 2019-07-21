@@ -269,6 +269,7 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bstorel\\s+@(\\S+)"), "load.lit.l $1 swap.l store.sp.l" },
             { new Regex("(?<!:)\\bset\\s+\\[SP\\]"), "set.sp" },
             { new Regex("(?<!:)\\bset\\s+\\[FP\\]"), "set.fp" },
+            { new Regex("(?<!:)\\badd\\s+\\[SP\\]\\s+(#\\S+)"), "add.sp.lit.l $1" },
             { new Regex("::\\[SP\\]"), "call.v" },
             { new Regex("::(?!\\s)"), "call :" },
             { new Regex(sname("lswap")), "swap.l" },
@@ -405,6 +406,7 @@ namespace VM12Asm
             { "sp", Opcode.Sp },
             { "set.sp", Opcode.Set_sp },
             { "set.fp", Opcode.Set_fp },
+            { "add.sp.lit.l", Opcode.Add_sp_lit_l },
             { "load.lit", Opcode.Load_lit },
             { "load.lit.l", Opcode.Load_lit_l },
             { "load.sp", Opcode.Load_sp },
@@ -1937,6 +1939,49 @@ namespace VM12Asm
                             case TokenType.Instruction:
                                 switch (current.Opcode ?? Opcode.Nop)
                                 {
+                                    case Opcode.Add_sp_lit_l:
+                                        if (peek.Type == TokenType.Litteral)
+                                        {
+                                            string evalRes = EvalConstant(file.Value.Raw, current.Line, peek.Value, file.Value.Constants, fileConstants, null, out bool delay);
+
+                                            if (delay)
+                                            {
+                                                instructions.Add((short)current.Opcode);
+                                                local_delayed_const_uses[instructions.Count] = (new Constant($"{proc.Key}_load_lit_{instructions.Count}", file.Value.Raw, peek.Line, peek.Value), 2);
+                                                instructions.Add(0);
+                                                instructions.Add(0);
+
+                                                Log(verbose, $"Delayed evaluation of constant '{peek.Value}' for add_sp_lit_l");
+                                            }
+                                            else
+                                            {
+                                                short[] value = ParseLitteral(file.Value.Raw, current.Line, evalRes, peek.Raw, file.Value.Constants);
+
+                                                if (value.Length <= 2)
+                                                {
+                                                    instructions.Add((short)current.Opcode);
+
+                                                    // FIXME: We used to do sign extension here... 
+                                                    // We should probably do some kind of thing here but for now we don't
+                                                    // instructions.Add(value.Length < 2 ? (short)(value[0] == 0xFFF ? 0xFFF : 0) : value[1]);
+
+                                                    instructions.Add(value.Length < 2 ? (short)0 : value[1]);
+                                                    instructions.Add(value[0]);
+                                                }
+                                                else
+                                                {
+                                                    Error(file.Value.Raw, current.Line, $"{current.Opcode} cannot be followed by a constant bigger than two words!");
+                                                }
+
+                                                Log(verbose, $"Parsed load litteral with litteral {peek.Value}!");
+                                            }
+                                            tokens.MoveNext();
+                                        }
+                                        else
+                                        {
+                                            Error(file.Value.Raw, current.Line, $"{current.Opcode} must be followed by a litteral! Got: {peek}");
+                                        }
+                                        break;
                                     case Opcode.Load_lit:
                                         if (peek.Type == TokenType.Label)
                                         {
@@ -2025,7 +2070,7 @@ namespace VM12Asm
                                                 }
                                                 else
                                                 {
-                                                    Error(file.Value.Raw, current.Line, $"{current.Opcode} cannot be followe by a constant bigger than two words!");
+                                                    Error(file.Value.Raw, current.Line, $"{current.Opcode} cannot be followed by a constant bigger than two words!");
                                                 }
                                             }
 
