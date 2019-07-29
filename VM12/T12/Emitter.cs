@@ -378,6 +378,8 @@ namespace T12
                     // FIXME: We actually want to return a pointer to a struct...? Or do we want a offset into the type table...?
                     // Anyways we want a more proper type! For now we are doing an offset into the type table
                     return ASTAliasedType.Of("TypeID", ASTBaseType.DoubleWord);
+                case ASTDefaultExpression defaultExpression:
+                    return defaultExpression.Type;
                 case ASTInlineAssemblyExpression assemblyExpression:
                     // Just trust that the programmer is right.
                     return assemblyExpression.ResultType;
@@ -4593,6 +4595,27 @@ namespace T12
                         if (produceResult)
                         {
                             EmitLitteral(builder, ASTDoubleWordLitteral.From(typeOfExpression.Trace, typeID, ASTNumericLitteral.NumberFormat.Hexadecimal), $"TypeID of '{typeOfType}'");
+                        }
+                        break;
+                    }
+                case ASTDefaultExpression defaultExpression:
+                    {
+                        int typeSize = SizeOfType(defaultExpression.Type, typeMap);
+
+                        if (produceResult)
+                        {
+                            builder.AppendLine($"\t; Default value for type '{defaultExpression.Type}'({typeSize})");
+                            int sizeLeft = typeSize;
+                            while (sizeLeft >= 2)
+                            {
+                                builder.AppendLine($"\tloadl #0");
+                                sizeLeft -= 2;
+                            }
+
+                            if (sizeLeft == 1)
+                            {
+                                builder.AppendLine($"\tload #0");
+                            }
                         }
                         break;
                     }

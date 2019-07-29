@@ -795,21 +795,21 @@ namespace VM12Asm
                         }
                     }
 
+                    Log(verbose, $"Compiling t12 file '{fi.Name}'.");
+                    
                     watch.Restart();
 
                     if (T12.Compiler.Compiling == false)
                     {
                         T12.Compiler.StartCompiling(dirInf, HandleMessage);
                     }
-
-                    Log(verbose, $"Compiling t12 file '{fi.Name}'.");
-
+                        
                     // We need to invoke the t12 compiler!
                     T12.Compiler.Compile(fi);
 
                     watch.Stop();
                     t12Time += watch.ElapsedTicks;
-
+                    
                     fi = new FileInfo(Path.ChangeExtension(fi.FullName, ".12asm"));
                 }
 
@@ -1142,6 +1142,11 @@ namespace VM12Asm
             total.Stop();
 
             double t12_ms = ((double)t12Time / Stopwatch.Frequency) * 1000;
+            double t12_tokenize_ms = ((double)T12.Compiler.TokenizerTime / Stopwatch.Frequency) * 1000;
+            double t12_parse_ms = ((double)T12.Compiler.ParserTime / Stopwatch.Frequency) * 1000;
+            double t12_emit_ms = ((double)T12.Compiler.EmitterTime / Stopwatch.Frequency) * 1000;
+            double t12_misc_ms = ((double)T12.Compiler.MiscTime / Stopwatch.Frequency) * 1000;
+
             double preprocess_ms = ((double)preprocessTime / Stopwatch.Frequency) * 1000;
             double parse_ms = ((double)parseTime / Stopwatch.Frequency) * 1000;
             double assembly_ms = ((double)assemblyTime / Stopwatch.Frequency) * 1000;
@@ -1152,7 +1157,7 @@ namespace VM12Asm
             Console.WriteLine($"Success! {warningString}");
             Console.WriteLine($"Compiled {T12.Compiler.CompiledFiles} t12 files of {T12.Compiler.CompiledLines} lines compiled to {T12.Compiler.ResultLines} lines 12asm (T12 has saved you from typing {T12.Compiler.ResultLines - T12.Compiler.CompiledLines} lines 12asm). x{T12.Compiler.ResultLines / (float) T12.Compiler.CompiledLines} increase!");
             Console.WriteLine($"There where {T12.Compiler.AppendageLines} lines of generated appendages.");
-            Console.WriteLine($"T12: {t12_ms:F0} ms {T12.Compiler.CompiledLines} lines");
+            Console.WriteLine($"T12: {t12_ms:F0} ms, (Tokenizer: {t12_tokenize_ms:F0} ms, Parser: {t12_parse_ms:F0} ms, Emitter: {t12_emit_ms:F0} ms, Misc: {t12_misc_ms:F0} ms, Sum: {(t12_tokenize_ms + t12_parse_ms + t12_emit_ms + t12_misc_ms):F0} ms)  {T12.Compiler.CompiledLines} lines");
             Console.WriteLine($"Preprocess: {preprocess_ms:F0} ms {pplines} lines");
             Console.WriteLine($"Parse: {parse_ms:F0} ms {lines} lines");
             Console.WriteLine($"Assembly: {assembly_ms:F0} ms {files.Count} files, {libFile.Metadata.Length} procs, {lines} lines or {tokens} tokens");
@@ -1360,21 +1365,22 @@ namespace VM12Asm
 
             RawFile file = new RawFile() { path = fileName, rawlines = lines };
 
-            Regex macroDefLoose = new Regex("#def (.*?)\\(.*\\)");
-            Regex macroDefStrict = new Regex("#def\\s[A-Za-z_][A-Za-z0-9_]*\\(((?:\\s*[A-Za-z_][A-Za-z0-9_]*,?)*)\\)");
+            //Regex macroDefLoose = new Regex("#def (.*?)\\(.*\\)");
+            //Regex macroDefStrict = new Regex("#def\\s[A-Za-z_][A-Za-z0-9_]*\\(((?:\\s*[A-Za-z_][A-Za-z0-9_]*,?)*)\\)");
 
-            Regex macroDefEnd = new Regex("#end (.*?)");
+            //Regex macroDefEnd = new Regex("#end (.*?)");
 
             // FIXME: The '#' in the pre part is a bad hack
-            Regex macroUse = new Regex("^[^<\\n\\r#]*?(\\b(?<!#\\(|#)[A-Za-z0-9_]+)\\(((?:\\s*.*?,?)*)\\)");
+            //Regex macroUse = new Regex("^[^<\\n\\r#]*?(\\b(?<!#\\(|#)[A-Za-z0-9_]+)\\(((?:\\s*.*?,?)*)\\)");
 
-            List<Macro> macros = new List<Macro>();
+            //List<Macro> macros = new List<Macro>();
 
             List<string> newLines = new List<string>(lines);
 
-            bool global = false;
+            //bool global = false;
 
             // Go through all lines and parse and replace macros
+            /**
             for (int i = 0; i < lines.Length; i++)
             {
                 if (lines[i] == "!global")
@@ -1387,7 +1393,7 @@ namespace VM12Asm
                     global = false;
                     continue;
                 }
-
+                
                 string line = RemoveCommnents(lines[i]);
 
                 var match = macroDefLoose.Match(line);
@@ -1480,6 +1486,7 @@ namespace VM12Asm
                     }
                 }
             }
+            */
 
             for (int i = 0; i < newLines.Count; i++)
             {

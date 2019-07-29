@@ -36,13 +36,21 @@ namespace T12
                     // But at the moment we wont do that
                 }
             }
+
+            FileInfo inf = new FileInfo(inFile);
+
+            StartCompiling(inf.Directory, null);
+
+            Compile(inf);
+
+            StopCompiling();
             
             //string result = Compile(inFile);
 
             Console.WriteLine();
             //Console.WriteLine(result);
             
-            Console.ReadKey();
+            //Console.ReadKey();
         }
 
         public enum MessageLevel
@@ -103,6 +111,12 @@ namespace T12
         internal static AST WorkingAST;
         internal static ErrorHandler CurrentErrorHandler;
 
+        public static Stopwatch Watch = new Stopwatch();
+        public static long TokenizerTime;
+        public static long ParserTime;
+        public static long EmitterTime;
+        public static long MiscTime;
+
         // FIXME: For now we will use the filename as a key here but we should really use ASTFile
         internal static Dictionary<string, List<(StringBuilder File, StringBuilder Debug)>> Appendages;
 
@@ -130,6 +144,11 @@ namespace T12
             CurrentAST = new AST(new Dictionary<string, (ASTFile File, FileInfo FileInfo)>());
 
             CurrentErrorHandler = errorHandler;
+
+            TokenizerTime = 0;
+            ParserTime = 0;
+            EmitterTime = 0;
+            MiscTime = 0;
 
             Appendages = new Dictionary<string, List<(StringBuilder File, StringBuilder Debug)>>();
 
@@ -288,13 +307,14 @@ namespace T12
                 return;
             }
 
+            Watch.Restart();
             string fileData = File.ReadAllText(infile.FullName);
+            Watch.Stop();
+            MiscTime += Watch.ElapsedTicks;
 
             CompiledFiles += 1;
             CompiledLines += fileData.CountLines();
-
-            var tokens = Tokenizer.Tokenize(fileData, infile.FullName);
-
+            
             AST ast = AST.Parse(infile, DirectoryFiles);
 
             WorkingAST = ast;
@@ -308,12 +328,19 @@ namespace T12
                     // This means we have already emitted this file!
                     continue;
                 }
-                
-                var result = Emitter.EmitAsem(file.Value.File, ast);
 
+                Watch.Restart();
+                var result = Emitter.EmitAsem(file.Value.File, ast);
+                Watch.Stop();
+                EmitterTime += Watch.ElapsedTicks;
+
+                Watch.Restart();
                 string fileAssembly = result.assembly.ToString();
                 // FIXME: Write to file
                 File.WriteAllText(Path.ChangeExtension(file.Value.FileInfo.FullName, ".12asm"), fileAssembly);
+                Watch.Stop();
+                MiscTime += Watch.ElapsedTicks;
+
 
                 ResultLines += fileAssembly.CountLines();
 
@@ -324,18 +351,23 @@ namespace T12
                 FuncDebug.Append(result.funcDebug);
             }
 
+            Watch.Restart();
             foreach (var fileAppendage in Appendages)
             {
+                StringBuilder sb = new StringBuilder();
                 foreach (var appendage in fileAppendage.Value)
                 {
-                    var str = appendage.File.ToString();
-                    int lines = str.CountLines();
+                    sb.Append(appendage.File);
+                    FuncDebug.Append(appendage.Debug);
+
+                    int lines = appendage.File.CountLines();
                     ResultLines += lines;
                     AppendageLines += lines;
-                    File.AppendAllText(Path.ChangeExtension(fileAppendage.Key, ".12asm"), str);
-                    FuncDebug.Append(appendage.Debug);
                 }
+                File.AppendAllText(Path.ChangeExtension(fileAppendage.Key, ".12asm"), sb.ToString());
             }
+            Watch.Stop();
+            MiscTime += Watch.ElapsedTicks;
 
             return;
         }

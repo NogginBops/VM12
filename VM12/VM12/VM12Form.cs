@@ -77,7 +77,7 @@ namespace VM12
 
             GenerateLUT();
 
-            SetSize(VM12.SCREEN_HEIGHT * 2, InterpolationMode.NearestNeighbor);
+            SetSize(VM12.SCREEN_HEIGHT, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -316,7 +316,7 @@ namespace VM12
                 const byte bitsPerPixel = 24;
                 const byte bytesPerPixel = bitsPerPixel / 8;
 
-                const int size = VM12.SCREEN_WIDTH * 3 * VM12.SCREEN_HEIGHT; // bData.Stride * bData.Height;
+                const int size = Constants.SCREEN_WIDTH * 3 * Constants.SCREEN_HEIGHT; // bData.Stride * bData.Height;
 
                 // System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
                 

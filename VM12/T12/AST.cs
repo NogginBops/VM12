@@ -19,19 +19,30 @@ namespace T12
 
         public static AST Parse(FileInfo inFile, Dictionary<string, FileInfo> dirFiles)
         {
+            Compiler.Watch.Restart();
+            string fileData = File.ReadAllText(inFile.FullName);
+            Compiler.Watch.Stop();
+            Compiler.MiscTime += Compiler.Watch.ElapsedTicks;
+            
+            Compiler.Watch.Restart();
             // We can probably do this better!
             // Because we will want to emit comments to the assembly
-            string fileData = File.ReadAllText(inFile.FullName);
             Queue<Token> Tokens = Tokenizer.Tokenize(fileData, inFile.FullName);
-            Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
+            Compiler.Watch.Stop();
+            Compiler.TokenizerTime += Compiler.Watch.ElapsedTicks;
             
             Dictionary<string, (ASTFile File, FileInfo FileInfo)> files = new Dictionary<string, (ASTFile File, FileInfo FileInfo)>(Compiler.CurrentAST.Files);
-
+            
+            Compiler.Watch.Restart();
+            Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
             var file = ASTFile.Parse(Tokens);
             files.Add(inFile.Name, (file, inFile));
-
+            Compiler.Watch.Stop();
+            Compiler.ParserTime += Compiler.Watch.ElapsedTicks;
+            
             List<ASTImportDirective> imports = file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>().ToList();
 
+            // FIXME: This does not need to be a while loop, we just want to go through all imports once. So this should be a for loop
             while (imports.Count > 0)
             {
                 var import = imports.First();
@@ -43,10 +54,24 @@ namespace T12
                         Emitter.Fail(import.Trace, $"Could not import '{import.ImportName ?? import.File}', did not find file '{import.File}'!");
                     
                     // Parse the file!
+                    Compiler.Watch.Restart();
                     string importedFileData = File.ReadAllText(importFile.FullName);
+                    Compiler.Watch.Stop();
+                    Compiler.MiscTime += Compiler.Watch.ElapsedTicks;
+
+                    Compiler.Watch.Restart();
                     var tokens = Tokenizer.Tokenize(importedFileData, importFile.FullName);
+                    Compiler.Watch.Stop();
+                    Compiler.TokenizerTime += Compiler.Watch.ElapsedTicks;
+                    
+                    Compiler.Watch.Restart();
                     tokens = new Queue<Token>(tokens.Where(tok => tok.Type != TokenType.Comment));
-                    files.Add(importFile.Name, (ASTFile.Parse(tokens), importFile));
+                    var importAST = ASTFile.Parse(tokens);
+                    Compiler.Watch.Stop();
+                    Compiler.ParserTime += Compiler.Watch.ElapsedTicks;
+
+                    files.Add(importFile.Name, (importAST, importFile));
+                    
                     imports.AddRange(files[importFile.Name].File.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>());
 
                     Compiler.CompiledFiles += 1;
@@ -2051,6 +2076,10 @@ namespace T12
             {
                 return ASTTypeOfExpression.Parse(Tokens);
             }
+            else if (peek.Type == TokenType.Keyword_Default)
+            {
+                return ASTDefaultExpression.Parse(Tokens);
+            }
             else if (peek.Type == TokenType.And)
             {
                 return ASTAddressOfExpression.Parse(Tokens);
@@ -3466,6 +3495,39 @@ namespace T12
             };
 
             return new ASTTypeOfExpression(trace, type);
+        }
+    }
+
+    public class ASTDefaultExpression : ASTExpression
+    {
+        public readonly ASTType Type;
+
+        public ASTDefaultExpression(TraceData trace, ASTType type) : base(trace)
+        {
+            Type = type;
+        }
+
+        public static new ASTDefaultExpression Parse(Queue<Token> Tokens)
+        {
+            var defaultTok = Tokens.Dequeue();
+            if (defaultTok.Type != TokenType.Keyword_Default) Fail(defaultTok, "Expected default!");
+
+            var openParen = Tokens.Dequeue();
+            if (openParen.Type != TokenType.Open_parenthesis) Fail(openParen, "Expected '('!");
+
+            ASTType type = ASTType.Parse(Tokens);
+
+            var closeParen = Tokens.Dequeue();
+            if (closeParen.Type != TokenType.Close_parenthesis) Fail(closeParen, "Expected ')'!");
+
+            var trace = new TraceData
+            {
+                File = defaultTok.File,
+                StartLine = defaultTok.Line,
+                EndLine = closeParen.Line,
+            };
+
+            return new ASTDefaultExpression(trace, type);
         }
     }
 

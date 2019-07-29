@@ -28,6 +28,16 @@ namespace Util
             }
             return count;
         }
+
+        public static int CountLines(this StringBuilder sb)
+        {
+            int lines = 0;
+            for (int i = 0; i < sb.Length; i++)
+            {
+                if (sb[i] == '\n') lines++;
+            }
+            return lines;
+        }
         
         public static bool IsOnly(this string str, int startat, char[] letters)
         {
