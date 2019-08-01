@@ -36,6 +36,19 @@ namespace Debugger
 
         public void Open(DirectoryInfo dir, string fileName, int line)
         {
+            if (fileName == null)
+            {
+                // Here there is no file! We might want to try do some kind of decompilation here?
+
+                // For now we just show a message noting this!
+
+                if (openFile != null) DeSelectLine(selectedLine);
+                selectedLine = 0;
+                rtbSource.Lines = new string[] { "There is no source for this location!" };
+                openFile = null;
+                return;
+            }
+
             string file = Directory.GetFiles(dir.FullName, fileName, SearchOption.AllDirectories).FirstOrDefault();
 
             if (File.Exists(file))
