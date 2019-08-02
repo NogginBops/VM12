@@ -226,15 +226,17 @@ namespace T12
                 // FIXME: For now we don't output generic types to the map!
                 if (type is ASTGenericType) continue;
 
-                // FIXME: We could format some of these in decimal and pad with zeroes
-                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type, TypeDict):X6} 0x{nameString.Length:X6} 0x{type.TypeName.Length:X6} {(type is ASTStructType sType ? $":__{type.TypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
+                string labelTypeName = GetLabelTypeMapTypeName(type);
 
+                // FIXME: We could format some of these in decimal and pad with zeroes
+                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type, TypeDict):X6} 0x{nameString.Length:X6} 0x{type.TypeName.Length:X6} {(type is ASTStructType sType ? $":__{labelTypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
+                
                 nameString.Append(type.TypeName);
 
                 if (type is ASTStructType structType)
                 {
                     StringBuilder members = new StringBuilder();
-                    members.AppendLine($":__{structType.TypeName}_members");
+                    members.AppendLine($":__{labelTypeName}_members");
                     foreach (var member in structType.Members)
                     {
                         var membType = member.Type;
@@ -242,7 +244,7 @@ namespace T12
                         int index = indexList.IndexOf(membType);
                         if (index == -1)
                         {
-                            AdditionalTypes.Add((membType.TypeName, membType));
+                            AdditionalTypes.Add((GetLabelTypeMapTypeName(membType), membType));
                             index = indexList.Count;
                             indexList.Add(membType);
                         }
@@ -284,6 +286,18 @@ namespace T12
 
 
             return sb.ToString();
+        }
+
+        private static string GetLabelTypeMapTypeName(ASTType type)
+        {
+            if (type is ASTGenericType genType)
+            {
+                return $"{genType.Type.TypeName}.G";
+            }
+            else
+            {
+                return type.TypeName.Replace("<...>", ".G");
+            }
         }
 
         public static void StopCompiling()

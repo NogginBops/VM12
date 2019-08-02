@@ -1645,7 +1645,7 @@ namespace VM12Asm
                     {
                         string[] SplitNotStringsOrLitterals(string input, char[] chars)
                         {
-                            return Regex.Matches(input, @"([\""].*?[\""]|'.'|#?\(.*\))|[^ ]+")
+                            return Regex.Matches(input, @"(@?[\""].*?[\""]|'.'|#?\(.*\))|[^ ]+")
                                 .Cast<Match>()
                                 .Select(m => m.Value)
                                 .ToArray();
