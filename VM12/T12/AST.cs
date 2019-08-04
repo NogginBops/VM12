@@ -3268,7 +3268,7 @@ namespace T12
                 // FIXME: This needs some cleanup
                 var contToken = Tokens.Peek();
                 if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_parenthesis) break;
-                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a ')'");
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, $"Expected ',' or a ')'. Got: {contToken}");
 
                 // Dequeue the comma
                 Tokens.Dequeue();

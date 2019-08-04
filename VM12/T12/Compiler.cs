@@ -197,7 +197,7 @@ namespace T12
             }
             */
 
-            int typeID = 1;
+            int typeID = 0;
 
             StringBuilder nameString = new StringBuilder(100);
 
@@ -220,16 +220,24 @@ namespace T12
             Dictionary<string, ASTType> TypeDict = ReferencedTypes.ToDictionary(type => (type is ASTGenericType genType) ? genType.Type.TypeName : type.TypeName);
 
             List<(string Name, ASTType Type)> AdditionalTypes = new List<(string, ASTType)>();
-
+            
             foreach (var type in ReferencedTypes)
             {
-                // FIXME: For now we don't output generic types to the map!
-                if (type is ASTGenericType) continue;
-
                 string labelTypeName = GetLabelTypeMapTypeName(type);
+                
+                // FIXME: For now we don't output generic types to the map!
+                if (type is ASTGenericType)
+                {
+                    // FIXME: We could format some of these in decimal and pad with zeroes
+                    sb.AppendLine($"\t0x{typeID:X6} 0xFFFFFF 0x{nameString.Length:X6} 0x{type.TypeName.Length:X6} {(type is ASTStructType sType ? $":__{labelTypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
+                }
+                else
+                {
+                    // Do normal stuff
 
-                // FIXME: We could format some of these in decimal and pad with zeroes
-                sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type, TypeDict):X6} 0x{nameString.Length:X6} 0x{type.TypeName.Length:X6} {(type is ASTStructType sType ? $":__{labelTypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
+                    // FIXME: We could format some of these in decimal and pad with zeroes
+                    sb.AppendLine($"\t0x{typeID:X6} 0x{Emitter.SizeOfType(type, TypeDict):X6} 0x{nameString.Length:X6} 0x{type.TypeName.Length:X6} {(type is ASTStructType sType ? $":__{labelTypeName}_members* 0x{sType.Members.Count:X6}" : "0x000000 0x000000")}");
+                }
                 
                 nameString.Append(type.TypeName);
 
