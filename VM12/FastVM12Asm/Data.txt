@@ -111,7 +111,7 @@
 :set_line_offset
 	1 1	; (/line word)
 	loadl #line_offset
-	load 0	; [line]
+	load 0x000	; [line]
 	store [SP]	; [line_offset]
 	ret
 
@@ -713,4 +713,506 @@
 	::read_line_raw	; read_line_raw 1
 	::raw_to_safe	; raw_to_safe 0
 	ret2
+
+& Constants Constants.12asm
+<interrupt_handler_size = extern>
+<htime_interrupt_vector = extern>
+<v_blank_interrupt_vector = extern>
+<keyboard_interrupt_vector = extern>
+<mouse_interrupt_vector = extern>
+<ram_start = extern>
+<ram_size = extern>
+<ram_end = extern>
+<stack_start = extern>
+<stack_size = extern>
+<stack_end = extern>
+<gpram_start = extern>
+<gpram_size = extern>
+<gpram_end = extern>
+<sndram_start = extern>
+<sndram_size = extern>
+<sndram_end = extern>
+<gram_start = extern>
+<gram_size = extern>
+<gram_end = extern>
+<vram_start = extern>
+<vram_size = extern>
+<vram_end = extern>
+<rom_start = extern>
+<rom_end = extern>
+<rom_size = extern>
+<NULL = extern>
+<word_bits = extern>
+<double_word_bits = extern>
+& StdUtil StdUtil.12asm
+& Time Time.12asm
+<time = extern> ; time
+<system_timers = extern> ; system_timers
+& GraphicsBuffer GraphicsBuffer.12asm
+<gcode_nop = extern>
+<gcode_hlt = extern>
+<gcode_hlt_rst = extern>
+<gcode_jmp = extern>
+<gcode_line = extern>
+<gcode_rectangle = extern>
+<gcode_ellipse = extern>
+<gcode_fontchar = extern>
+<gcode_true_color_sprite = extern>
+<gcode_paletted_sprite = extern>
+<gcode_fontchar_mask = extern>
+<gcode_true_color_sprite_mask = extern>
+<gcode_paletted_sprite_mask = extern>
+<gcode_fontchar_buffer = extern>
+<gcode_fontchar_buffer_color = extern>
+<gcode_nop_inst_size = extern>
+<gcode_hlt_inst_size = extern>
+<gcode_hlt_rst_inst_size = extern>
+<gcode_jmp_inst_size = extern>
+<gcode_line_inst_size = extern>
+<gcode_rectange_inst_size = extern>
+<gcode_fontchar_buffer_inst_size = extern>
+<gcode_fontchar_buffer_color_inst_size = extern>
+& Screen Screen.12asm
+<skipped_frames = extern> ; skipped_frames
+& Heap Heap.12asm
+<HEAP_BLOCK_SIZE = extern>
+<HEAP_SIZE = extern>
+<heap = extern> ; heap
+<heap_metadata = extern> ; heap_metadata
+& Array Array.12asm
+& List List.12asm
+& Map Map.12asm
+& StdCallback StdCallback.12asm
+& StdMath StdMath.12asm
+& StdGraph StdGraph.12asm
+<screen_width = extern>
+<screen_height = extern>
+<screen_width_2 = extern>
+<screen_height_2 = extern>
+<rgb_black = extern>
+<rgb_white = extern>
+<rgb_red = extern>
+<rgb_green = extern>
+<rgb_blue = extern>
+<rgb_yellow = extern>
+<rgb_cyan = extern>
+<rgb_magenta = extern>
+<c_clear = extern>
+<c_black = extern>
+<c_white = extern>
+<c_red = extern>
+<c_green = extern>
+<c_blue = extern>
+<c_yellow = extern>
+<c_cyan = extern>
+<c_magenta = extern>
+<half_intensity_mask = extern>
+& bbt_437 bbt_437.12asm
+& StdFont StdFont.12asm
+<char_mem_size = extern>
+<char_width = extern>
+<char_height = extern>
+& Cursor Cursor.12asm
+& StdString StdString.12asm
+& StringBuilder StringBuilder.12asm
+& StdPipe StdPipe.12asm
+& StdMemoryPipe StdMemoryPipe.12asm
+<memory_pipe_buffer_size = extern>
+<memory_pipe_impl_initialized = extern> ; memory_pipe_impl_initialized
+<memory_pipe_impl = extern> ; memory_pipe_impl
+& StdConsolePipe StdConsolePipe.12asm
+& StdConvert StdConvert.12asm
+<p_error_overflow = extern>
+<p_error_invalid_input = extern>
+<p_error_no_input = extern>
+<num_of_p_error = extern>
+& StdKeyboard StdKeyboard.12asm
+<UNKNOWN_CHAR = extern>
+<MOD_SHIFT = extern>
+<MOD_CONTROL = extern>
+<MOD_ALT = extern>
+<MOD_MASK = extern>
+<modifier_status = extern> ; modifier_status
+<keyboard_state = extern> ; keyboard_state
+<keypress_repeat_delay = extern>
+<keypress_repeat_interval = extern>
+<keypress_timer = extern> ; keypress_timer
+<last_pressed_key = extern> ; last_pressed_key
+& Mouse Mouse.12asm
+<mouse_pos_x = extern> ; mouse_pos_x
+<mouse_pos_y = extern> ; mouse_pos_y
+& KeyboardDebug KeyboardDebug.12asm
+& DebugGraph DebugGraph.12asm
+& Console Console.12asm
+<console_width = extern>
+<console_height = extern>
+<buffer_size = extern>
+<buffer = extern> ; buffer
+<color_buffer = extern> ; color_buffer
+<console_start_line = extern> ; console_start_line
+<caret = extern> ; caret
+<line_offset = extern> ; line_offset
+<selection_length = extern> ; selection_length
+<caret_interval = extern>
+<show_caret = extern> ; show_caret
+<inserting = extern> ; inserting
+& CommandBuffer CommandBuffer.12asm
+<command_buffer_size = extern>
+<command_buffer = extern> ; command_buffer
+& Image Image.12asm
+& Runtime Runtime.12asm
+<programs = extern> ; programs
+& StdPrograms StdPrograms.12asm
+& FileSystem FileSystem.12asm
+<NULL_ADDR = extern>
+<FS_BLOCK_SIZE = extern>
+<path_separator = extern>
+<current_inode = extern> ; current_inode
+& ProcMap ProcMap.12asm
+& MessageQueue MessageQueue.12asm
+<VK_KEY_PRESSED_MSG = extern>
+<VK_KEY_RELEASED_MSG = extern>
+<MOUSE_MOVED_MSG = extern>
+<MOUSE_SCROLLED_MSG = extern>
+<MOUSE_PRESSED_MSG = extern>
+<MOUSE_RELEASED_MSG = extern>
+<global_queue_size = extern>
+<global_msg_ring_buffer = extern> ; global_msg_ring_buffer
+<global_msg_array = extern> ; global_msg_array
+& Sound Sound.12asm
+<OscillatorCount = extern>
+<Osc_Type_Pink = extern>
+<Osc_Type_White = extern>
+<Osc_Type_Sweep = extern>
+<Osc_Type_Sin = extern>
+<Osc_Type_Square = extern>
+<Osc_Type_Triangle = extern>
+<Osc_Type_SawTooth = extern>
+<UpdateOscillators = extern>
+<OscArray = extern>
+<SndOp_Nop = extern>
+<SndOp_Del = extern>
+<SndOp_Trigger = extern>
+<SndOp_Stop = extern>
+<SndOp_Wav = extern>
+<SndOp_Freq = extern>
+<SndOp_Vol = extern>
+<SndOp_Att = extern>
+<SndOp_Dec = extern>
+<SndOp_Sus = extern>
+<SndOp_Rel = extern>
+<SndOp_Pan = extern>
+<SndOp_Hlt = extern>
+& StdExec StdExec.12asm
+& Theme Theme.12asm
+<error_color = extern>
+<warning_color = extern>
+<info_color = extern>
+<directory_color = extern>
+<file_color = extern>
+<keyword_color = extern>
+<type_color = extern>
+<number_color = extern>
+& OSLParser OSLParser.12asm
+<Unknown = extern>
+<Addition = extern>
+<Subtraction = extern>
+<Multiplication = extern>
+<Division = extern>
+<Modulo = extern>
+<Bitwise_And = extern>
+<Bitwise_Or = extern>
+<Bitwise_Xor = extern>
+<Bitwise_shift_left = extern>
+<Bitwise_shift_right = extern>
+<Logical_And = extern>
+<Logical_Or = extern>
+<Equal = extern>
+<Not_equal = extern>
+<Less_than_or_equal = extern>
+<Greater_than_or_equal = extern>
+<Less_than = extern>
+<Greater_than = extern>
+<Decimal = extern>
+<Hexadecimal = extern>
+<Binary = extern>
+<Octal = extern>
+<Void = extern>
+<Word = extern>
+<Dword = extern>
+<Bool = extern>
+<Char = extern>
+<String = extern>
+& TypeMap TypeMap.12asm
+<Type_Void = extern>
+<Type_Word = extern>
+<Type_Dword = extern>
+<Type_Bool = extern>
+<Type_Char = extern>
+<Type_String = extern>
+!global
+<character_foreground = auto(1)> ; word
+<character_background = auto(1)> ; word
+<tempChar = auto(1)> ; char
+
+:start
+	0 0	; 
+	::init	; init
+	::run_loop	; run_loop
+	::exit	; exit
+	ret
+
+:run_loop
+	0 7	; /input string, /args []string, /result word
+	; Args to function call ::print_string_color
+	load "Welcome to xiios!"
+	load #0x5AF
+	::print_string_color	; print_string_color
+	::new_line	; new_line
+	; Args to function call ::play_sound
+	load #0
+	load #5
+	load #0x150
+	loadl #523_25
+	load #0
+	load #100
+	load #0xFFF
+	load #100
+	load #0x7FF
+	::play_sound_word_OscType_word_dword_word_word_word_word_word	; play_sound
+	; Args to function call ::play_sound
+	load #1
+	load #5
+	load #0x150
+	loadl #104650
+	load #20
+	load #80
+	load #0xFFF
+	load #80
+	load #0x7FF
+	::play_sound_word_OscType_word_dword_word_word_word_word_word	; play_sound
+	; Args to function call ::play_sound
+	load #2
+	load #5
+	load #0x150
+	loadl #523_25
+	loadl #2
+	ldiv
+	load #20
+	load #80
+	load #0xFFF
+	load #80
+	load #0x7FF
+	::play_sound_word_OscType_word_dword_word_word_word_word_word	; play_sound
+	; Args to function call ::stop_sound
+	load #0
+	::stop_sound	; stop_sound
+	; Args to function call ::stop_sound
+	load #1
+	::stop_sound	; stop_sound
+	; Args to function call ::stop_sound
+	load #2
+	::stop_sound	; stop_sound
+	; While loop 0 (True)
+	:while_condition_0
+	load #1	; true
+	jz :while_end_0
+	eni
+	::focus_caret	; focus_caret
+	::draw_terminal	; draw_terminal
+	::read_line_alloc_string	; read_line_alloc_string
+	storel 0	; [input]
+	::new_line	; new_line
+	loadl 0	; [input]
+	loadl [SP]	; cast(*dword) input[0]
+	loadl #0
+	lsub
+	jlel :else_0
+	; Args to function call ::add_command
+	loadl #command_buffer	; &[command_buffer]
+	loadl 0	; [input]
+	::add_command	; add_command
+	; Args to function call ::split_whitespace
+	loadl 0	; [input]
+	::split_whitespace	; split_whitespace
+	; [args] (4)
+	storel 4	; [args]:3 2
+	storel 2	; [args]:1 0
+	; Args to function call ::exec
+	loadl 2	; [args.data]
+	loadl [SP]	; args.data[0]
+	; [args] (4)
+	loadl 2	; [args]:0 1
+	loadl 4	; [args]:2 3
+	::exec	; exec
+	store 6	; [result]
+	load 6	; [result]
+	setnz	; Eql 0
+	load 6	; [result]
+	load #0xFFF
+	sub setnz	; Not equals cmp
+	and
+	jz :post_if_1
+	; Args to function call ::print_string_color
+	load "Error running program! "
+	load #error_color
+	::print_string_color	; print_string_color
+	; Args to function call ::print_w2_color
+	load #0	; Cast from 'word' to 'dword'
+	load 6	; [result]
+	load #error_color
+	::print_w2_color	; print_w2_color
+	::new_line	; new_line
+	:post_if_1
+	; Args to function call ::array_for_each_count_Tstring
+	loadl 2	; [args.data]
+	loadl :free_string
+	loadl 4	; [args.length]
+	::array_for_each_count_Tstring	; array_for_each_count
+	; Args to function call ::free
+	loadl 2	; [args.data]
+	::free	; free
+	jmp :post_else_0
+	:else_0
+	; Args to function call ::free
+	loadl 0	; [input]
+	::free	; free
+	:post_else_0
+	jmp :while_condition_0
+	:while_end_0
+	ret
+
+:free_string
+	2 2	; (/str string)
+	; Args to function call ::free
+	loadl 0	; [str]
+	::free	; free
+	ret
+
+:split_whitespace
+	2 2	; (/input string)
+	; Args to function call ::split_string_ignore_empty
+	loadl 0	; [input]
+	load ' '
+	::split_string_ignore_empty	; split_string_ignore_empty
+	retv 4	; []string
+
+:init
+	0 0	; 
+	loadl #character_foreground
+	load #0xFFF
+	store [SP]	; [character_foreground]
+	loadl #character_background
+	load #0x000
+	store [SP]	; [character_background]
+	::init_heap	; init_heap
+	::init_time	; init_time
+	::init_console	; init_console
+	::init_screen	; init_screen
+	::init_keyboard	; init_keyboard
+	::init_mouse	; init_mouse
+	::load_standard_programs	; load_standard_programs
+	::init_fs	; init_fs
+	::init_global_command_buffer	; init_global_command_buffer
+	::init_global_message_queue	; init_global_message_queue
+	::init_sound	; init_sound
+	ret
+
+:handle_messages
+	0 2	; /msg *Message
+	; While loop 0 (has_message(...))
+	:while_condition_0
+	::has_message	; has_message
+	jz :while_end_0
+	::get_message	; get_message
+	storel 0	; [msg]
+	; Args to function call ::handle_message
+	loadl 0	; [msg]
+	::handle_message	; handle_message
+	pop 
+	jmp :while_condition_0
+	:while_end_0
+	ret
+
+:handle_message
+	2 2	; (/msg *Message)
+	loadl 0	; [msg]
+	load [SP]	; [msg->messageType]
+	load #MOUSE_SCROLLED_MSG	; [MOUSE_SCROLLED_MSG]
+	jneq :else_0
+	; Args to function call ::change_line_offset
+	loadl 0	; [msg]
+	loadl #1 ladd	; messageData offset
+	loadl [SP]	; [msg->messageData]
+	swap pop	; cast(word)
+	::change_line_offset	; change_line_offset
+	jmp :post_else_0
+	:else_0
+	loadl 0	; [msg]
+	load [SP]	; [msg->messageType]
+	load #MOUSE_MOVED_MSG	; [MOUSE_MOVED_MSG]
+	jneq :else_1
+	loadl #mouse_pos_x
+	loadl 0	; [msg]
+	loadl #1 ladd	; messageData offset
+	loadl [SP]	; [msg->messageData]
+	loadl #0x1_000
+	ldiv
+	swap pop	; cast(word)
+	store [SP]	; [mouse_pos_x]
+	loadl #mouse_pos_y
+	loadl 0	; [msg]
+	loadl #1 ladd	; messageData offset
+	loadl [SP]	; [msg->messageData]
+	loadl #0xfff
+	slswap and
+	slswap slswap
+	and
+	swap
+	swap pop	; cast(word)
+	store [SP]	; [mouse_pos_y]
+	jmp :post_else_1
+	:else_1
+	loadl 0	; [msg]
+	load [SP]	; [msg->messageType]
+	load #VK_KEY_PRESSED_MSG	; [VK_KEY_PRESSED_MSG]
+	jneq :else_2
+	; Args to function call ::ascii_from_keyboard
+	loadl 0	; [msg]
+	loadl #1 ladd	; messageData offset
+	loadl [SP]	; [msg->messageData]
+	swap pop	; cast(word)
+	loadl #tempChar	; &[tempChar]
+	::ascii_from_keyboard	; ascii_from_keyboard
+	jz :post_if_3
+	; Args to function call ::handle_char_in
+	loadl #tempChar
+	load [SP]	; [tempChar]
+	::handle_char_in	; handle_char_in
+	::focus_caret	; focus_caret
+	:post_if_3
+	jmp :post_else_2
+	:else_2
+	:post_else_2
+	:post_else_1
+	:post_else_0
+	load #0	; false
+	ret1
+
+:exit
+	0 0	; 
+	dsi hlt
+	ret
+
+:restart
+	0 0	; 
+	brk
+	; Args to intrinsic 'set_frame_pointer'
+	loadl #0
+	set [FP]
+	; Args to intrinsic 'set_stack_pointer'
+	loadl #5
+	set [SP]
+	jmp :start
+	ret
 

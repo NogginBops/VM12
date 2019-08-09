@@ -245,18 +245,6 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bload\\s+('.')"), "load.lit $1" },
             { new Regex("(?<!:)\\bload\\s+(\".*?\")"), "load.lit.l $1" },
 
-            // loadlo
-            { new Regex("(?<!:)\\bloadlo\\s+(#\\S+)\\s*,\\s*(#\\S+)"), "load.lit.l $1 load.lit.l $2 ladd" },
-            { new Regex("(?<!:)\\bloadlo\\s+(#\\S+)\\s*,\\s*(\\S+)"), "load.lit.l $1 load.local.l $2 ladd" },
-            { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*(#\\S+)"), "load.local.l $1 load.lit.l $2 ladd" },
-            { new Regex("(?<!:)\\bloadlo\\s+(\\S+)\\s*,\\s*(\\S+)"), "load.local.l $1 load.local.l $2 ladd" },
-
-            // loadlo [SP]
-            { new Regex("(?<!:)\\bloado\\s+\\[SP\\]\\s*,\\s*(#\\S+)"), "loadl.lit.l $1 ladd load.sp" },
-            { new Regex("(?<!:)\\bloado\\s+\\[SP\\]\\s*,\\s*(\\S+)"), "loadl.local.l $1 ladd load.sp" },
-            { new Regex("(?<!:)\\bloadlo\\s+\\[SP\\]\\s*,\\s*(#\\S+)"), "loadl.lit.l $1 ladd load.sp.l" },
-            { new Regex("(?<!:)\\bloadlo\\s+\\[SP\\]\\s*,\\s*(\\S+)"), "loadl.local.l $1 ladd load.sp.l" },
-
             { new Regex("(?<!:)\\bstore\\s+\\[SP\\]"), "store.sp" },
             { new Regex("(?<!:)\\bstorel\\s+\\[SP\\]"), "store.sp.l" },
             { new Regex("(?<!:)\\bstore\\s+(\\d+)"), "store.local $1" },
@@ -329,7 +317,6 @@ namespace VM12Asm
             { new Regex(sname("lmul2")), "mul.2.l" },
             { new Regex(sname("ldiv")), "div.l" },
             { new Regex(sname("lmod")), "mod.l" },
-            { new Regex(sname("blitm")), "blit.mask" },
             
             { new Regex(sname("setz")),   "set ST.Z" },
             { new Regex(sname("setnz")),  "set ST.Nz" },
@@ -348,9 +335,6 @@ namespace VM12Asm
             { new Regex(sname("lsetlz")), "set ST.Lz.l" },
             { new Regex(sname("lsetle")), "set ST.Le.l" },
             
-            { new Regex(sname("tzo")), "to.zero.one" },
-            { new Regex(sname("ltzo")), "to.zero.one.l" },
-
             { new Regex(sname("graf_clear")), "graf.clear" },
             { new Regex(sname("graf_fill")), "graf.fill" },
 

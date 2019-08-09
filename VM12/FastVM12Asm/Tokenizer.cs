@@ -20,6 +20,10 @@ namespace FastVM12Asm
     
     public enum TokenType
     {
+        Invalid,
+        // This means that there was a tab at the start of the line!
+        StartOfLineTab,
+
         // TODO: Should this be instructions or just different types of tokens?
         Flag, // !<flag>
 
@@ -36,7 +40,6 @@ namespace FastVM12Asm
         Plus,
         Minus,
 
-        Instruction, // ladd
         Identifier, // names of constants?
         Label,  // :<name>
         Call,
@@ -46,25 +49,178 @@ namespace FastVM12Asm
         String_litteral, // "something"
         Char_litteral, // 'a'
 
-        // Is this really a type to have?
-        File_litteral, // <name>.12asm or .t12?
-
         Comment,
+    }
+
+    [Flags]
+    public enum TokenFlag
+    {
+        None = 0,
+        Hexadecimal = 1 << 1,
+        Octal = 1 << 2,
+        Binary = 1 << 3,
     }
 
     public struct Token
     {
         public TokenType Type;
+        public TokenFlag Flags;
 
         public FileData File;
         public int Line;
+        // How many characters into the line this token is
+        public int LineCharIndex;
 
         public int Index;
         public int Length;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public char GetFirstChar() => File.Data[Index];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public char GetLastChar() => File.Data[Index + Length - 1];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public char GetChar(int i) => File.Data[Index + i];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public string GetContents()
+        {
+            return File.Data.Substring(Index, Length);
+        }
+
+        public (int Value, int Size) ParseNumber()
+        {
+            if (Type != TokenType.Number_litteral) Debugger.Break();
+            string data = File.Data;
+            int result = 0;
+            int size = 0;
+            if (Flags.HasFlag(TokenFlag.Hexadecimal))
+            {
+                // Parse hex
+                for (int i = 2; i < Length; i++)
+                {
+                    char c = data[Index + i];
+                    if (c == '_') continue;
+
+                    size++;
+
+                    result *= 16;
+                    result += Util.HexToInt(c);
+                }
+
+                size /= 3;
+                // Count digits!
+            }
+            else if (Flags.HasFlag(TokenFlag.Octal))
+            {
+                // Parse octal
+                for (int i = 2; i < Length; i++)
+                {
+                    char c = data[Index + i];
+                    if (c == '_') continue;
+                    size++;
+                    result *= 8;
+                    result += Util.OctalToInt(c);
+                }
+
+                size %= 4;
+            }
+            else if (Flags.HasFlag(TokenFlag.Binary))
+            {
+                for (int i = 2; i < Length; i++)
+                {
+                    char c = data[Index + i];
+                    if (c == '_') continue;
+                    size++;
+                    result *= 2;
+                    result += Util.BinaryToInt(c);
+                }
+
+                size %= 12;
+            }
+            else
+            {
+                for (int i = 0; i < Length; i++)
+                {
+                    char c = data[Index + i];
+                    if (c == '_') continue;
+                    result *= 10;
+                    result += (int)char.GetNumericValue(c);
+                }
+
+                size = Util.Log2(result);
+                size /= 12;
+                //size = result / (1 << 12);
+                size++;
+            }
+
+            return (result, size);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool ContentsMatch(string str)
+        {
+            if (Length != str.Length) return false;
+
+            string data = File.Data;
+            for (int i = 0; i < str.Length; i++)
+            {
+                if (data[Index + i] != str[i]) return false;
+            }
+
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool StartsWith(string str)
+        {
+            if (str.Length > Length) return false;
+
+            string data = File.Data;
+            for (int i = 0; i < str.Length; i++)
+            {
+                if (data[Index + i] != str[i]) return false;
+            }
+
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool EndsWith(string str)
+        {
+            if (str.Length > Length) return false;
+
+            string data = File.Data;
+            int offset = Index + (Length - str.Length);
+            for (int i = 0; i < str.Length; i++)
+            {
+                if (data[offset + i] != str[i]) return false;
+            }
+
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StringRef ToStringRef(int startOffset = 0)
+        {
+            StringRef strRef;
+            strRef.Data = File.Data;
+            strRef.Index = Index + startOffset;
+            strRef.Length = Length - startOffset;
+            return strRef;
+        }
+
         public override string ToString()
         {
-            return $"{Type}{{{File.Data.Substring(Index, Length)}}}";
+            if (Type == TokenType.StartOfLineTab)
+            {
+                return $"{Type}{{{@"\t"}}}";
+            }
+            else
+            {
+                return $"{Type}{{{File.Data.Substring(Index, Length)}}}";
+            }
         }
     }
 
@@ -94,11 +250,13 @@ namespace FastVM12Asm
         const CharCategory Punctuation = CharCategory.Punctuation;
         const CharCategory Symbol = CharCategory.Symbol;
         
-        private FileData CurrentFile;
+        public FileData CurrentFile;
         private string Data;
         private int Index;
         private int Line;
         private int LineStart;
+
+        public List<Token> Tokens = new List<Token>();
 
         public Tokenizer(string path)
         {
@@ -109,6 +267,8 @@ namespace FastVM12Asm
             };
             Data = CurrentFile.Data;
             Index = 0;
+            Line = 1;
+            Tokens = new List<Token>(10000);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -116,7 +276,6 @@ namespace FastVM12Asm
 
         public List<Token> Tokenize()
         {
-            List<Token> Tokens = new List<Token>();
             while (HasNext())
             {
                 // First we eat all whitespace
@@ -220,15 +379,17 @@ namespace FastVM12Asm
             return Tokens;
         }
         
-        private Token CreateToken(TokenType type, int start, int length)
+        private Token CreateToken(TokenType type, int start, int length, TokenFlag flags = TokenFlag.None)
         {
             return new Token
             {
                 Type = type,
+                Flags = flags,
                 Index = start,
                 Length = length,
                 File = CurrentFile,
                 Line = Line,
+                LineCharIndex = start - LineStart,
             };
         }
 
@@ -344,20 +505,62 @@ namespace FastVM12Asm
         private Token ReadNumber()
         {
             int start = Index;
-            
-            while (char.IsNumber(Peek())) Next();
 
-            return CreateToken(TokenType.Number_litteral, start, Index - start);
+            TokenFlag flags = default;
+
+            char c1 = Peek();
+            char c2 = Peek(2);
+            if (c2 == 'x')
+            {
+                if (c1 != '0' && c1 != '8') Error($"Unknown number format specifier '{c1}{c2}'!");
+
+                // Read the two first characters
+                Next();
+                Next();
+
+                if (c1 == '0')
+                {
+                    flags |= TokenFlag.Hexadecimal;
+                    while (Util.IsHexOrUnderscore(Peek())) Next();
+                }
+                else
+                {
+                    flags |= TokenFlag.Octal;
+                    while (Util.IsOctalOrUnderscore(Peek())) Next();
+                }
+            }
+            else if (c2 == 'b')
+            {
+                if (c1 != '0') Error($"Unknown number format specifier '{c1}{c2}'!");
+
+                // Read the two first characters
+                Next();
+                Next();
+
+                flags |= TokenFlag.Binary;
+                while (Util.IsBinaryOrUnderscore(Peek())) Next();
+            }
+            else
+            {
+                // Do normal parsing
+                while (Util.IsDecimalOrUnderscore(Peek())) Next();
+            }
+            
+            if (char.IsLetterOrDigit(Peek())) Error($"Could not parse number! '{CurrentFile.Data.Substring(start, (Index + 1) - start)}'");
+
+            return CreateToken(TokenType.Number_litteral, start, Index - start, flags);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int ConsumeWhitespace()
         {
             int count = 0;
-            while (HasNext() && char.IsWhiteSpace(Peek()))
+            //var peek = Peek();
+            while (HasNext() && char.IsWhiteSpace(Peek()) /*&& peek != '\t'*/)
             {
                 Next();
                 count++;
+                //peek = Peek();
             }
 
             return count;
@@ -369,6 +572,8 @@ namespace FastVM12Asm
             if (lnChar == '\r') Expect('\n');
             Line++;
             LineStart = Index;
+
+            if (HasNext() && Peek() == '\t') Tokens.Add(CreateToken(TokenType.StartOfLineTab, Index, 1));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -504,26 +709,26 @@ namespace FastVM12Asm
         // @Speed: This could probably be better?
         private bool IsInCharCategory(char c, CharCategory category)
         {
-            if ((category & CharCategory.Letter) != 0)
+            if (category.HasFlag(CharCategory.Letter))
                 if (char.IsLetter(c)) return true;
 
-            if ((category & CharCategory.Number) != 0)
+            if (category.HasFlag(CharCategory.Number))
                 if (char.IsNumber(c)) return true;
 
-            if ((category & CharCategory.Whitespace) != 0)
+            if (category.HasFlag(CharCategory.Whitespace))
                 if (char.IsWhiteSpace(c)) return true;
 
-            if ((category & CharCategory.NewLine) != 0)
+            if (category.HasFlag(CharCategory.NewLine))
                 if (c == '\r' || c == '\n') return true;
             
-            if ((category & CharCategory.Punctuation) != 0)
+            if (category.HasFlag(CharCategory.Punctuation))
                 if (char.IsPunctuation(c)) return true;
 
-            if ((category & CharCategory.Symbol) != 0)
+            if (category.HasFlag(CharCategory.Symbol))
                 if (char.IsSymbol(c)) 
                     return true;
 
-            if ((category & CharCategory.Invalid) != 0)
+            if (category.HasFlag(CharCategory.Invalid))
                 return true;
 
             return false;
@@ -545,7 +750,8 @@ namespace FastVM12Asm
         {
             Console.WriteLine($"In file {Path.GetFileName(CurrentFile.Path)} on line {Line} character {Index - LineStart}:");
             Console.WriteLine($"    {message}");
-            Debugger.Break();
+            //Debugger.Break();
+            Console.ReadLine();
             Environment.Exit(1);
         }
     }
