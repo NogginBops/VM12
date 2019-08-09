@@ -1,0 +1,44 @@
+
+& Other Other.12asm
+
+<some_const = auto(3)>
+
+<extern_const = extern>
+
+:start
+	0 0
+	brk
+	::init
+	::run_loop
+	::exit
+	ret
+	
+:init
+	0 0
+	loadl #some_const
+	load #extern_const
+	load #4
+	::other_proc
+	store [SP]
+	ret
+
+:run_loop
+	0 1
+	load #0
+	store 0
+	:jmp_lbl
+	linc 0
+	loadl #some_const
+	load [SP]
+	load 0
+	sub
+	jgz :jmp_lbl
+	ret
+	
+:exit
+	0 0
+	dsi hlt
+	ret
+	
+	
+

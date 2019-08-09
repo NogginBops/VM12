@@ -39,6 +39,7 @@ namespace FastVM12Asm
         Public = 1 << 0,
         Extern = 1 << 1,
         Litteral = 1 << 2,
+        Auto = 1 << 3,
     }
 
     public struct ConstantExpression
@@ -58,6 +59,7 @@ namespace FastVM12Asm
         }
     }
 
+    [Flags]
     public enum InstructionFlags
     {
         None = 0,
@@ -72,6 +74,7 @@ namespace FastVM12Asm
         Label =      1 << 7,
     }
 
+    // FIXME: Add traces!!!
     public struct Instruction
     {
         public InstructionFlags Flags;
@@ -106,6 +109,22 @@ namespace FastVM12Asm
         {
             if (Index >= Tokens.Length) throw new InvalidOperationException("Token queue is empty");
             return Tokens[Index];
+        }
+    }
+
+    public class ParsedFile
+    {
+        public FileData File;
+        public List<Token> IncludeFiles = new List<Token>();
+        public Dictionary<Token, ConstantExpression> ConstExprs = new Dictionary<Token, ConstantExpression>();
+        public Dictionary<Token, List<Instruction>> Procs;
+
+        public ParsedFile(FileData file, List<Token> includeFiles, Dictionary<Token, ConstantExpression> constExprs, Dictionary<Token, List<Instruction>> procs)
+        {
+            File = file;
+            IncludeFiles = includeFiles;
+            ConstExprs = constExprs;
+            Procs = procs;
         }
     }
 
@@ -247,7 +266,7 @@ namespace FastVM12Asm
             Environment.Exit(1);
         }
 
-        public Dictionary<Token, List<Instruction>> Parse()
+        public ParsedFile Parse()
         {
             Stopwatch flagWatch = new Stopwatch();
             Stopwatch constWatch = new Stopwatch();
@@ -260,8 +279,6 @@ namespace FastVM12Asm
 
             Dictionary<Token, List<Instruction>> Procs = new Dictionary<Token, List<Instruction>>();
             
-            List<Token> AutoStrings = new List<Token>();
-
             bool isGlobal = false;
 
             // While there are tokens left
@@ -296,24 +313,46 @@ namespace FastVM12Asm
                             ConstFlags flags = isGlobal ? ConstFlags.Public : ConstFlags.None;
 
                             List<Token> Expr = null;
-                            if (Tokens.Peek().ContentsMatch("extern"))
+                            var peek = Tokens.Peek();
+                            if (peek.ContentsMatch("extern"))
                             {
                                 // Dequeue 'extern'
                                 Tokens.Dequeue();
                                 flags |= ConstFlags.Extern;
                             }
+                            else if (peek.ContentsMatch("auto"))
+                            {
+                                // Parse auto expression
+                                Tokens.Dequeue();
+                                flags |= ConstFlags.Auto;
+
+                                var openParenTok = Tokens.Dequeue();
+                                if (openParenTok.Type != TokenType.Open_paren) Error(openParenTok, "Expected '('!");
+
+                                Expr = new List<Token>();
+                                while (Tokens.Peek().Type != TokenType.Close_paren)
+                                    Expr.Add(Tokens.Dequeue());
+
+                                Tokens.Dequeue();
+                            }
                             else
                             {
                                 Expr = new List<Token>();
                                 while (Tokens.Peek().Type != TokenType.Close_angle)
-                                {
                                     Expr.Add(Tokens.Dequeue());
-                                }
                             }
                             
                             // Dequeue close angle
-                            Tokens.Dequeue();
+                            var closeAngleTok = Tokens.Dequeue();
+                            if (closeAngleTok.Type != TokenType.Close_angle) Error(closeAngleTok, "Expected '>'!");
 
+                            // Flag if this is a litteral!
+                            if (Expr?.Count == 1 &&
+                                (Expr[0].Type == TokenType.Number_litteral ||
+                                Expr[0].Type == TokenType.Char_litteral ||
+                                Expr[0].Type == TokenType.String_litteral))
+                                flags |= ConstFlags.Litteral;
+                            
                             // FIXME: We might want to do flag validation here so that e.g. an extern const is not global
 
                             ConstExprs.Add(identTok, new ConstantExpression(flags, Expr));
@@ -350,7 +389,9 @@ namespace FastVM12Asm
                                 {
                                     currentLine = peek.Line;
                                     Tokens.Dequeue();
-                                    peek = Tokens.Peek();
+                                    if (Tokens.Count > 0)
+                                        peek = Tokens.Peek();
+                                    else break;
                                     continue;
                                 }
 
@@ -435,12 +476,9 @@ namespace FastVM12Asm
                                         }
                                         else if (loadTok.Type == TokenType.String_litteral)
                                         {
-                                            AutoStrings.Add(loadTok);
-                                            string label = $":__str_{AutoStrings.Count - 1}__";
-
                                             inst.Flags |= InstructionFlags.LabelArg;
                                             inst.Flags |= InstructionFlags.AutoString;
-                                            inst.StrArg = new StringRef() { Data = label, Length = label.Length };
+                                            inst.StrArg = loadTok.ToStringRef();
                                             inst.Opcode = Opcode.Load_lit_l;
                                         }
                                         else Error(loadTok, "Cannot load this!");
@@ -707,7 +745,7 @@ namespace FastVM12Asm
                 }
             }
 
-            return Procs;
+            return new ParsedFile(File, IncludeFiles, ConstExprs, Procs);
         }
     }
 }

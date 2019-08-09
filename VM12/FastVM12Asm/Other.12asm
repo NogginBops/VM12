@@ -1,0 +1,12 @@
+﻿
+!global
+
+<extern_const = 10>
+
+:other_proc
+	2 2		; (/a word, /b word)
+	load 0
+	load 1
+	add
+	ret1
+

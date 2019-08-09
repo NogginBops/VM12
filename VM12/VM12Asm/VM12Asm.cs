@@ -1772,7 +1772,7 @@ namespace VM12Asm
 
             foreach (var file in files)
             {
-               Log(verbose_expr, $"Evaluating {file.Value.Constants.Count} const expressions in file '{file.Key}'");
+                Log(verbose_expr, $"Evaluating {file.Value.Constants.Count} const expressions in file '{file.Key}'");
 
                 foreach (var eval_expr in file.Value.Constants.ToList())
                 {

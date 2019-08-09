@@ -102,6 +102,7 @@ namespace FastVM12Asm
             if (args.Length < 1)
             {
                 Console.WriteLine("Must provide a input file!");
+                Console.ReadLine();
                 return;
             }
 
@@ -116,148 +117,188 @@ namespace FastVM12Asm
                     new Tokenizer(args[0]).Tokenize();
                     new Tokenizer(args[0]).Tokenize();
                     new Tokenizer(args[0]).Tokenize();
+
+                    var tokenizer = new Tokenizer(args[0]);
+                    var toks = tokenizer.Tokenize();
+
+                    new Parser(tokenizer.CurrentFile, toks).Parse();
+                    new Parser(tokenizer.CurrentFile, toks).Parse();
+                    new Parser(tokenizer.CurrentFile, toks).Parse();
+                    new Parser(tokenizer.CurrentFile, toks).Parse();
+                    new Parser(tokenizer.CurrentFile, toks).Parse();
+                    new Parser(tokenizer.CurrentFile, toks).Parse();
                 }
-                
+
+                Queue<string> IncludeFiles = new Queue<string>();
+                IncludeFiles.Enqueue(args[0]);
+
+                List<ParsedFile> ParsedFiles = new List<ParsedFile>();
+
+                int lineCount = 0;
+                int tokenCount = 0;
+
                 Stopwatch watch = new Stopwatch();
-                watch.Start();
-                var tokenizer = new Tokenizer(args[0]);
-                var toks = tokenizer.Tokenize();
-                watch.Stop();
-                
-                Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
-                Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
-
-                totalTime += watch.GetMS();
-
-                /*foreach (var tok in toks)
+                while (IncludeFiles.Count > 0)
                 {
-                    Console.ForegroundColor = GetColor(tok.Type);
-                    Console.WriteLine($"{tok,-40} line: {tok.Line:000}, char: {tok.LineCharIndex:000}");
-                }*/
-                Console.ResetColor();
+                    string file = IncludeFiles.Dequeue();
 
-                {
-                    new Parser(tokenizer.CurrentFile, toks).Parse();
-                    new Parser(tokenizer.CurrentFile, toks).Parse();
-                    new Parser(tokenizer.CurrentFile, toks).Parse();
-                    new Parser(tokenizer.CurrentFile, toks).Parse();
-                    new Parser(tokenizer.CurrentFile, toks).Parse();
-                    new Parser(tokenizer.CurrentFile, toks).Parse();
+                    watch.Start();
+                    var tokenizer = new Tokenizer(file);
+                    var toks = tokenizer.Tokenize();
+                    watch.Stop();
+                    Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
+                    Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
+                    totalTime += watch.GetMS();
+
+                    lineCount += tokenizer.GetLines();
+                    tokenCount += toks.Count;
+
+                    /*foreach (var tok in toks)
+                    {
+                        Console.ForegroundColor = GetColor(tok.Type);
+                        Console.WriteLine($"{tok,-40} line: {tok.Line:000}, char: {tok.LineCharIndex:000}");
+                    }*/
+
+                    watch.Restart();
+                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var res = parser.Parse();
+                    ParsedFiles.Add(res);
+                    watch.Stop();
+                    Console.ResetColor();
+
+                    foreach (var include in res.IncludeFiles)
+                    {
+                        string includeFile = include.GetContents();
+                        if (ParsedFiles.Any(p => p.File.Path == includeFile))
+                            continue;
+
+                        IncludeFiles.Enqueue(includeFile);
+                    }
+
+                    bool print = false;
+                    if (print)
+                    {
+                        foreach (var proc in res.Procs)
+                        {
+                            Console.ResetColor();
+                            Console.WriteLine(proc.Key.GetContents());
+
+                            foreach (var inst in proc.Value)
+                            {
+                                if (inst.Flags.HasFlag(InstructionFlags.RawOpcode) && inst.Opcode == Opcode.Nop)
+                                {
+                                    Console.ForegroundColor = GetColor(TokenType.Identifier);
+                                    Console.WriteLine("\tInstruction{Nop}");
+                                }
+                                else if (inst.Opcode == Opcode.Nop)
+                                {
+                                    // Here we assume this is not an instruction
+                                    if (inst.Flags.HasFlag(InstructionFlags.Label))
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Label);
+                                        Console.WriteLine($"\tLabel{{{inst.StrArg.ToString()}}}");
+                                    }
+                                    else if (inst.Flags.HasFlag(InstructionFlags.RawNumber))
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Number_litteral);
+                                        Console.WriteLine($"\tNumeric_litteral{{{inst.Arg}}}");
+                                    }
+                                    else
+                                    {
+                                        Console.ResetColor();
+                                        Console.WriteLine($"\tFlags: {inst.Flags} Arg: {inst.Arg} StrArg: {inst.StrArg}, {inst.Opcode}");
+                                    }
+                                }
+                                else
+                                {
+                                    if (inst.Flags.HasFlag(InstructionFlags.RawOpcode))
+                                    {
+                                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                                        Console.WriteLine($"\tInstruction{{{inst.Opcode}}}");
+                                    }
+                                    else if (inst.Opcode == Opcode.Load_lit || inst.Opcode == Opcode.Load_lit_l)
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
+                                        if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
+                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
+                                        else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
+                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.StrArg.ToString()}");
+                                        else
+                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Flags}");
+                                    }
+                                    else if (inst.Opcode == Opcode.Load_local || inst.Opcode == Opcode.Load_local_l)
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
+                                        if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
+                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
+                                        else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
+                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
+                                        else
+                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Flags}");
+                                    }
+                                    else if (inst.Opcode == Opcode.Store_local || inst.Opcode == Opcode.Store_local_l)
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
+                                        if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
+                                            Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Arg}");
+                                        else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
+                                            Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Arg}");
+                                        else
+                                            Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Flags}");
+                                    }
+                                    else if (inst.Opcode == Opcode.Set)
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
+                                        Console.WriteLine($"\tSet{{{(SetMode)inst.Arg}}}");
+                                    }
+                                    else if (inst.Opcode == Opcode.Jmp)
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
+                                        Console.WriteLine($"\tJmp{{{(JumpMode)inst.Arg}}} {inst.StrArg.ToString()}");
+                                    }
+                                    else if (inst.Opcode == Opcode.Call)
+                                    {
+                                        Console.ForegroundColor = GetColor(TokenType.Call);
+                                        Console.WriteLine($"\tCall{{{inst.StrArg.ToString()}}}");
+                                    }
+                                    else
+                                    {
+                                        Console.ResetColor();
+                                        Console.WriteLine($"\tType: {inst.Flags} OP {inst.Opcode}");
+                                    }
+                                }
+                            }
+
+                            Console.WriteLine();
+                        }
+                    }
+
+                    Console.WriteLine($"Parsed {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
+                    Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
+                    totalTime += watch.GetMS();
+                    Console.ResetColor();
                 }
 
                 watch.Restart();
-                var parser = new Parser(tokenizer.CurrentFile, toks);
-                var res = parser.Parse();
+                var emitter = new Emitter(ParsedFiles);
+                var bin = emitter.Emit();
                 watch.Stop();
                 Console.ResetColor();
 
-                bool print = false;
-                if (print)
-                {
-                    foreach (var proc in res)
-                    {
-                        Console.ResetColor();
-                        Console.WriteLine(proc.Key.GetContents());
-
-                        foreach (var inst in proc.Value)
-                        {
-                            if (inst.Flags.HasFlag(InstructionFlags.RawOpcode) && inst.Opcode == Opcode.Nop)
-                            {
-                                Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                Console.WriteLine("\tInstruction{Nop}");
-                            }
-                            else if (inst.Opcode == Opcode.Nop)
-                            {
-                                // Here we assume this is not an instruction
-                                if (inst.Flags.HasFlag(InstructionFlags.Label))
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Label);
-                                    Console.WriteLine($"\tLabel{{{inst.StrArg.ToString()}}}");
-                                }
-                                else if (inst.Flags.HasFlag(InstructionFlags.RawNumber))
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Number_litteral);
-                                    Console.WriteLine($"\tNumeric_litteral{{{inst.Arg}}}");
-                                }
-                                else
-                                {
-                                    Console.ResetColor();
-                                    Console.WriteLine($"\tFlags: {inst.Flags} Arg: {inst.Arg} StrArg: {inst.StrArg}, {inst.Opcode}");
-                                }
-                            }
-                            else
-                            {
-                                if (inst.Flags.HasFlag(InstructionFlags.RawOpcode))
-                                {
-                                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                                    Console.WriteLine($"\tInstruction{{{inst.Opcode}}}");
-                                }
-                                else if (inst.Opcode == Opcode.Load_lit || inst.Opcode == Opcode.Load_lit_l)
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                    if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
-                                        Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
-                                    else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
-                                        Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.StrArg.ToString()}");
-                                    else
-                                        Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Flags}");
-                                }
-                                else if (inst.Opcode == Opcode.Load_local || inst.Opcode == Opcode.Load_local_l)
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                    if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
-                                        Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
-                                    else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
-                                        Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
-                                    else
-                                        Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Flags}");
-                                }
-                                else if (inst.Opcode == Opcode.Store_local || inst.Opcode == Opcode.Store_local_l)
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                    if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
-                                        Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Arg}");
-                                    else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
-                                        Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Arg}");
-                                    else
-                                        Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Flags}");
-                                }
-                                else if (inst.Opcode == Opcode.Set)
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                    Console.WriteLine($"\tSet{{{(SetMode)inst.Arg}}}");
-                                }
-                                else if (inst.Opcode == Opcode.Jmp)
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                    Console.WriteLine($"\tJmp{{{(JumpMode)inst.Arg}}} {inst.StrArg.ToString()}");
-                                }
-                                else if (inst.Opcode == Opcode.Call)
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Call);
-                                    Console.WriteLine($"\tCall{{{inst.StrArg.ToString()}}}");
-                                }
-                                else
-                                {
-                                    Console.ResetColor();
-                                    Console.WriteLine($"\tType: {inst.Flags} OP {inst.Opcode}");
-                                }
-                            }
-                        }
-
-                        Console.WriteLine();
-                    }
-                }
-                
-                Console.WriteLine($"Parsed {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
-                Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
-
+                Console.WriteLine($"Emitted from {lineCount} lines ({tokenCount} tokens) in {watch.GetMS():#.000}ms");
+                Console.WriteLine($"This is {lineCount / watch.GetSec():#} lines / sec");
                 totalTime += watch.GetMS();
 
-                Console.WriteLine($"Total of {tokenizer.GetLines()} lines ({toks.Count} tokens) in {totalTime:#.000}ms");
-                Console.WriteLine($"This is {(tokenizer.GetLines() / (totalTime / 1000d)):#} lines / sec");
+                Console.WriteLine($"Total {totalTime:#.000}ms");
+                Console.WriteLine($"This is {(lineCount / (totalTime / 1000d)):#} lines / sec");
 
                 Console.ReadKey();
+            }
+            else
+            {
+                Console.WriteLine($"File '{args[0]}' does not exist!");
+                Console.ReadLine();
+                return;
             }
         }
 
