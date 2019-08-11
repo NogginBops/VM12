@@ -734,6 +734,8 @@ namespace VM12
 
         void ParseMetadata(FileInfo metadataFile)
         {
+            if (metadataFile.Exists == false) return;
+
             string[] lines = File.ReadAllLines(metadataFile.FullName);
 
             var dirFiles = Directory.EnumerateFiles(metadataFile.DirectoryName, "*", SearchOption.AllDirectories).ToList();

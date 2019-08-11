@@ -116,10 +116,13 @@ namespace VM12
         
         private void CompileAndRunProgram(FileInfo programFile)
         {
-            VM12Asm.VM12Asm.Reset();
-            VM12Asm.VM12Asm.Main("-src", programFile.FullName, "-dst", Path.GetFileNameWithoutExtension(programFile.Name), "-e", "-o");
+            if (programFile.Extension != ".12exe")
+            {
+                VM12Asm.VM12Asm.Reset();
+                VM12Asm.VM12Asm.Main("-src", programFile.FullName, "-dst", Path.GetFileNameWithoutExtension(programFile.Name), "-e", "-o");
 
-            programFile = new FileInfo(Path.ChangeExtension(programFile.FullName, "12exe"));
+                programFile = new FileInfo(Path.ChangeExtension(programFile.FullName, "12exe"));
+            }
 
             short[] rom = new short[VM12.ROM_SIZE];
 

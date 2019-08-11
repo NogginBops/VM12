@@ -10,8 +10,20 @@ namespace FastVM12Asm
 {
     public class BinFile
     {
-        // FIXME: Add metadata!
         public short[] Instructions;
+        public int UsedInstructions;
+        public List<Proc> Metadata;
+    }
+
+    public struct Proc
+    {
+        public StringRef ProcName;
+        public int Address;
+        public int Line;
+        public List<(int, int)> LinkedLines;
+        public List<short> Instructions;
+
+        public int Size => Instructions.Count;
     }
 
     public class Emitter
@@ -90,8 +102,8 @@ namespace FastVM12Asm
         public void Error(Trace trace, string error)
         {
             Console.ForegroundColor = ConsoleColor.White;
-            // FIXME:
-            Console.WriteLine($"In file {Path.GetFileName(trace.FilePath)} on line {trace.Line}: '{trace.TraceString}'");
+            // FIXME: When start and end line differ
+            Console.WriteLine($"In file {Path.GetFileName(trace.File.Path)} on line {trace.StartLine}: '{trace.TraceString}'");
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"    {error}");
             //Debugger.Break();
@@ -101,14 +113,22 @@ namespace FastVM12Asm
 
         public BinFile Emit()
         {
+            Dictionary<Token, List<(int Offset, StringRef Proc)>> AllProcUses = new Dictionary<Token, List<(int Offset, StringRef Proc)>>();
+            Dictionary<Token, List<(int Offset, StringRef Proc)>> AllLabelUses = new Dictionary<Token, List<(int Offset, StringRef Proc)>>();
+
+            Dictionary<Token, Dictionary<StringRef, int>> ProcLabels = new Dictionary<Token, Dictionary<StringRef, int>>();
+
+            List<(StringRef Name, List<short> Instructions)> ProcList = new List<(StringRef Name, List<short> Instructions)>();
+
             foreach (var file in FileList)
             {
                 // FIXME: Using strings here causes a lot of unnessesary GetContent() calls! Both when creating and when using!
-                Dictionary<string, List<Instruction>> ImportedProcs = new Dictionary<string, List<Instruction>>();
+                Dictionary<StringRef, List<Instruction>> ImportedProcs = new Dictionary<StringRef, List<Instruction>>();
 
                 // FIXME: Using strings here causes a lot of unnessesary GetContent() calls! Both when creating and when using!
-                Dictionary<string, ConstantExpression> ImportedConstExprs = new Dictionary<string, ConstantExpression>();
+                Dictionary<StringRef, ConstantExpression> ImportedConstExprs = new Dictionary<StringRef, ConstantExpression>();
 
+                // FIXME
                 foreach (var include in file.IncludeFiles)
                 {
                     string fileName = include.GetContents();
@@ -118,63 +138,76 @@ namespace FastVM12Asm
                     foreach (var constExpr in includeFile.ConstExprs)
                     {
                         if (constExpr.Value.Flags.HasFlag(ConstFlags.Public))
-                            ImportedConstExprs.Add(constExpr.Key.GetContents(), constExpr.Value);
+                            ImportedConstExprs.Add(constExpr.Key.ToStringRef(), constExpr.Value);
                     }
 
                     foreach (var proc in includeFile.Procs)
                     {
                         // FIXME: Check if public!!
-                        ImportedProcs.Add(proc.Key.GetContents(), proc.Value);
+                        ImportedProcs.Add(proc.Key.ToStringRef(), proc.Value);
                     }
                 }
 
-                Dictionary<string, EvaluatedConstant> EvaluatedConstants = new Dictionary<string, EvaluatedConstant>();
+                // FIXME
+                foreach (var constExpr in file.ConstExprs)
+                {
+                    // We don't import externs here! Because we have already added them!
+                    // FIXME: This will trigger extern auto consts to allocate a new block of memory!!!!!
+
+                    if (constExpr.Value.Flags.HasFlag(ConstFlags.Extern) != true)
+                    {
+                        ImportedConstExprs.Add(constExpr.Key.ToStringRef(), constExpr.Value);
+                    }
+                }
+
+                Dictionary<StringRef, EvaluatedConstant> EvaluatedConstants = new Dictionary<StringRef, EvaluatedConstant>();
 
                 // FIXME: Properly evaluate constants here!
                 Console.WriteLine($"Constants in file: {Path.GetFileName(file.File.Path)}");
-                foreach (var constExpr in file.ConstExprs)
+                foreach (var constExpr in ImportedConstExprs)
                 {
                     if (constExpr.Value.Flags.HasFlag(ConstFlags.Extern))
                     {
-                        Console.WriteLine($"<{constExpr.Key.GetContents()} = extern>");
+                        Console.WriteLine($"<{constExpr.Key} = extern>");
 
-                        if (ImportedConstExprs.TryGetValue(constExpr.Key.GetContents(), out ConstantExpression expr) == false)
-                            Error(constExpr.Key, "Could not find extern const!");
+                        if (ImportedConstExprs.TryGetValue(constExpr.Key, out ConstantExpression expr) == false)
+                            Error(constExpr.Value.Trace, "Could not find extern const!");
 
                         // FIXME: Put this in the map of constant expressions
                     }
                     else if (constExpr.Value.Flags.HasFlag(ConstFlags.Auto))
                     {
-                        Console.WriteLine($"<{constExpr.Key.GetContents()} = auto({string.Join("", constExpr.Value.Expression)})>");
+                        Console.WriteLine($"<{constExpr.Key} = auto({string.Join("", constExpr.Value.AutoExpr.Expression)})>");
 
                         // FIXME: Figure out the size of the auto
                         var result = EvaluateConstantExpr(constExpr.Value);
 
-                        EvaluatedConstants.Add(constExpr.Key.GetContents(), result);
+                        EvaluatedConstants.Add(constExpr.Key, result);
+                    }
+                    else if (constExpr.Value.Flags.HasFlag(ConstFlags.Litteral))
+                    {
+                        EvaluatedConstants.Add(constExpr.Key, new EvaluatedConstant() { LitteralValue = constExpr.Value.Expression[0].GetContents() });
                     }
                     else
                     {
-                        Console.WriteLine($"<{constExpr.Key.GetContents()} = {string.Join("", constExpr.Value.Expression)}>");
+                        Console.WriteLine($"<{constExpr.Key} = {string.Join("", constExpr.Value.Expression)}>");
                     }
                 }
 
                 foreach (var proc in file.Procs)
                 {
-                    ImportedProcs.Add(proc.Key.GetContents(), proc.Value);
-                }
-
-                foreach (var constExpr in file.ConstExprs)
-                {
-                    // We don't import externs here!
-                    if (constExpr.Value.Flags.HasFlag(ConstFlags.Extern) != true)
-                    {
-                        ImportedConstExprs.Add(constExpr.Key.GetContents(), constExpr.Value);
-                    }
+                    ImportedProcs.Add(proc.Key.ToStringRef(), proc.Value);
                 }
 
                 foreach (var proc in file.Procs)
                 {
                     List<short> Instructions = new List<short>();
+
+                    // Unclear if StringRef is right for this...
+                    List<(int, StringRef)> ProcUses = new List<(int, StringRef)>();
+
+                    Dictionary<StringRef, int> LocalLabels = new Dictionary<StringRef, int>();
+                    List<(int, StringRef)> LocalLabelUses = new List<(int, StringRef)>();
 
                     foreach (var inst in proc.Value)
                     {
@@ -198,6 +231,10 @@ namespace FastVM12Asm
                                 }
                                 else Error(inst, "Unknown raw number type!");
                             }
+                            else if (inst.Flags.HasFlag(InstructionFlags.Label))
+                            {
+                                LocalLabels[inst.StrArg] = Instructions.Count;
+                            }
                             else Error(inst, "Not implemented yet!");
                         }
                         else if (inst.Opcode == Opcode.Load_lit || inst.Opcode == Opcode.Load_lit_l)
@@ -212,22 +249,24 @@ namespace FastVM12Asm
                             else if (inst.Flags.HasFlag(InstructionFlags.DwordArg))
                             {
                                 if (inst.Opcode != Opcode.Load_lit) Error(inst, $"Cannot load a dword arg with the {Opcode.Load_lit} instruction");
+                                Instructions.Add((short)inst.Opcode);
                                 Instructions.Add((short)(inst.Arg >> 12));
                                 Instructions.Add((short)(inst.Arg & 0xFFF));
                             }
                             else if (inst.Flags.HasFlag(InstructionFlags.IdentArg))
                             {
                                 // Here we try to find the constant that we want
-                                if (EvaluatedConstants.TryGetValue(inst.StrArg.ToString(), out var evalConst) == false)
+                                if (EvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
                                     Error(inst, "Could not find constant!");
 
-                                if (evalConst.LitteralValue.Type == TokenType.Number_litteral)
+                                if (evalConst.LitteralValue != null)
                                 {
                                     var (value, size) = evalConst.LitteralValue.ParseNumber();
 
                                     if (inst.Opcode == Opcode.Load_lit && size > 1) Error(inst, "Constant to big to be loaded as a word");
                                     if (inst.Opcode == Opcode.Load_lit_l && size > 2) Error(inst, "Constant to big to be loaded as a dword");
 
+                                    Instructions.Add((short)inst.Opcode);
                                     for (int i = 0; i < size; i++)
                                     {
                                         Instructions.Add((short)(value & 0xFFF));
@@ -238,23 +277,159 @@ namespace FastVM12Asm
                             }
                             else Error(inst, "Unknown load arg!");
                         }
+                        else if (inst.Opcode == Opcode.Load_local || inst.Opcode == Opcode.Load_local_l)
+                        {
+                            if (inst.Flags.HasFlag(InstructionFlags.WordArg))
+                            {
+                                Instructions.Add((short)inst.Opcode);
+                                Instructions.Add((short)(inst.Arg & 0xFFF));
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.DwordArg)) Error(inst, $"Cannot use a dword to refer to a local!");
+                            else Error(inst, "Unknown load local arg!");
+                        }
+                        else if (inst.Opcode == Opcode.Store_local || inst.Opcode == Opcode.Store_local_l)
+                        {
+                            if (inst.Flags.HasFlag(InstructionFlags.WordArg))
+                            {
+                                Instructions.Add((short)inst.Opcode);
+                                Instructions.Add((short)(inst.Arg & 0xFFF));
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.DwordArg)) Error(inst, $"Cannot use a dword to refer to a local!");
+                            else Error(inst, "Unknown store local arg!");
+                        }
+                        else if (inst.Opcode == Opcode.Inc_local || inst.Opcode == Opcode.Inc_local_l || 
+                                 inst.Opcode == Opcode.Dec_local || inst.Opcode == Opcode.Dec_local_l)
+                        {
+                            if (inst.Flags.HasFlag(InstructionFlags.WordArg))
+                            {
+                                Instructions.Add((short)inst.Opcode);
+                                Instructions.Add((short)(inst.Arg & 0xFFF));
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.DwordArg)) Error(inst, $"Cannot use a dword to refer to a local!");
+                            else Error(inst, "Unknown inc/dec local arg!");
+                        }
                         else if (inst.Opcode == Opcode.Call)
                         {
                             // This is a call to some proc
                             Instructions.Add((short)inst.Opcode);
 
                             // Try get the proc
-                            if (ImportedProcs.TryGetValue(inst.StrArg.ToString(), out _) == false)
+                            if (ImportedProcs.TryGetValue(inst.StrArg, out _) == false)
                                 Error(inst, "Could not find proc!");
+
+                            // Here we note that the next two instructions need to be filled in later
+                            ProcUses.Add((Instructions.Count, inst.StrArg));
+
+                            // Add two zeros to stand in for the address of the proc
+                            Instructions.Add(0);
+                            Instructions.Add(0);
+                        }
+                        else if (inst.Opcode == Opcode.Jmp)
+                        {
+                            if (Enum.IsDefined(typeof(JumpMode), (JumpMode)inst.Arg) == false)
+                                Error(inst, "Unknown jump mode!");
+
+                            Instructions.Add((short)inst.Opcode);
+                            Instructions.Add((short)inst.Arg);
+
+                            LocalLabelUses.Add((Instructions.Count, inst.StrArg));
+
+                            // Add placeholder address
+                            Instructions.Add(0);
+                            Instructions.Add(0);
                         }
                         else Error(inst, "Not implemented yet!");
                     }
+
+                    AllProcUses.Add(proc.Key, ProcUses);
+                    ProcList.Add((proc.Key.ToStringRef(), Instructions));
+
+                    AllLabelUses.Add(proc.Key, LocalLabelUses);
+                    ProcLabels.Add(proc.Key, LocalLabels);
                 }
 
                 Console.WriteLine();
             }
 
-            return default;
+            Dictionary<StringRef, Proc> ProcMap = new Dictionary<StringRef, Proc>();
+
+            int offset = 0;
+            // Here we place all of the procs after eachother
+            foreach (var proc in ProcList)
+            {
+                Proc metadata = new Proc();
+                metadata.ProcName = proc.Name;
+                metadata.Address = offset + Constants.ROM_START;
+                metadata.Instructions = proc.Instructions;
+
+                // FIXME
+                metadata.Line = -1;
+                metadata.LinkedLines = null;
+
+                Console.WriteLine($"{proc.Name,-15} Offset: {offset} Length: {proc.Instructions.Count}");
+                offset += metadata.Size;
+
+                ProcMap.Add(proc.Name, metadata);
+            }
+
+            foreach (var procUses in AllProcUses)
+            {
+                foreach (var use in procUses.Value)
+                {
+                    Console.WriteLine($"Proc: {procUses.Key.GetContents()} Offset: {use.Offset}, Used proc: {use.Proc}");
+
+                    // This is the proc that we want edit
+                    if (ProcMap.TryGetValue(procUses.Key.ToStringRef(), out var procMeta) == false)
+                        Error(procUses.Key, "Could not find proc! This should not happen!");
+
+                    // This is the proc we want the address from
+                    if (ProcMap.TryGetValue(use.Proc, out Proc proc) == false)
+                        Error(procUses.Key, "Could not find proc! This should not happen!");
+
+                    procMeta.Instructions[use.Offset] = (short)((proc.Address >> 12) & 0xFFF);
+                    procMeta.Instructions[use.Offset + 1] = (short)((proc.Address) & 0xFFF);
+                }
+            }
+
+            foreach (var procUses in AllLabelUses)
+            {
+                foreach (var labelUse in procUses.Value)
+                {
+                    // This is the proc that we want edit
+                    if (ProcMap.TryGetValue(procUses.Key.ToStringRef(), out var procMeta) == false)
+                        Error(procUses.Key, "Could not find proc! This should not happen!");
+
+                    // This is the proc we want the address from
+                    if (ProcMap.TryGetValue(procUses.Key.ToStringRef(), out var proc) == false)
+                        Error(procUses.Key, "Could not find proc! This should not happen!");
+
+                    if (ProcLabels.TryGetValue(procUses.Key, out var labels) == false)
+                        Error(procUses.Key, "Could not find proc! This should not happen!");
+
+                    if (labels.TryGetValue(labelUse.Proc, out int labelOffset) == false)
+                        Error(procUses.Key, "Could not find proc! This should not happen!");
+
+                    int labelAddress = proc.Address + labelOffset;
+
+                    procMeta.Instructions[labelUse.Offset] = (short)((labelAddress >> 12) & 0xFFF);
+                    procMeta.Instructions[labelUse.Offset + 1] = (short)((labelAddress) & 0xFFF);
+
+                    Console.WriteLine($"Proc: {procUses.Key.GetContents()} Offset: {labelUse.Offset}, Used label: {labelUse.Proc} Address: 0x{labelAddress:X} (Offset: {labelOffset:X})");
+                }
+            }
+
+            short[] rom = new short[Constants.ROM_SIZE];
+
+            int usedInstructions = 0;
+
+            foreach (var proc in ProcMap)
+            {
+                usedInstructions += proc.Value.Size;
+                proc.Value.Instructions.CopyTo(rom, proc.Value.Address - Constants.ROM_START);
+            }
+
+            // FIXME: Do this better!
+            return new BinFile() { Instructions = rom, UsedInstructions = usedInstructions, Metadata = ProcMap.Select(kvp => kvp.Value).ToList() };
         }
 
         public struct EvaluatedConstant
@@ -267,9 +442,14 @@ namespace FastVM12Asm
             EvaluatedConstant evaluated = default;
             if (expr.Flags.HasFlag(ConstFlags.Auto))
             {
-                evaluated.LitteralValue = "0";
+                var sizeResult = EvaluateConstantExpr(expr.AutoExpr);
+                var (number, _) = sizeResult.LitteralValue.ParseNumber();
+
+                autoVars -= number;
+
+                evaluated.LitteralValue = $"0x{autoVars:X6}";
             }
-            if (expr.Flags.HasFlag(ConstFlags.Litteral))
+            else if (expr.Flags.HasFlag(ConstFlags.Litteral))
             {
                 // This case is easy!
                 

@@ -93,6 +93,73 @@ namespace FastVM12Asm
             r |= (v >> 1);
             return r;
         }
+
+        public static (int Value, int Size) ParseNumber(this string data)
+        {
+            int result = 0;
+            int size = 0;
+            if (data.StartsWith("0x"))
+            {
+                // Parse hex
+                for (int i = 2; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+
+                    size++;
+
+                    result *= 16;
+                    result += Util.HexToInt(c);
+                }
+
+                size /= 3;
+                // Count digits!
+            }
+            else if (data.StartsWith("8x"))
+            {
+                // Parse octal
+                for (int i = 2; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+                    size++;
+                    result *= 8;
+                    result += Util.OctalToInt(c);
+                }
+
+                size %= 4;
+            }
+            else if (data.StartsWith("0b"))
+            {
+                for (int i = 2; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+                    size++;
+                    result *= 2;
+                    result += Util.BinaryToInt(c);
+                }
+
+                size %= 12;
+            }
+            else
+            {
+                for (int i = 0; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+                    result *= 10;
+                    result += (int)char.GetNumericValue(c);
+                }
+
+                size = Util.Log2(result);
+                size /= 12;
+                //size = result / (1 << 12);
+                size++;
+            }
+
+            return (result, size);
+        }
     }
 
     class Program
@@ -291,6 +358,143 @@ namespace FastVM12Asm
 
                 Console.WriteLine($"Total {totalTime:#.000}ms");
                 Console.WriteLine($"This is {(lineCount / (totalTime / 1000d)):#} lines / sec");
+
+                FileInfo fileInf = new FileInfo(args[0]);
+                DirectoryInfo dirInf = fileInf.Directory;
+                FileInfo resFile = new FileInfo(Path.Combine(fileInf.Directory.FullName, Path.ChangeExtension(fileInf.Name, "12exe")));
+
+                bool dump_mem = true;
+                if (dump_mem)
+                {
+                    bool toFile = false;
+                    TextWriter output = Console.Out;
+                    if (toFile)
+                    {
+                        output = new StreamWriter(File.Create(Path.Combine(dirInf.FullName, "output.txt")), Encoding.ASCII, 2048);
+                    }
+
+                    output.WriteLine($"Result ({bin.UsedInstructions} used words ({((double)bin.UsedInstructions / Constants.ROM_SIZE):P5})): ");
+                    output.WriteLine();
+
+                    Console.ForegroundColor = ConsoleColor.White;
+
+                    const int instPerLine = 3;
+                    for (int i = 0; i < bin.Instructions.Length; i++)
+                    {
+                        if ((bin.Instructions[i] & 0xF000) != 0)
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            output.Write("¤");
+                        }
+
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        output.Write("{0:X6}: ", i + Constants.ROM_START);
+                        Console.ForegroundColor = ConsoleColor.White;
+                        output.Write("{0:X3}{1,-14}", bin.Instructions[i] & 0xFFF, "(" + (Opcode)(bin.Instructions[i] & 0xFFF) + ")");
+
+                        if ((i + 1) % instPerLine == 0)
+                        {
+                            output.WriteLine();
+
+                            int sum = 0;
+                            for (int j = 0; j < instPerLine; j++)
+                            {
+                                if (i + j < bin.Instructions.Length)
+                                {
+                                    sum += bin.Instructions[i + j];
+                                }
+                            }
+
+                            if (sum == 0)
+                            {
+                                int instructions = 0;
+                                while (i + instructions < bin.Instructions.Length && bin.Instructions[i + instructions] == 0)
+                                {
+                                    instructions++;
+                                }
+
+                                i += instructions;
+                                i -= i % instPerLine;
+                                i--;
+
+                                output.WriteLine($"... ({instructions} instructions)");
+                                continue;
+                            }
+                        }
+                    }
+
+                    Console.WriteLine();
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.WriteLine($"Result ({bin.UsedInstructions} used words ({((double)bin.UsedInstructions / Constants.ROM_SIZE):P5}))");
+                }
+
+                resFile.Delete();
+
+                using (FileStream stream = resFile.Create())
+                {
+                    using (BinaryWriter bw = new BinaryWriter(stream))
+                    {
+                        for (int pos = 0; pos < bin.Instructions.Length;)
+                        {
+                            int skipped = 0;
+                            while (pos < bin.Instructions.Length && bin.Instructions[pos] == 0)
+                            {
+                                pos++;
+                                skipped++;
+                            }
+
+#if DEBUG_BINFORMAT
+                        if (skipped > 0)
+                        {
+                            Console.WriteLine($"Skipped {skipped} instructions");
+                        }
+#endif
+
+                            int length = 0;
+                            int zeroes = 0;
+
+                            while (pos + length < bin.Instructions.Length)
+                            {
+                                length++;
+                                if (bin.Instructions[pos + length] == 0)
+                                {
+                                    zeroes++;
+                                    if (zeroes >= 3)
+                                    {
+                                        length -= 2;
+                                        break;
+                                    }
+                                }
+                                else
+                                {
+                                    zeroes = 0;
+                                }
+                            }
+
+                            if (length > 0)
+                            {
+                                // Write block
+
+#if DEBUG_BINFORMAT
+                            Console.WriteLine($"Writing block at pos {pos} and length {length} with fist value {libFile.Instructions[pos]} and last value {libFile.Instructions[pos + length - 1]}");
+#endif
+
+                                bw.Write(pos);
+                                bw.Write(length);
+
+                                for (int i = 0; i < length; i++)
+                                {
+                                    bw.Write(bin.Instructions[pos + i]);
+                                }
+
+                                pos += length;
+                            }
+                        }
+                    }
+                }
 
                 Console.ReadKey();
             }

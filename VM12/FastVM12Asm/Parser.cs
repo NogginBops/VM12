@@ -11,12 +11,39 @@ namespace FastVM12Asm
 {
     public struct Trace
     {
-        public string FilePath;
-        public int Line;
+        public FileData File;
+        public int StartLine, EndLine;
         public StringRef TraceString;
+
+        public Trace(FileData file, int line, StringRef traceString)
+        {
+            File = file;
+            StartLine = line;
+            EndLine = line;
+            TraceString = traceString;
+        }
+        
+        public static Trace FromToken(Token tok)
+        {
+            Trace trace;
+            trace.File = tok.File;
+            trace.StartLine = tok.Line;
+            trace.EndLine = tok.Line;
+            trace.TraceString = tok.ToStringRef();
+            return trace;
+        }
+        public static Trace FromToken(Token start, Token end)
+        {
+            Trace trace;
+            trace.File = start.File;
+            trace.StartLine = start.Line;
+            trace.EndLine = end.Line;
+            trace.TraceString = new StringRef(start.File.Data, start.Index, end.Length + (end.Index - start.Index));
+            return trace;
+        }
     }
 
-    public struct StringRef
+    public struct StringRef : IEquatable<StringRef>
     {
         public string Data;
         public int Index;
@@ -29,7 +56,43 @@ namespace FastVM12Asm
             Length = length;
         }
 
+        public override bool Equals(object obj)
+        {
+            return obj is StringRef @ref && Equals(@ref);
+        }
+
+        public bool Equals(StringRef other)
+        {
+            if (Length != other.Length) return false;
+            for (int i = 0; i < Length; i++)
+            {
+                if (Data[Index + i] != other.Data[other.Index + i]) return false;
+            }
+            return true;
+        }
+
+        public override int GetHashCode()
+        {
+            var hashCode = 596452045;
+            for (int i = 0; i < Length; i++)
+            {
+                hashCode = hashCode * -1521134295 + Data[Index + i].GetHashCode();
+            }
+            hashCode = hashCode * -1521134295 + Length.GetHashCode();
+            return hashCode;
+        }
+
         public override string ToString() => Data?.Substring(Index, Length);
+
+        public static bool operator ==(StringRef left, StringRef right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(StringRef left, StringRef right)
+        {
+            return !(left == right);
+        }
     }
 
     [Flags]
@@ -42,7 +105,7 @@ namespace FastVM12Asm
         Auto = 1 << 3,
     }
 
-    public struct ConstantExpression
+    public class ConstantExpression
     {
         // FIXME actually set this!!
         public Trace Trace; 
@@ -50,6 +113,10 @@ namespace FastVM12Asm
         public ConstFlags Flags;
         // FIXME: represent this better!!!
         public List<Token> Expression;
+
+        public ConstantExpression AutoExpr;
+
+        public ConstantExpression() { }
 
         public ConstantExpression(ConstFlags flags, List<Token> expr)
         {
@@ -310,7 +377,8 @@ namespace FastVM12Asm
 
                             // Here we should parse the actual expression!
 
-                            ConstFlags flags = isGlobal ? ConstFlags.Public : ConstFlags.None;
+                            ConstantExpression constExpr = new ConstantExpression();
+                            constExpr.Flags = isGlobal ? ConstFlags.Public : ConstFlags.None;
 
                             List<Token> Expr = null;
                             var peek = Tokens.Peek();
@@ -318,13 +386,14 @@ namespace FastVM12Asm
                             {
                                 // Dequeue 'extern'
                                 Tokens.Dequeue();
-                                flags |= ConstFlags.Extern;
+
+                                constExpr.Flags |= ConstFlags.Extern;
                             }
                             else if (peek.ContentsMatch("auto"))
                             {
                                 // Parse auto expression
                                 Tokens.Dequeue();
-                                flags |= ConstFlags.Auto;
+                                constExpr.Flags |= ConstFlags.Auto;
 
                                 var openParenTok = Tokens.Dequeue();
                                 if (openParenTok.Type != TokenType.Open_paren) Error(openParenTok, "Expected '('!");
@@ -333,6 +402,18 @@ namespace FastVM12Asm
                                 while (Tokens.Peek().Type != TokenType.Close_paren)
                                     Expr.Add(Tokens.Dequeue());
 
+                                ConstantExpression autoExpr = new ConstantExpression();
+                                autoExpr.Expression = Expr;
+
+                                // Flag if this is a litteral!
+                                if (Expr.Count == 1 &&
+                                    (Expr[0].Type == TokenType.Number_litteral ||
+                                    Expr[0].Type == TokenType.Char_litteral ||
+                                    Expr[0].Type == TokenType.String_litteral))
+                                    autoExpr.Flags |= ConstFlags.Litteral;
+
+                                constExpr.AutoExpr = autoExpr;
+
                                 Tokens.Dequeue();
                             }
                             else
@@ -340,22 +421,26 @@ namespace FastVM12Asm
                                 Expr = new List<Token>();
                                 while (Tokens.Peek().Type != TokenType.Close_angle)
                                     Expr.Add(Tokens.Dequeue());
+
+                                // Flag if this is a litteral!
+                                if (Expr.Count == 1 &&
+                                    (Expr[0].Type == TokenType.Number_litteral ||
+                                    Expr[0].Type == TokenType.Char_litteral ||
+                                    Expr[0].Type == TokenType.String_litteral))
+                                    constExpr.Flags |= ConstFlags.Litteral;
+
+                                constExpr.Expression = Expr;
                             }
                             
                             // Dequeue close angle
                             var closeAngleTok = Tokens.Dequeue();
                             if (closeAngleTok.Type != TokenType.Close_angle) Error(closeAngleTok, "Expected '>'!");
 
-                            // Flag if this is a litteral!
-                            if (Expr?.Count == 1 &&
-                                (Expr[0].Type == TokenType.Number_litteral ||
-                                Expr[0].Type == TokenType.Char_litteral ||
-                                Expr[0].Type == TokenType.String_litteral))
-                                flags |= ConstFlags.Litteral;
-                            
                             // FIXME: We might want to do flag validation here so that e.g. an extern const is not global
 
-                            ConstExprs.Add(identTok, new ConstantExpression(flags, Expr));
+                            constExpr.Trace = Trace.FromToken(tok, closeAngleTok);
+
+                            ConstExprs.Add(identTok, constExpr);
 
                             //Console.ForegroundColor = Program.GetColor(TokenType.Open_angle);
                             //Console.WriteLine($"Constant: '{identTok.GetContents()}', public: '{isGlobal}', extern: '{flags.HasFlag(ConstFlags.Extern)}'");
