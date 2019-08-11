@@ -12,7 +12,7 @@ namespace FastVM12Asm
     {
         public short[] Instructions;
         public int UsedInstructions;
-        public List<Proc> Metadata;
+        public DynArray<Proc> Metadata;
     }
 
     public struct Proc
@@ -20,10 +20,23 @@ namespace FastVM12Asm
         public StringRef ProcName;
         public int Address;
         public int Line;
-        public List<(int, int)> LinkedLines;
+        public List<LineLink> LinkedLines;
         public List<short> Instructions;
+        public Trace Trace;
 
         public int Size => Instructions.Count;
+    }
+
+    public struct LineLink
+    {
+        public int Instruction;
+        public int Line;
+
+        public LineLink(int instruction, int line)
+        {
+            Instruction = instruction;
+            Line = line;
+        }
     }
 
     public class Emitter
@@ -118,7 +131,7 @@ namespace FastVM12Asm
 
             Dictionary<Token, Dictionary<StringRef, int>> ProcLabels = new Dictionary<Token, Dictionary<StringRef, int>>();
 
-            List<(StringRef Name, List<short> Instructions)> ProcList = new List<(StringRef Name, List<short> Instructions)>();
+            DynArray<Proc> ProcList = new DynArray<Proc>(100);
 
             foreach (var file in FileList)
             {
@@ -138,7 +151,7 @@ namespace FastVM12Asm
                     foreach (var constExpr in includeFile.ConstExprs)
                     {
                         if (constExpr.Value.Flags.HasFlag(ConstFlags.Public))
-                            ImportedConstExprs.Add(constExpr.Key.ToStringRef(), constExpr.Value);
+                            ImportedConstExprs.Add(constExpr.Key, constExpr.Value);
                     }
 
                     foreach (var proc in includeFile.Procs)
@@ -156,7 +169,7 @@ namespace FastVM12Asm
 
                     if (constExpr.Value.Flags.HasFlag(ConstFlags.Extern) != true)
                     {
-                        ImportedConstExprs.Add(constExpr.Key.ToStringRef(), constExpr.Value);
+                        ImportedConstExprs.Add(constExpr.Key, constExpr.Value);
                     }
                 }
 
@@ -202,6 +215,7 @@ namespace FastVM12Asm
                 foreach (var proc in file.Procs)
                 {
                     List<short> Instructions = new List<short>();
+                    List<LineLink> LinkedLines = new List<LineLink>();
 
                     // Unclear if StringRef is right for this...
                     List<(int, StringRef)> ProcUses = new List<(int, StringRef)>();
@@ -209,8 +223,15 @@ namespace FastVM12Asm
                     Dictionary<StringRef, int> LocalLabels = new Dictionary<StringRef, int>();
                     List<(int, StringRef)> LocalLabelUses = new List<(int, StringRef)>();
 
+                    int currentSourceLine = 0;
                     foreach (var inst in proc.Value)
                     {
+                        if (inst.Trace.StartLine > currentSourceLine && inst.Flags.HasFlag(InstructionFlags.Label) == false)
+                        {
+                            LinkedLines.Add(new LineLink() { Instruction = Instructions.Count + 1, Line = inst.Trace.StartLine });
+                            currentSourceLine = inst.Trace.StartLine;
+                        }
+
                         if (inst.Flags.HasFlag(InstructionFlags.RawOpcode))
                         {
                             Instructions.Add((short)inst.Opcode);
@@ -242,7 +263,7 @@ namespace FastVM12Asm
                             if (inst.Flags.HasFlag(InstructionFlags.WordArg))
                             {
                                 Instructions.Add((short)inst.Opcode);
-                                if (inst.Opcode != Opcode.Load_lit_l)
+                                if (inst.Opcode == Opcode.Load_lit_l)
                                     Instructions.Add(0);
                                 Instructions.Add((short)(inst.Arg & 0xFFF));
                             }
@@ -341,8 +362,17 @@ namespace FastVM12Asm
                         else Error(inst, "Not implemented yet!");
                     }
 
+                    Proc newProc = default;
+                    newProc.ProcName = proc.Key.ToStringRef();
+                    newProc.Line = proc.Key.Line;
+                    // FIXME!! Actually emit this data!!!
+                    newProc.LinkedLines = LinkedLines;
+                    newProc.Instructions = Instructions;
+                    // FIXME: This can be done better!
+                    newProc.Trace = Trace.FromTrace(proc.Value.First().Trace, proc.Value.Last().Trace);
+
                     AllProcUses.Add(proc.Key, ProcUses);
-                    ProcList.Add((proc.Key.ToStringRef(), Instructions));
+                    ProcList.Add(newProc);
 
                     AllLabelUses.Add(proc.Key, LocalLabelUses);
                     ProcLabels.Add(proc.Key, LocalLabels);
@@ -352,24 +382,19 @@ namespace FastVM12Asm
             }
 
             Dictionary<StringRef, Proc> ProcMap = new Dictionary<StringRef, Proc>();
-
+            
             int offset = 0;
             // Here we place all of the procs after eachother
-            foreach (var proc in ProcList)
+            for (int i = 0; i < ProcList.Count; i++)
             {
-                Proc metadata = new Proc();
-                metadata.ProcName = proc.Name;
-                metadata.Address = offset + Constants.ROM_START;
-                metadata.Instructions = proc.Instructions;
+                ref var proc = ref ProcList.IndexByRef(i);
 
-                // FIXME
-                metadata.Line = -1;
-                metadata.LinkedLines = null;
+                proc.Address = offset + Constants.ROM_START;
 
-                Console.WriteLine($"{proc.Name,-15} Offset: {offset} Length: {proc.Instructions.Count}");
-                offset += metadata.Size;
+                Console.WriteLine($"{proc.ProcName,-15} Offset: {offset} Length: {proc.Size}");
+                offset += proc.Size;
 
-                ProcMap.Add(proc.Name, metadata);
+                ProcMap.Add(proc.ProcName, proc);
             }
 
             foreach (var procUses in AllProcUses)
@@ -429,7 +454,7 @@ namespace FastVM12Asm
             }
 
             // FIXME: Do this better!
-            return new BinFile() { Instructions = rom, UsedInstructions = usedInstructions, Metadata = ProcMap.Select(kvp => kvp.Value).ToList() };
+            return new BinFile() { Instructions = rom, UsedInstructions = usedInstructions, Metadata = ProcList };
         }
 
         public struct EvaluatedConstant

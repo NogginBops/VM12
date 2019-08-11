@@ -27,7 +27,7 @@
 	load #0
 	store 0
 	:jmp_lbl
-	linc 0
+	inc 0
 	loadl #some_const
 	load [SP]
 	load 0

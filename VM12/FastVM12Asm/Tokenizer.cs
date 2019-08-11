@@ -42,6 +42,7 @@ namespace FastVM12Asm
 
         Identifier, // names of constants?
         Label,  // :<name>
+        ProcLocation, // :xxx @<number>
         Call,
         Register,
 
@@ -256,6 +257,8 @@ namespace FastVM12Asm
         private int Line;
         private int LineStart;
 
+        private bool DisableStartTabInsertion = false;
+
         public List<Token> Tokens = new List<Token>();
 
         public Tokenizer(string path)
@@ -338,8 +341,19 @@ namespace FastVM12Asm
                             // This is a call
                             Tokens.Add(ReadCall());
                         else
+                        {
                             // This is a label
                             Tokens.Add(ReadLabel());
+                            // FIXME: Lookahead and see if there is a '@' for specially placed procs!
+
+                            if (Tokens.Count > 2 && Tokens[Tokens.Count - 2].Type != TokenType.StartOfLineTab)
+                            {
+                                // If this is doesn't have a tab at the start we check if we need to parse a location
+                                ConsumeWhitespace();
+                                if (Peek() == '@')
+                                    Tokens.Add(ReadLabelLocation());
+                            }
+                        }
                         break;
                     case '!':
                         Tokens.Add(ReadFlag());
@@ -463,7 +477,8 @@ namespace FastVM12Asm
 
             if (Expect("::") == false) Error("Expected '::'!");
 
-            ExpectName();
+            if (Peek() == '[') Expect("[SP]");
+            else ExpectName();
 
             return CreateToken(TokenType.Call, start, Index - start);
         }
@@ -480,6 +495,20 @@ namespace FastVM12Asm
             Expect('*');
 
             return CreateToken(TokenType.Label, start, Index - start);
+        }
+
+        private Token ReadLabelLocation()
+        {
+            int start = Index;
+
+            if (Expect('@') == false) Error("Expected '@'!");
+
+            // FIXME: Parse a number
+            TokenFlag flags = ExpectNumber();
+
+            if (char.IsLetterOrDigit(Peek())) Error($"Could not parse number! '{CurrentFile.Data.Substring(start, (Index + 1) - start)}'");
+
+            return CreateToken(TokenType.ProcLocation, start, Index - start, flags);
         }
 
         private Token ReadComment()
@@ -506,46 +535,8 @@ namespace FastVM12Asm
         {
             int start = Index;
 
-            TokenFlag flags = default;
+            TokenFlag flags = ExpectNumber();
 
-            char c1 = Peek();
-            char c2 = Peek(2);
-            if (c2 == 'x')
-            {
-                if (c1 != '0' && c1 != '8') Error($"Unknown number format specifier '{c1}{c2}'!");
-
-                // Read the two first characters
-                Next();
-                Next();
-
-                if (c1 == '0')
-                {
-                    flags |= TokenFlag.Hexadecimal;
-                    while (Util.IsHexOrUnderscore(Peek())) Next();
-                }
-                else
-                {
-                    flags |= TokenFlag.Octal;
-                    while (Util.IsOctalOrUnderscore(Peek())) Next();
-                }
-            }
-            else if (c2 == 'b')
-            {
-                if (c1 != '0') Error($"Unknown number format specifier '{c1}{c2}'!");
-
-                // Read the two first characters
-                Next();
-                Next();
-
-                flags |= TokenFlag.Binary;
-                while (Util.IsBinaryOrUnderscore(Peek())) Next();
-            }
-            else
-            {
-                // Do normal parsing
-                while (Util.IsDecimalOrUnderscore(Peek())) Next();
-            }
-            
             if (char.IsLetterOrDigit(Peek())) Error($"Could not parse number! '{CurrentFile.Data.Substring(start, (Index + 1) - start)}'");
 
             return CreateToken(TokenType.Number_litteral, start, Index - start, flags);
@@ -573,7 +564,9 @@ namespace FastVM12Asm
             Line++;
             LineStart = Index;
 
-            if (HasNext() && Peek() == '\t') Tokens.Add(CreateToken(TokenType.StartOfLineTab, Index, 1));
+            // If we haven't disabled it and the new line is followed by a tab we insert a start of line tab token
+            if (DisableStartTabInsertion == false && HasNext() && Peek() == '\t')
+                Tokens.Add(CreateToken(TokenType.StartOfLineTab, Index, 1));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -692,6 +685,60 @@ namespace FastVM12Asm
                 Error($"A name cannot start with '{Peek()}'");
             
             while (IsValidIdentChar(Peek())) Next();
+        }
+
+        private TokenFlag ExpectNumber()
+        {
+            TokenFlag flags = default;
+
+            char c1 = Peek();
+            char c2 = Peek(2);
+            if (c2 == 'x')
+            {
+                if (c1 != '0' && c1 != '8') Error($"Unknown number format specifier '{c1}{c2}'!");
+
+                // Read the two first characters
+                Next();
+                Next();
+
+                if (c1 == '0')
+                {
+                    flags |= TokenFlag.Hexadecimal;
+                    while (Util.IsHexOrUnderscore(Peek())) Next();
+                }
+                else
+                {
+                    flags |= TokenFlag.Octal;
+                    while (Util.IsOctalOrUnderscore(Peek())) Next();
+                }
+            }
+            else if (c2 == 'b')
+            {
+                if (c1 != '0') Error($"Unknown number format specifier '{c1}{c2}'!");
+
+                // Read the two first characters
+                Next();
+                Next();
+
+                flags |= TokenFlag.Binary;
+                while (Util.IsBinaryOrUnderscore(Peek()) || Peek() == '\\')
+                {
+                    if (Peek() == '\\') {
+                        Next();
+                        DisableStartTabInsertion = true;
+                        ConsumeWhitespace();
+                        DisableStartTabInsertion = false;
+                    }
+                    else Next();
+                }
+            }
+            else
+            {
+                // Do normal parsing
+                while (Util.IsDecimalOrUnderscore(Peek())) Next();
+            }
+
+            return flags;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

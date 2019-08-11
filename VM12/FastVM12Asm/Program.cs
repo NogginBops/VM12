@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -160,6 +161,136 @@ namespace FastVM12Asm
 
             return (result, size);
         }
+
+        public static (int Value, int Size) ParseNumber(this StringRef data)
+        {
+            int result = 0;
+            int size = 0;
+            if (data.StartsWith("0x"))
+            {
+                // Parse hex
+                for (int i = 2; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+
+                    size++;
+
+                    result *= 16;
+                    result += Util.HexToInt(c);
+                }
+
+                size /= 3;
+                // Count digits!
+            }
+            else if (data.StartsWith("8x"))
+            {
+                // Parse octal
+                for (int i = 2; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+                    size++;
+                    result *= 8;
+                    result += Util.OctalToInt(c);
+                }
+
+                size %= 4;
+            }
+            else if (data.StartsWith("0b"))
+            {
+                for (int i = 2; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+                    size++;
+                    result *= 2;
+                    result += Util.BinaryToInt(c);
+                }
+
+                size %= 12;
+            }
+            else
+            {
+                for (int i = 0; i < data.Length; i++)
+                {
+                    char c = data[i];
+                    if (c == '_') continue;
+                    result *= 10;
+                    result += (int)char.GetNumericValue(c);
+                }
+
+                size = Util.Log2(result);
+                size /= 12;
+                //size = result / (1 << 12);
+                size++;
+            }
+
+            return (result, size);
+        }
+
+        public static IEnumerable<FileInfo> GetFilesByExtensions(this DirectoryInfo dir, params string[] extensions)
+        {
+            if (extensions == null)
+                throw new ArgumentNullException("extensions");
+            IEnumerable<FileInfo> files = dir.EnumerateFiles("*", SearchOption.AllDirectories);
+            return files.Where(f => extensions.Contains(f.Extension));
+        }
+    }
+
+    public class DynArray<T> : ICollection<T>
+    {
+        public T[] Elements;
+        public int Count = 0;
+
+        public int Capacity => Elements.Length;
+
+        int ICollection<T>.Count => Count;
+
+        public bool IsReadOnly => false;
+
+        public DynArray(int initSize) => Elements = new T[initSize];
+
+        private void Resize(int minCapacity)
+        {
+            int newSize = Elements.Length + (Elements.Length / 2);
+            if (newSize < minCapacity) newSize = minCapacity;
+            T[] newArray = new T[newSize];
+            Elements.CopyTo(newArray, 0);
+            Elements = newArray;
+        }
+
+        public void Add(T element)
+        {
+            if (Count + 1 >= Elements.Length) Resize(Count + 1);
+            Elements[Count++] = element;
+        }
+
+        public void Clear() => Count = 0;
+
+        public ref T IndexByRef(int i) => ref Elements[i];
+
+        public bool Contains(T item) => Elements.Contains(item);
+
+        public void CopyTo(T[] array, int arrayIndex) => Array.Copy(Elements, 0, array, arrayIndex, Elements.Length);
+
+        public bool Remove(T item) => throw new InvalidOperationException();
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            for (int i = 0; i < Count; i++)
+            {
+                yield return Elements[i];
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        public T this[int i]
+        {
+            get => Elements[i];
+            set => Elements[i] = value;
+        }
     }
 
     class Program
@@ -196,8 +327,14 @@ namespace FastVM12Asm
                     new Parser(tokenizer.CurrentFile, toks).Parse();
                 }
 
-                Queue<string> IncludeFiles = new Queue<string>();
-                IncludeFiles.Enqueue(args[0]);
+                FileInfo fileInf = new FileInfo(args[0]);
+                DirectoryInfo dirInf = fileInf.Directory;
+
+                // FIXME: Handle t12 files!
+                FileInfo[] dirFiles = dirInf.GetFilesByExtensions(".12asm").ToArray();
+
+                Queue<FileInfo> IncludeFiles = new Queue<FileInfo>();
+                IncludeFiles.Enqueue(new FileInfo(args[0]));
 
                 List<ParsedFile> ParsedFiles = new List<ParsedFile>();
 
@@ -207,10 +344,10 @@ namespace FastVM12Asm
                 Stopwatch watch = new Stopwatch();
                 while (IncludeFiles.Count > 0)
                 {
-                    string file = IncludeFiles.Dequeue();
+                    FileInfo file = IncludeFiles.Dequeue();
 
                     watch.Start();
-                    var tokenizer = new Tokenizer(file);
+                    var tokenizer = new Tokenizer(file.FullName);
                     var toks = tokenizer.Tokenize();
                     watch.Stop();
                     Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
@@ -239,7 +376,15 @@ namespace FastVM12Asm
                         if (ParsedFiles.Any(p => p.File.Path == includeFile))
                             continue;
 
-                        IncludeFiles.Enqueue(includeFile);
+                        FileInfo fi = null;
+                        for (int i = 0; i < dirFiles.Length; i++)
+                        {
+                            if (dirFiles[i].Name == includeFile) fi = dirFiles[i];
+                        }
+
+                        if (fi == null) throw new InvalidOperationException($"Could not find file called: '{file}'");
+
+                        IncludeFiles.Enqueue(fi);
                     }
 
                     bool print = false;
@@ -359,9 +504,8 @@ namespace FastVM12Asm
                 Console.WriteLine($"Total {totalTime:#.000}ms");
                 Console.WriteLine($"This is {(lineCount / (totalTime / 1000d)):#} lines / sec");
 
-                FileInfo fileInf = new FileInfo(args[0]);
-                DirectoryInfo dirInf = fileInf.Directory;
-                FileInfo resFile = new FileInfo(Path.Combine(fileInf.Directory.FullName, Path.ChangeExtension(fileInf.Name, "12exe")));
+                FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, Path.ChangeExtension(fileInf.Name, "12exe")));
+                FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, Path.ChangeExtension(fileInf.Name, "12meta")));
 
                 bool dump_mem = true;
                 if (dump_mem)
@@ -493,6 +637,33 @@ namespace FastVM12Asm
                                 pos += length;
                             }
                         }
+                    }
+                }
+
+                using (FileStream stream = metaFile.Create())
+                using (StreamWriter writer = new StreamWriter(stream))
+                {
+                    // FIXME: Get constants data!
+                    /*foreach (var constant in autoConstants)
+                    {
+                        writer.WriteLine($"[constant:{{{constant.Key},{constant.Value.Length},{constant.Value.Value}}}]");
+                    }*/
+
+                    writer.WriteLine();
+
+                    foreach (var proc in bin.Metadata)
+                    {
+                        writer.WriteLine(proc.ProcName);
+                        // FIXME
+                        writer.WriteLine($"[file:{new FileInfo(proc.Trace.File.Path).Name}]");
+                        writer.WriteLine($"[location:{proc.Address - Constants.ROM_START}]");
+                        //writer.WriteLine($"[link?]");
+                        writer.WriteLine($"[proc-line:{proc.Line}]");
+                        // We are no longer doing breakpoints this way!
+                        // if (proc.breaks?.Count > 0) writer.WriteLine($"[break:{{{string.Join(",", proc?.breaks)}}}]");
+                        writer.WriteLine($"[link-lines:{{{string.Join(",", proc.LinkedLines.Select(kvp => $"{kvp.Instruction}:{kvp.Line}"))}}}]");
+                        writer.WriteLine($"[size:{proc.Size}]");
+                        writer.WriteLine();
                     }
                 }
 
