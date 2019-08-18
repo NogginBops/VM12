@@ -48,15 +48,31 @@ namespace FastVM12Asm
         public Dictionary<string, ParsedFile> Files;
         public List<ParsedFile> FileList;
 
+        public Dictionary<StringRef, string> AutoStrings = new Dictionary<StringRef, string>();
+        public int AutoStringIndex = 0;
+
+        public Dictionary<StringRef, ConstantExpression> GlobalConstExprs = new Dictionary<StringRef, ConstantExpression>();
+
         public Emitter(List<ParsedFile> files)
         {
-            Files = files.ToDictionary(file => file.File.Path);
+            Files = files.ToDictionaryGood(file => Path.GetFileName(file.File.Path));
 
             bool foundStart = false;
 
             FileList = new List<ParsedFile>();
             foreach (var file in files)
             {
+                foreach (var constExpr in file.ConstExprs)
+                {
+                    if (constExpr.Value.IsGlobal)
+                    {
+                        if (constExpr.Value.Type == ConstantExprType.Extern)
+                            Error(constExpr.Value.Trace, "Cannot have a extern const be global!");
+
+                        GlobalConstExprs.Add(constExpr.Key, constExpr.Value);
+                    }
+                }
+
                 bool hasStart = false;
                 foreach (var proc in file.Procs)
                 {
@@ -141,7 +157,8 @@ namespace FastVM12Asm
                 // FIXME: Using strings here causes a lot of unnessesary GetContent() calls! Both when creating and when using!
                 Dictionary<StringRef, ConstantExpression> ImportedConstExprs = new Dictionary<StringRef, ConstantExpression>();
 
-                // FIXME
+                // FIXME: This goes against the old way of doing this!!
+                // But it is good as it requires less parsing of text!
                 foreach (var include in file.IncludeFiles)
                 {
                     string fileName = include.GetContents();
@@ -150,7 +167,7 @@ namespace FastVM12Asm
 
                     foreach (var constExpr in includeFile.ConstExprs)
                     {
-                        if (constExpr.Value.Flags.HasFlag(ConstFlags.Public))
+                        if (constExpr.Value.IsGlobal)
                             ImportedConstExprs.Add(constExpr.Key, constExpr.Value);
                     }
 
@@ -167,10 +184,7 @@ namespace FastVM12Asm
                     // We don't import externs here! Because we have already added them!
                     // FIXME: This will trigger extern auto consts to allocate a new block of memory!!!!!
 
-                    if (constExpr.Value.Flags.HasFlag(ConstFlags.Extern) != true)
-                    {
-                        ImportedConstExprs.Add(constExpr.Key, constExpr.Value);
-                    }
+                    ImportedConstExprs[constExpr.Key] = constExpr.Value;
                 }
 
                 Dictionary<StringRef, EvaluatedConstant> EvaluatedConstants = new Dictionary<StringRef, EvaluatedConstant>();
@@ -179,31 +193,48 @@ namespace FastVM12Asm
                 Console.WriteLine($"Constants in file: {Path.GetFileName(file.File.Path)}");
                 foreach (var constExpr in ImportedConstExprs)
                 {
-                    if (constExpr.Value.Flags.HasFlag(ConstFlags.Extern))
+                    switch (constExpr.Value.Type)
                     {
-                        Console.WriteLine($"<{constExpr.Key} = extern>");
+                        case ConstantExprType.NumberLit:
+                            Console.WriteLine($"<{constExpr.Key} = {constExpr.Value.NumberLit.Number}> ({constExpr.Value.NumberLit.Size})");
+                            EvaluatedConstants.Add(constExpr.Key, new EvaluatedConstant() { Original = constExpr.Value, NumberValue = constExpr.Value.NumberLit });;
+                            break;
+                        case ConstantExprType.CharLit:
+                            Console.WriteLine($"<{constExpr.Key} = '{constExpr.Value.CharLit}'>");
+                            EvaluatedConstants.Add(constExpr.Key, new EvaluatedConstant() { Original = constExpr.Value, NumberValue = (constExpr.Value.CharLit, 1) });
+                            break;
+                        case ConstantExprType.StringLit:
+                            Console.WriteLine($"<{constExpr.Key} = \"{constExpr.Value.StringLit.ToString()}\">");
+                            EvaluatedConstants.Add(constExpr.Key, new EvaluatedConstant() { Original = constExpr.Value, IsString = true, StringValue = constExpr.Value.StringLit });
+                            break;
+                        case ConstantExprType.Auto:
+                            {
+                                Console.WriteLine($"<{constExpr.Key} = auto({string.Join("", constExpr.Value.AutoExpr)})>");
 
-                        if (ImportedConstExprs.TryGetValue(constExpr.Key, out ConstantExpression expr) == false)
-                            Error(constExpr.Value.Trace, "Could not find extern const!");
+                                // FIXME: Figure out the size of the auto
 
-                        // FIXME: Put this in the map of constant expressions
-                    }
-                    else if (constExpr.Value.Flags.HasFlag(ConstFlags.Auto))
-                    {
-                        Console.WriteLine($"<{constExpr.Key} = auto({string.Join("", constExpr.Value.AutoExpr.Expression)})>");
+                                EvaluatedConstants.Add(constExpr.Key, EvaluateConstantExpr(constExpr.Value));
+                            }
+                            break;
+                        case ConstantExprType.Extern:
+                            {
+                                Console.WriteLine($"<{constExpr.Key} = extern>");
 
-                        // FIXME: Figure out the size of the auto
-                        var result = EvaluateConstantExpr(constExpr.Value);
+                                if (GlobalConstExprs.TryGetValue(constExpr.Key, out ConstantExpression expr) == false)
+                                    Error(constExpr.Value.Trace, "Could not find extern const!");
 
-                        EvaluatedConstants.Add(constExpr.Key, result);
-                    }
-                    else if (constExpr.Value.Flags.HasFlag(ConstFlags.Litteral))
-                    {
-                        EvaluatedConstants.Add(constExpr.Key, new EvaluatedConstant() { LitteralValue = constExpr.Value.Expression[0].GetContents() });
-                    }
-                    else
-                    {
-                        Console.WriteLine($"<{constExpr.Key} = {string.Join("", constExpr.Value.Expression)}>");
+                                EvaluatedConstants.Add(constExpr.Key, EvaluateConstantExpr(expr));
+                            }
+                            break;
+                        case ConstantExprType.Compound:
+                            {
+                                Console.WriteLine($"<{constExpr.Key} = {string.Join("", constExpr.Value.CompoundExpr)}>");
+                                EvaluatedConstants.Add(constExpr.Key, EvaluateConstantExpr(constExpr.Value));
+                            }
+                            break;
+                        default:
+                            Error(constExpr.Value.Trace, $"Unknown const expr type '{constExpr.Value.Type}'!");
+                            break;
                     }
                 }
 
@@ -250,11 +281,46 @@ namespace FastVM12Asm
                                     Instructions.Add((short)(inst.Arg >> 12));
                                     Instructions.Add((short)(inst.Arg & 0xFFF));
                                 }
+                                else if (inst.Flags.HasFlag(InstructionFlags.NumberStrArg))
+                                {
+                                    short[] number = Util.ParseLargeNumber(inst.Trace, inst.StrArg.ToString());
+                                    for (int i = number.Length - 1; i >= 0; i--)
+                                    {
+                                        Instructions.Add(number[i]);
+                                    }
+                                }
+                                else if (inst.Flags.HasFlag(InstructionFlags.IdentArg))
+                                {
+                                    if (EvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
+                                        Error(inst, $"Could not find constant '{inst.StrArg.ToString()}'!");
+
+                                    if (evalConst.IsString) Error(inst, "Cannot load a string here!!");
+
+                                    // FIXME: The number should be able to be bigger than an int?
+                                    Instructions.Add((short)(evalConst.NumberValue.Number >> 12));
+                                    Instructions.Add((short)(evalConst.NumberValue.Number & 0xFFF));
+                                }
                                 else Error(inst, "Unknown raw number type!");
                             }
                             else if (inst.Flags.HasFlag(InstructionFlags.Label))
                             {
                                 LocalLabels[inst.StrArg] = Instructions.Count;
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.String))
+                            {
+                                // This is a string!!
+                                if (proc.Value.Count != 1) Error(inst, "A string proc can only contain one string!");
+
+                                // Convert this string into bits
+                                int length = inst.StrArg.Length;
+                                if (length > 16777216) Error(inst, "String is too long!");
+                                Instructions.Add((short)(length >> 12));
+                                Instructions.Add((short)(length & 0xFFF));
+
+                                foreach (var c in inst.StrArg)
+                                {
+                                    Instructions.Add((short)c);
+                                }
                             }
                             else Error(inst, "Not implemented yet!");
                         }
@@ -269,7 +335,7 @@ namespace FastVM12Asm
                             }
                             else if (inst.Flags.HasFlag(InstructionFlags.DwordArg))
                             {
-                                if (inst.Opcode != Opcode.Load_lit) Error(inst, $"Cannot load a dword arg with the {Opcode.Load_lit} instruction");
+                                if (inst.Opcode == Opcode.Load_lit) Error(inst, $"Cannot load a dword arg with the {Opcode.Load_lit} instruction");
                                 Instructions.Add((short)inst.Opcode);
                                 Instructions.Add((short)(inst.Arg >> 12));
                                 Instructions.Add((short)(inst.Arg & 0xFFF));
@@ -280,12 +346,12 @@ namespace FastVM12Asm
                                 if (EvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
                                     Error(inst, "Could not find constant!");
 
-                                if (evalConst.LitteralValue != null)
+                                if (evalConst.IsString == false)
                                 {
-                                    var (value, size) = evalConst.LitteralValue.ParseNumber();
+                                    var (value, size) = evalConst.NumberValue;
 
-                                    if (inst.Opcode == Opcode.Load_lit && size > 1) Error(inst, "Constant to big to be loaded as a word");
-                                    if (inst.Opcode == Opcode.Load_lit_l && size > 2) Error(inst, "Constant to big to be loaded as a dword");
+                                    if (inst.Opcode == Opcode.Load_lit && size > 1) Error(inst, "Constant too big to be loaded as a word");
+                                    if (inst.Opcode == Opcode.Load_lit_l && size > 2) Error(inst, "Constant too big to be loaded as a dword");
 
                                     Instructions.Add((short)inst.Opcode);
                                     for (int i = 0; i < size; i++)
@@ -294,7 +360,59 @@ namespace FastVM12Asm
                                         value >>= 12;
                                     }
                                 }
-                                else Error(inst, "Unknown const type!");
+                                else Error(inst, "We don't support loading strings atm!");
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.LabelArg))
+                            {
+                                // Here we try and load a label
+                                if (inst.Opcode == Opcode.Load_lit) Error(inst, $"Cannot load a label using the instruction {Opcode.Load_lit}, use {Opcode.Load_lit_l} instead!");
+
+                                Instructions.Add((short)inst.Opcode);
+
+                                LocalLabelUses.Add((Instructions.Count, inst.StrArg));
+                                Instructions.Add(0);
+                                Instructions.Add(0);
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.AutoString))
+                            {
+                                // Here we are going to load an auto string
+
+                                var str = inst.StrArg;
+                                if (AutoStrings.TryGetValue(str, out _) == false)
+                                {
+                                    string labelName = $":__str_{AutoStringIndex++}__";
+                                    AutoStrings.Add(str, labelName);
+
+                                    Instructions.Add((short)inst.Opcode);
+
+                                    LocalLabelUses.Add((Instructions.Count, labelName.ToRef()));
+                                    Instructions.Add(0);
+                                    Instructions.Add(0);
+
+                                    //autoStringsFile.AppendLine(labelName);
+                                    //autoStringsFile.Append('\t').AppendLine(str);
+                                    //autoStrings[str] = labelName;
+
+                                    //Log(verbose, ConsoleColor.Magenta, $"Created inline string '{labelName}' with value {str}");
+                                }
+
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.ConstExprArg))
+                            {
+                                if (EvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
+                                    Error(inst, $"Couldn't find const expr '{inst.StrArg}'");
+
+                                var (value, size) = evalConst.NumberValue;
+
+                                if (inst.Opcode == Opcode.Load_lit && size > 1) Error(inst, "Constant to big to be loaded as a word");
+                                if (inst.Opcode == Opcode.Load_lit_l && size > 2) Error(inst, "Constant to big to be loaded as a dword");
+
+                                Instructions.Add((short)inst.Opcode);
+                                for (int i = 0; i < size; i++)
+                                {
+                                    Instructions.Add((short)(value & 0xFFF));
+                                    value >>= 12;
+                                }
                             }
                             else Error(inst, "Unknown load arg!");
                         }
@@ -358,6 +476,32 @@ namespace FastVM12Asm
                             // Add placeholder address
                             Instructions.Add(0);
                             Instructions.Add(0);
+                        }
+                        else if (inst.Opcode == Opcode.Set)
+                        {
+                            if (Enum.IsDefined(typeof(SetMode), (SetMode)inst.Arg) == false)
+                                Error(inst, "Unknown set mode!");
+
+                            Instructions.Add((short)inst.Opcode);
+                            Instructions.Add((short)inst.Arg);
+                        }
+                        else if (inst.Opcode == Opcode.Add_sp_lit_l)
+                        {
+                            if (inst.Flags.HasFlag(InstructionFlags.WordArg))
+                            {
+                                Instructions.Add((short)inst.Opcode);
+
+                                Instructions.Add(0);
+                                Instructions.Add((short)(inst.Arg & 0xFFF));
+                            }
+                            else if (inst.Flags.HasFlag(InstructionFlags.DwordArg))
+                            {
+                                Instructions.Add((short)inst.Opcode);
+
+                                Instructions.Add((short)(inst.Arg >> 12));
+                                Instructions.Add((short)(inst.Arg & 0xFFF));
+                            }
+                            else Error(inst, "Unknown ladd [SP] litteral!");
                         }
                         else Error(inst, "Not implemented yet!");
                     }
@@ -459,31 +603,162 @@ namespace FastVM12Asm
 
         public struct EvaluatedConstant
         {
-            public string LitteralValue;
+            public ConstantExpression Original;
+            public bool IsString;
+            public (int Number, int Size) NumberValue;
+            public StringRef StringValue;
+
+            public override string ToString() => $"EvalConst{{{(IsString ? NumberValue.ToString() : StringValue.ToString())}}}";
         }
 
         public EvaluatedConstant EvaluateConstantExpr(ConstantExpression expr)
         {
             EvaluatedConstant evaluated = default;
-            if (expr.Flags.HasFlag(ConstFlags.Auto))
+            evaluated.Original = expr;
+            switch (expr.Type)
             {
-                var sizeResult = EvaluateConstantExpr(expr.AutoExpr);
-                var (number, _) = sizeResult.LitteralValue.ParseNumber();
+                case ConstantExprType.NumberLit:
+                    evaluated.NumberValue = expr.NumberLit;
+                    break;
+                case ConstantExprType.CharLit:
+                    evaluated.NumberValue = (expr.CharLit, 1);
+                    break;
+                case ConstantExprType.StringLit:
+                    evaluated.IsString = true;
+                    evaluated.StringValue = expr.StringLit;
+                    break;
+                case ConstantExprType.Auto:
+                    {
+                        var sizeResult = EvaluateConstantExpr(expr.AutoExpr);
+                        var (number, _) = sizeResult.NumberValue;
+                        autoVars -= number;
+                        evaluated.NumberValue = (autoVars, 2);
+                    }
+                    break;
+                case ConstantExprType.Extern:
+                    Error(expr.Trace, "FIXME: What should we do here!?");
+                    break;
+                case ConstantExprType.Compound:
+                    {
+                        Stack<EvaluatedConstant> Stack = new Stack<EvaluatedConstant>();
 
-                autoVars -= number;
+                        foreach (var tok in expr.CompoundExpr)
+                        {
+                            switch (tok.Type)
+                            {
+                                case TokenType.Plus:
+                                    {
+                                        var res = ApplyOperation(Stack.Pop().NumberValue, Stack.Pop().NumberValue, ConstOperation.Addition);
+                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
+                                        break;
+                                    }
+                                case TokenType.Minus:
+                                    {
+                                        var n1 = Stack.Pop();
+                                        var res = ApplyOperation(Stack.Pop().NumberValue, n1.NumberValue, ConstOperation.Subtraction);
+                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
+                                        break;
+                                    }
+                                case TokenType.Asterisk:
+                                    {
+                                        var res = ApplyOperation(Stack.Pop().NumberValue, Stack.Pop().NumberValue, ConstOperation.Multiplication);
+                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
+                                        break;
+                                    }
+                                case TokenType.Slash:
+                                    {
+                                        var n1 = Stack.Pop();
+                                        var res = ApplyOperation(Stack.Pop().NumberValue, n1.NumberValue, ConstOperation.Division);
+                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
+                                        break;
+                                    }
+                                case TokenType.Percent:
+                                    {
+                                        var n1 = Stack.Pop();
+                                        var res = ApplyOperation(Stack.Pop().NumberValue, n1.NumberValue, ConstOperation.Modulo);
+                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
+                                        break;
+                                    }
+                                case TokenType.Numbersign:
+                                    {
+                                        // Parse a constant
+                                        continue;
+                                    }
+                                default:
+                                    {
+                                        // FIXME: Parse sizeof and similar here!!!
+                                        var evalConst = ResolveTokenToEvalConst(tok);
+                                        if (evalConst.IsString) Error(tok, "A compound constant can't contain strings!");
+                                        Stack.Push(evalConst);
+                                        break;
+                                    }
+                            }
+                        }
 
-                evaluated.LitteralValue = $"0x{autoVars:X6}";
+                        if (Stack.Count > 1) Error(expr.Trace , $"Could not evaluate compound expression! There where still values on the stack! Stack: {{{string.Join(", ", Stack)}}}");
+
+                        if (Stack.Count == 0) Error(expr.Trace, "Compound expression resulted in zero values on the stack!");
+                    }
+                    break;
+                default:
+                    Error(expr.Trace, $"Unknown const expr type '{expr.Type}'!");
+                    break;
             }
-            else if (expr.Flags.HasFlag(ConstFlags.Litteral))
-            {
-                // This case is easy!
-                
-                evaluated.LitteralValue = expr.Expression[0].GetContents();
-            }
-            else Error(expr.Trace, "Not implemented yet!");
-
             return evaluated;
         }
 
+        public EvaluatedConstant ResolveTokenToEvalConst(Token tok)
+        {
+            switch (tok.Type)
+            {
+                case TokenType.Identifier:
+                    if (GlobalConstExprs.TryGetValue(tok.ToStringRef(), out var constExpr) == false)
+                        Error(tok, $"Could not resolve ident '{tok.GetContents()}'");
+
+                    // FIXME: This is probably going to execute auto consts multiple times!
+                    return EvaluateConstantExpr(constExpr);
+                case TokenType.Label:
+                    Error(tok, "Resolve label to number not implemented yet!");
+                    return default;
+                case TokenType.Number_litteral:
+                    return new EvaluatedConstant() { NumberValue = tok.ParseNumber() };
+                case TokenType.Char_litteral:
+                    return new EvaluatedConstant() { NumberValue = (tok.GetFirstChar(), 1) };
+                default:
+                    Error(tok, $"Can't resolve token of type '{tok.Type}' to number!");
+                    return default;
+            }
+        }
+
+        public (int Number, int Size) ApplyOperation((int Number, int Size) n1, (int Number, int Size) n2, ConstOperation operation)
+        {
+            int res;
+            switch (operation)
+            {
+                case ConstOperation.Addition:
+                    res = n1.Number + n2.Number;
+                    break;
+                case ConstOperation.Subtraction:
+                    res = n1.Number - n2.Number;
+                    break;
+                case ConstOperation.Multiplication:
+                    res = n1.Number * n2.Number;
+                    break;
+                case ConstOperation.Division:
+                    res = n1.Number / n2.Number;
+                    break;
+                case ConstOperation.Modulo:
+                    res = n1.Number % n2.Number;
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unknown operation '{operation}'!");
+            }
+
+            int size = Util.Log2(res);
+            size /= 12;
+            size++;
+            size = Math.Max(size, Math.Max(n1.Size, n2.Size));
+            return (res, size);
+        }
     }
 }

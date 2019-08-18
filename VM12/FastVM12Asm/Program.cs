@@ -128,7 +128,7 @@ namespace FastVM12Asm
                     result += Util.OctalToInt(c);
                 }
 
-                size %= 4;
+                size /= 4;
             }
             else if (data.StartsWith("0b"))
             {
@@ -141,7 +141,7 @@ namespace FastVM12Asm
                     result += Util.BinaryToInt(c);
                 }
 
-                size %= 12;
+                size /= 12;
             }
             else
             {
@@ -195,7 +195,7 @@ namespace FastVM12Asm
                     result += Util.OctalToInt(c);
                 }
 
-                size %= 4;
+                size /= 4;
             }
             else if (data.StartsWith("0b"))
             {
@@ -208,7 +208,7 @@ namespace FastVM12Asm
                     result += Util.BinaryToInt(c);
                 }
 
-                size %= 12;
+                size /= 12;
             }
             else
             {
@@ -235,6 +235,92 @@ namespace FastVM12Asm
                 throw new ArgumentNullException("extensions");
             IEnumerable<FileInfo> files = dir.EnumerateFiles("*", SearchOption.AllDirectories);
             return files.Where(f => extensions.Contains(f.Extension));
+        }
+
+        public static Dictionary<K, V> ToDictionaryGood<K, V>(this List<V> values, Func<V, K> keyFunc)
+        {
+            Dictionary<K, V> dict = new Dictionary<K, V>(values.Count * 2);
+            foreach (var value in values)
+            {
+                K key = keyFunc(value);
+                if (dict.ContainsKey(key)) throw new ArgumentException($"The key {key} already exists in the dictionary!");
+                dict.Add(key, value);
+            }
+            return dict;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static StringRef ToRef(this string str) => new StringRef(str, 0, str.Length);
+
+        public static short[] ParseLargeNumber(Trace trace, string litteral)
+        {
+            litteral = litteral.Replace("_", "");
+            litteral = litteral.Replace("\\", "");
+            litteral = litteral.Replace("\r", "");
+            litteral = litteral.Replace("\n", "");
+            litteral = litteral.Replace("\t", "");
+
+            short[] ret = null;
+
+            if (litteral.StartsWith("0x"))
+            {
+                litteral = litteral.Substring(2);
+                if (litteral.Length % 3 != 0)
+                {
+                    litteral = new string('0', 3 - (litteral.Length % 3)) + litteral;
+                }
+                ret = Enumerable.Range(0, litteral.Length)
+                    .GroupBy(x => x / 3)
+                    .Select(g => g.Select(i => litteral[i]))
+                    .Select(s => String.Concat(s))
+                    .Select(s => Convert.ToInt16(s, 16))
+                    .Reverse()
+                    .ToArray();
+            }
+            else if (litteral.StartsWith("8x"))
+            {
+                litteral = litteral.Substring(2);
+                if (litteral.Length % 4 != 0)
+                {
+                    litteral = new string('0', 4 - (litteral.Length % 4)) + litteral;
+                }
+                ret = Enumerable.Range(0, litteral.Length)
+                    .GroupBy(x => x / 4)
+                    .Select(g => g.Select(i => litteral[i]))
+                    .Select(s => String.Concat(s))
+                    .Select(s => Convert.ToInt16(s, 8))
+                    .Reverse()
+                    .ToArray();
+            }
+            else if (litteral.StartsWith("0b"))
+            {
+                litteral = litteral.Substring(2);
+                if (litteral.Length % 12 != 0)
+                {
+                    litteral = new string('0', 12 - (litteral.Length % 12)) + litteral;
+                }
+                ret = Enumerable.Range(0, litteral.Length)
+                    .GroupBy(x => x / 12)
+                    .Select(g => g.Select(i => litteral[i]))
+                    .Select(s => String.Concat(s))
+                    .Select(s => { var a = litteral; return Convert.ToInt16(s, 2); })
+                    .Reverse()
+                    .ToArray();
+            }
+            else
+            {
+                List<short> values = new List<short>();
+                int value = Convert.ToInt32(litteral, 10);
+                int itt = 0;
+                do
+                {
+                    values.Add((short)((value >> (12 * itt)) & 0x0FFF));
+                } while ((value >> (12 * itt++)) >= 4096);
+
+                ret = values.ToArray();
+            }
+
+            return ret;
         }
     }
 
@@ -373,7 +459,7 @@ namespace FastVM12Asm
                     foreach (var include in res.IncludeFiles)
                     {
                         string includeFile = include.GetContents();
-                        if (ParsedFiles.Any(p => p.File.Path == includeFile))
+                        if (ParsedFiles.Any(p => Path.GetFileName(p.File.Path) == includeFile))
                             continue;
 
                         FileInfo fi = null;
@@ -384,7 +470,8 @@ namespace FastVM12Asm
 
                         if (fi == null) throw new InvalidOperationException($"Could not find file called: '{file}'");
 
-                        IncludeFiles.Enqueue(fi);
+                        if (IncludeFiles.Contains(fi) == false)
+                            IncludeFiles.Enqueue(fi);
                     }
 
                     bool print = false;

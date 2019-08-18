@@ -16,6 +16,8 @@ namespace FastVM12Asm
     {
         public string Path;
         public string Data;
+
+        public override string ToString() => $"FileData{{{Path}}}";
     }
     
     public enum TokenType
@@ -39,6 +41,8 @@ namespace FastVM12Asm
         Asterisk,
         Plus,
         Minus,
+        Slash,
+        Percent,
 
         Identifier, // names of constants?
         Label,  // :<name>
@@ -60,6 +64,7 @@ namespace FastVM12Asm
         Hexadecimal = 1 << 1,
         Octal = 1 << 2,
         Binary = 1 << 3,
+        Negative = 1 << 4,
     }
 
     public struct Token
@@ -125,7 +130,7 @@ namespace FastVM12Asm
                     result += Util.OctalToInt(c);
                 }
 
-                size %= 4;
+                size /= 4;
             }
             else if (Flags.HasFlag(TokenFlag.Binary))
             {
@@ -138,7 +143,7 @@ namespace FastVM12Asm
                     result += Util.BinaryToInt(c);
                 }
 
-                size %= 12;
+                size /= 12;
             }
             else
             {
@@ -327,13 +332,26 @@ namespace FastVM12Asm
                         Tokens.Add(CreateToken(TokenType.Asterisk, Index, 1));
                         Next();
                         break;
+                    case '/':
+                        Tokens.Add(CreateToken(TokenType.Slash, Index, 1));
+                        Next();
+                        break;
+                    case '%':
+                        Tokens.Add(CreateToken(TokenType.Percent, Index, 1));
+                        Next();
+                        break;
                     case '+':
                         Tokens.Add(CreateToken(TokenType.Plus, Index, 1));
                         Next();
                         break;
                     case '-':
-                        Tokens.Add(CreateToken(TokenType.Minus, Index, 1));
-                        Next();
+                        if (IsInCharCategory(Peek(2), Number))
+                            Tokens.Add(ReadNumber());
+                        else
+                        {
+                            Tokens.Add(CreateToken(TokenType.Minus, Index, 1));
+                            Next();
+                        }
                         break;
                     case ':':
                         // We know this must be a label or a function call!
@@ -349,7 +367,7 @@ namespace FastVM12Asm
                             if (Tokens.Count > 2 && Tokens[Tokens.Count - 2].Type != TokenType.StartOfLineTab)
                             {
                                 // If this is doesn't have a tab at the start we check if we need to parse a location
-                                ConsumeWhitespace();
+                                ConsumeWhitespaceNoNewline();
                                 if (Peek() == '@')
                                     Tokens.Add(ReadLabelLocation());
                             }
@@ -392,7 +410,23 @@ namespace FastVM12Asm
 
             return Tokens;
         }
-        
+
+        // This is used for multi-line tokens...
+        private Token CreateToken(TokenType type, int start, int length, int line, TokenFlag flags = TokenFlag.None)
+        {
+            return new Token
+            {
+                Type = type,
+                Flags = flags,
+                Index = start,
+                Length = length,
+                File = CurrentFile,
+                Line = line,
+                // FIXME!!!
+                LineCharIndex = start - LineStart,
+            };
+        }
+
         private Token CreateToken(TokenType type, int start, int length, TokenFlag flags = TokenFlag.None)
         {
             return new Token
@@ -504,7 +538,7 @@ namespace FastVM12Asm
             if (Expect('@') == false) Error("Expected '@'!");
 
             // FIXME: Parse a number
-            TokenFlag flags = ExpectNumber();
+            TokenFlag flags = ExpectNumber(false);
 
             if (char.IsLetterOrDigit(Peek())) Error($"Could not parse number! '{CurrentFile.Data.Substring(start, (Index + 1) - start)}'");
 
@@ -534,12 +568,13 @@ namespace FastVM12Asm
         private Token ReadNumber()
         {
             int start = Index;
+            int startLine = Line;
 
-            TokenFlag flags = ExpectNumber();
+            TokenFlag flags = ExpectNumber(true);
 
             if (char.IsLetterOrDigit(Peek())) Error($"Could not parse number! '{CurrentFile.Data.Substring(start, (Index + 1) - start)}'");
 
-            return CreateToken(TokenType.Number_litteral, start, Index - start, flags);
+            return CreateToken(TokenType.Number_litteral, start, Index - start, startLine, flags);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -552,6 +587,21 @@ namespace FastVM12Asm
                 Next();
                 count++;
                 //peek = Peek();
+            }
+
+            return count;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private int ConsumeWhitespaceNoNewline()
+        {
+            int count = 0;
+            char peek = Peek();
+            while (HasNext() && char.IsWhiteSpace(peek) && peek != '\n' && peek != '\r')
+            {
+                Next();
+                count++;
+                peek = Peek();
             }
 
             return count;
@@ -687,7 +737,7 @@ namespace FastVM12Asm
             while (IsValidIdentChar(Peek())) Next();
         }
 
-        private TokenFlag ExpectNumber()
+        private TokenFlag ExpectNumber(bool allowBackslash)
         {
             TokenFlag flags = default;
 
@@ -721,7 +771,7 @@ namespace FastVM12Asm
                 Next();
 
                 flags |= TokenFlag.Binary;
-                while (Util.IsBinaryOrUnderscore(Peek()) || Peek() == '\\')
+                while (Util.IsBinaryOrUnderscore(Peek()) || (allowBackslash && Peek() == '\\'))
                 {
                     if (Peek() == '\\') {
                         Next();
@@ -734,6 +784,12 @@ namespace FastVM12Asm
             }
             else
             {
+                if (c1 == '-')
+                {
+                    flags |= TokenFlag.Negative;
+                    Next();
+                }
+
                 // Do normal parsing
                 while (Util.IsDecimalOrUnderscore(Peek())) Next();
             }

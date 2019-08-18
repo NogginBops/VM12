@@ -229,7 +229,7 @@ namespace T12
                     builder.AppendLine($"\t[SP] ldec");
                     builder.AppendLine($"\tloadl #{typeSize}");
                     builder.AppendLineWithComment($"\tmemc", "Copy the data from the pointer to the stack");
-                    builder.AppendLineWithComment($"\tadd [SP] #{typeSize}", "Set the stack pointer to after the copied data");
+                    builder.AppendLineWithComment($"\tladd [SP] #{typeSize}", "Set the stack pointer to after the copied data");
                     break;
             }
         }

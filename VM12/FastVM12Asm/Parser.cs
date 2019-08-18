@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using VM12_Opcode;
@@ -53,12 +55,13 @@ namespace FastVM12Asm
         }
     }
 
-    public struct StringRef : IEquatable<StringRef>
+    public struct StringRef : IEquatable<StringRef>, IEnumerable<char>
     {
         public string Data;
         public int Index;
         public int Length;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StringRef(string data, int index, int length)
         {
             Data = data;
@@ -92,6 +95,7 @@ namespace FastVM12Asm
             return hashCode;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public override string ToString() => Data?.Substring(Index, Length);
 
         public static bool operator ==(StringRef left, StringRef right)
@@ -104,6 +108,7 @@ namespace FastVM12Asm
             return !(left == right);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static explicit operator StringRef(string str) => new StringRef(str, 0, str.Length);
 
         public bool StartsWith(string str)
@@ -118,40 +123,53 @@ namespace FastVM12Asm
             return true;
         }
 
+        public IEnumerator<char> GetEnumerator()
+        {
+            for (int i = 0; i < Length; i++)
+            {
+                yield return this[i];
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
         public char this[int i] => Data[Index + i];
     }
 
-    [Flags]
-    public enum ConstFlags
+    public enum ConstOperation
     {
-        None = 0,
-        Public = 1 << 0,
-        Extern = 1 << 1,
-        Litteral = 1 << 2,
-        Auto = 1 << 3,
+        Unknown,
+        Addition,
+        Subtraction,
+        Multiplication,
+        Division,
+        Modulo,
+    }
+
+    public enum ConstantExprType
+    {
+        NumberLit,
+        CharLit,
+        StringLit,
+        Auto,
+        Extern,
+        Compound,
     }
 
     public class ConstantExpression
     {
         // FIXME actually set this!!
-        public Trace Trace; 
+        public Trace Trace;
+        public bool IsGlobal;
+        public ConstantExprType Type;
 
-        public ConstFlags Flags;
-        // FIXME: represent this better!!!
-        public List<Token> Expression;
-
-        public Token Litteral;
-
+        public (int Number, int Size) NumberLit;
+        public char CharLit;
+        public StringRef StringLit;
         public ConstantExpression AutoExpr;
+        public List<Token> CompoundExpr;
 
         public ConstantExpression() { }
-
-        public ConstantExpression(ConstFlags flags, List<Token> expr)
-        {
-            Trace = default;
-            Flags = flags;
-            Expression = expr;
-        }
     }
 
     [Flags]
@@ -170,6 +188,7 @@ namespace FastVM12Asm
 
         ConstExprArg = 1 << 8,
         NumberStrArg = 1 << 9,
+        String = 1 << 10,
     }
 
     // FIXME: Add traces!!!
@@ -231,6 +250,8 @@ namespace FastVM12Asm
             ConstExprs = constExprs;
             Procs = procs;
         }
+
+        public override string ToString() => $"ParsedFile{{{Path.GetFileName(File.Path)}}}";
     }
 
     public class Parser
@@ -405,13 +426,17 @@ namespace FastVM12Asm
                             {
                                 isGlobal = true;
                             }
-                            else if(tok.ContentsMatch("!private"))
+                            else if (tok.ContentsMatch("!private"))
                             {
                                 isGlobal = false;
                             }
-                            else if (tok.ContentsMatch("!noprintouts"))
+                            else if (tok.ContentsMatch("!noprintout") || tok.ContentsMatch("!noprintouts"))
                             {
                                 // FIXME: Implenent this flag!
+                            }
+                            else if (tok.ContentsMatch("!no_map"))
+                            {
+                                // FIXME: Implement this flag!
                             }
                             else Error(tok, "Unknown flag!");
                             break;
@@ -425,7 +450,7 @@ namespace FastVM12Asm
                             if (equalsTok.Type != TokenType.Equals) Error(equalsTok, "Expected equals!");
 
                             var constExpr = ParseConstExpr(Tokens);
-                            constExpr.Flags |= isGlobal ? ConstFlags.Public : ConstFlags.None;
+                            constExpr.IsGlobal = isGlobal;
 
                             // Dequeue close angle
                             var closeAngleTok = Tokens.Dequeue();
@@ -435,7 +460,11 @@ namespace FastVM12Asm
 
                             constExpr.Trace = Trace.FromToken(tok, closeAngleTok);
 
-                            ConstExprs.Add(identTok.ToStringRef(), constExpr);
+                            StringRef constName = identTok.ToStringRef();
+                            if (ConstExprs.TryGetValue(constName, out _) == true)
+                                Error(identTok, "A constant with the same name already exists!");
+
+                            ConstExprs.Add(constName, constExpr);
 
                             //Console.ForegroundColor = Program.GetColor(TokenType.Open_angle);
                             //Console.WriteLine($"Constant: '{identTok.GetContents()}', public: '{isGlobal}', extern: '{flags.HasFlag(ConstFlags.Extern)}'");
@@ -546,7 +575,7 @@ namespace FastVM12Asm
                                                 ConstantExpression expr = ParseConstExpr(Tokens);
 
                                                 // FIXME: Better number and name!
-                                                StringRef constName = (StringRef)$"auto_created_const_expr{new Random().Next()}";
+                                                StringRef constName = (StringRef)$"auto_created_const_expr{expr.GetHashCode()}";
 
                                                 ConstExprs.Add(constName, expr);
 
@@ -584,6 +613,9 @@ namespace FastVM12Asm
                                             if (instTok.GetLastChar() == 'l') Error(loadTok, "Cannot loadl a char litteral!");
                                             inst.Flags |= InstructionFlags.WordArg;
                                             inst.Arg = loadTok.GetFirstChar();
+                                            if (instTok.GetLastChar() == 'l')
+                                                inst.Opcode = Opcode.Load_lit_l;
+                                            else inst.Opcode = Opcode.Load_lit;
                                             inst.Trace = Trace.FromToken(instTok, loadTok);
                                         }
                                         else if (loadTok.Type == TokenType.String_litteral)
@@ -775,7 +807,39 @@ namespace FastVM12Asm
                                             inst.Trace = Trace.FromToken(instTok);
                                         }
                                     }
+                                    else if (instTok.ContentsMatch("ladd") && Tokens.Count > 0 && Tokens.Peek().Type == TokenType.Register)
+                                    {
+                                        // FIXME: Change the inst name so we don't have to do this!
+                                        var regTok = Tokens.Dequeue();
+                                        var constTok = Tokens.Dequeue();
+                                        if (regTok.ContentsMatch("[SP]") == false || constTok.Type != TokenType.Numbersign)
+                                        {
+                                            // This is not the right thing...
+                                            Tokens.Revert(2);
+                                            inst.Flags |= InstructionFlags.RawOpcode;
+                                            inst.Opcode = Opcode.Add_l;
+                                            inst.Trace = Trace.FromToken(instTok);
+                                        }
+                                        else
+                                        {
+                                            // Here we parse an add_sp_lit_l instruction!
+                                            var litTok = Tokens.Dequeue();
+                                            if (litTok.Type == TokenType.Number_litteral)
+                                            {
+                                                var (num, size) = litTok.ParseNumber();
+                                                inst.Arg = num;
 
+                                                if (size > 2) Error(litTok, "Number too big!");
+                                                inst.Flags |= InstructionFlags.DwordArg;
+                                                inst.Opcode = Opcode.Add_sp_lit_l;
+
+                                                inst.Trace = Trace.FromToken(instTok, litTok);
+                                            }
+                                            else if (litTok.Type == TokenType.Identifier) Error(litTok, "We don't do static analasys for this yet");
+                                            else if (litTok.Type == TokenType.Open_paren) Error(litTok, "We don't do static analasys for this yet");
+                                            else Error(litTok, "Must add a constant to the stack pointer!");
+                                        }
+                                    }
                                     else
                                     {
                                         bool found = false;
@@ -791,7 +855,18 @@ namespace FastVM12Asm
                                             }
                                         }
 
-                                        if (found == false) Error(instTok, "Unknown instruction!");
+                                        if (found == false)
+                                        {
+                                            if (instTok.Type == TokenType.Identifier)
+                                            {
+                                                // Here we guess that this is a constant that we want to resolve!
+                                                inst.Flags |= InstructionFlags.RawNumber;
+                                                inst.Flags |= InstructionFlags.IdentArg;
+                                                inst.StrArg = instTok.ToStringRef();
+                                                inst.Trace = Trace.FromToken(instTok);
+                                            }
+                                            else Error(instTok, "Unknown instruction!");
+                                        }
                                     }
                                 }
                                 else if (instTok.Type == TokenType.Number_litteral)
@@ -856,6 +931,51 @@ namespace FastVM12Asm
                                     inst.StrArg = instTok.ToStringRef();
                                     inst.Trace = Trace.FromToken(instTok);
                                 }
+                                else if (instTok.Type == TokenType.String_litteral)
+                                {
+                                    if (ProcContent.Count > 0) Error(instTok, "A string label can only contain a string!");
+                                    inst.Flags |= InstructionFlags.String;
+                                    inst.StrArg = instTok.ToStringRef();
+                                    inst.Trace = Trace.FromToken(instTok);
+
+                                    // FIXME: Generate an error if there are more things to add to this label!!!
+                                }
+                                else if (instTok.Type == TokenType.Char_litteral)
+                                {
+                                    inst.Flags |= InstructionFlags.WordArg;
+                                    inst.Flags |= InstructionFlags.RawNumber;
+                                    // FIXME: Char escapes!!
+                                    inst.Arg = instTok.GetFirstChar();
+                                    inst.Trace = Trace.FromToken(instTok);
+                                }
+                                else if (instTok.Type == TokenType.Numbersign)
+                                {
+                                    // This is a constant that we should eval!
+
+                                    var litTok = Tokens.Dequeue();
+                                    if (litTok.Type == TokenType.Identifier)
+                                    {
+                                        // This is just a const that we want to eval!
+                                        Error(litTok, "We don't support raw constants yet!");
+                                    }
+                                    else if (litTok.Type == TokenType.Open_paren)
+                                    {
+                                        // Go back to the open_paren token so that the constant expression parsing will work correctly
+                                        Tokens.Revert(1);
+                                        ConstantExpression expr = ParseConstExpr(Tokens);
+
+                                        // FIXME: Better number and name!
+                                        StringRef constName = (StringRef)$"auto_created_const_expr{expr.GetHashCode()}";
+
+                                        ConstExprs.Add(constName, expr);
+
+                                        inst.Flags |= InstructionFlags.ConstExprArg;
+                                        inst.StrArg = constName;
+
+                                        inst.Trace = Trace.FromToken(instTok, litTok);
+                                    }
+                                    else Error(litTok, $"Unknown constant type {litTok.Type}!! ");
+                                }
                                 else Error(instTok, "Unknown instruction type!");
 
                                 if (inst.Trace.File == null) Debugger.Break();
@@ -865,7 +985,7 @@ namespace FastVM12Asm
                                     peek = Tokens.Peek();
                                 else break;
                             }
-                            
+
                             // FIXME: Add the location of the proc!!! if there is one!
                             Procs.Add(tok, ProcContent);
 
@@ -894,12 +1014,23 @@ namespace FastVM12Asm
                 Tokens.Dequeue();
                 constExpr = ParseConstExpr(Tokens);
             }
-            else if (peek.Type == TokenType.Number_litteral || peek.Type == TokenType.Char_litteral || peek.Type == TokenType.String_litteral)
+            else if (peek.Type == TokenType.Number_litteral)
             {
                 Tokens.Dequeue();
-                // FIXME: Consider splitting litteral up into number, string, and char
-                constExpr.Flags |= ConstFlags.Litteral;
-                constExpr.Litteral = peek;
+                constExpr.Type = ConstantExprType.NumberLit;
+                constExpr.NumberLit = peek.ParseNumber();
+            }
+            else if (peek.Type == TokenType.Char_litteral)
+            {
+                Tokens.Dequeue();
+                constExpr.Type = ConstantExprType.CharLit;
+                constExpr.CharLit = peek.GetFirstChar();
+            }
+            else if (peek.Type == TokenType.String_litteral)
+            {
+                Tokens.Dequeue();
+                constExpr.Type = ConstantExprType.StringLit;
+                constExpr.StringLit = peek.ToStringRef();
             }
             else if (peek.Type == TokenType.Open_paren)
             {
@@ -926,22 +1057,48 @@ namespace FastVM12Asm
                 var closeParenTok = Tokens.Dequeue();
                 if (closeParenTok.Type != TokenType.Close_paren) Error(closeParenTok, "Expected ')'!");
 
-                if (Expr.Count == 1 && Expr[0].Type == TokenType.Number_litteral || Expr[0].Type == TokenType.String_litteral || Expr[0].Type == TokenType.Char_litteral)
-                    constExpr.Flags |= ConstFlags.Litteral;
+                if (Expr.Count == 1)
+                {
+                    if (Expr[0].Type == TokenType.Number_litteral)
+                    {
+                        constExpr.Type = ConstantExprType.NumberLit;
+                        constExpr.NumberLit = Expr[0].ParseNumber();
+                    }
+                    else if (Expr[0].Type == TokenType.Char_litteral)
+                    {
+                        constExpr.Type = ConstantExprType.CharLit;
+                        constExpr.CharLit = Expr[0].GetFirstChar();
+                    }
+                    else if (Expr[0].Type == TokenType.String_litteral)
+                    {
+                        constExpr.Type = ConstantExprType.StringLit;
+                        constExpr.StringLit = Expr[0].ToStringRef();
+                    }
+                    else
+                    {
+                        constExpr.Type = ConstantExprType.Compound;
+                        constExpr.CompoundExpr = Expr;
+                    }
+                }
+                else
+                {
+                    constExpr.Type = ConstantExprType.Compound;
+                    constExpr.CompoundExpr = Expr;
+                }
 
-                constExpr.Expression = Expr;
+                constExpr.Trace = Trace.FromToken(Expr.First(), Expr.Last());
             }
             else if (peek.ContentsMatch("extern"))
             {
                 // Dequeue 'extern'
                 Tokens.Dequeue();
-                constExpr.Flags |= ConstFlags.Extern;
+                constExpr.Type = ConstantExprType.Extern;
             }
             else if (peek.ContentsMatch("auto"))
             {
                 // Parse auto expression
                 Tokens.Dequeue();
-                constExpr.Flags |= ConstFlags.Auto;
+                constExpr.Type = ConstantExprType.Auto;
 
                 var openParenPeek = Tokens.Peek();
                 if (openParenPeek.Type != TokenType.Open_paren) Error(openParenPeek, "Expected '('!");

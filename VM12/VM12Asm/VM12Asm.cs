@@ -257,7 +257,7 @@ namespace VM12Asm
             { new Regex("(?<!:)\\bstorel\\s+@(\\S+)"), "load.lit.l $1 swap.l store.sp.l" },
             { new Regex("(?<!:)\\bset\\s+\\[SP\\]"), "set.sp" },
             { new Regex("(?<!:)\\bset\\s+\\[FP\\]"), "set.fp" },
-            { new Regex("(?<!:)\\badd\\s+\\[SP\\]\\s+(#\\S+)"), "add.sp.lit.l $1" },
+            { new Regex("(?<!:)\\bladd\\s+\\[SP\\]\\s+(#\\S+)"), "add.sp.lit.l $1" },
             { new Regex("::\\[SP\\]"), "call.v" },
             { new Regex("::(?!\\s)"), "call :" },
             { new Regex(sname("lswap")), "swap.l" },
