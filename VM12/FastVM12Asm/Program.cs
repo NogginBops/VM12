@@ -432,6 +432,7 @@ namespace FastVM12Asm
                 {
                     FileInfo file = IncludeFiles.Dequeue();
 
+                    // Tokenize
                     watch.Start();
                     var tokenizer = new Tokenizer(file.FullName);
                     var toks = tokenizer.Tokenize();
@@ -443,12 +444,7 @@ namespace FastVM12Asm
                     lineCount += tokenizer.GetLines();
                     tokenCount += toks.Count;
 
-                    /*foreach (var tok in toks)
-                    {
-                        Console.ForegroundColor = GetColor(tok.Type);
-                        Console.WriteLine($"{tok,-40} line: {tok.Line:000}, char: {tok.LineCharIndex:000}");
-                    }*/
-
+                    // Parse
                     watch.Restart();
                     var parser = new Parser(tokenizer.CurrentFile, toks);
                     var res = parser.Parse();
@@ -474,6 +470,7 @@ namespace FastVM12Asm
                             IncludeFiles.Enqueue(fi);
                     }
 
+                    /** Deprecated Print Routine
                     bool print = false;
                     if (print)
                     {
@@ -484,11 +481,12 @@ namespace FastVM12Asm
 
                             foreach (var inst in proc.Value)
                             {
-                                if (inst.Flags.HasFlag(InstructionFlags.RawOpcode) && inst.Opcode == Opcode.Nop)
+                                if (inst.Type == InstructionType.RawOpcode)
                                 {
                                     Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                    Console.WriteLine("\tInstruction{Nop}");
+                                    Console.WriteLine($"\tInstruction{inst.Opcode}");
                                 }
+                                // FIXME!!
                                 else if (inst.Opcode == Opcode.Nop)
                                 {
                                     // Here we assume this is not an instruction
@@ -510,11 +508,6 @@ namespace FastVM12Asm
                                 }
                                 else
                                 {
-                                    if (inst.Flags.HasFlag(InstructionFlags.RawOpcode))
-                                    {
-                                        Console.ForegroundColor = ConsoleColor.DarkGray;
-                                        Console.WriteLine($"\tInstruction{{{inst.Opcode}}}");
-                                    }
                                     else if (inst.Opcode == Opcode.Load_lit || inst.Opcode == Opcode.Load_lit_l)
                                     {
                                         Console.ForegroundColor = GetColor(TokenType.Identifier);
@@ -571,6 +564,7 @@ namespace FastVM12Asm
                             Console.WriteLine();
                         }
                     }
+                    */
 
                     Console.WriteLine($"Parsed {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
                     Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
@@ -578,8 +572,66 @@ namespace FastVM12Asm
                     Console.ResetColor();
                 }
 
+                // Generate AutoStrings file!!
+                Dictionary<StringRef, string> AutoStrings = new Dictionary<StringRef, string>();
+                {
+                    StringBuilder AutoStringsFile = new StringBuilder();
+
+                    AutoStringsFile.AppendLine("; This is a compiler generated file! Changes to this file will be lost.");
+                    AutoStringsFile.AppendLine();
+                    AutoStringsFile.AppendLine("!noprintouts");
+                    AutoStringsFile.AppendLine("!global");
+                    AutoStringsFile.AppendLine("!no_map");
+                    AutoStringsFile.AppendLine();
+
+                    int index = 0;
+                    foreach (var file in ParsedFiles)
+                    {
+                        foreach (var autoString in file.AutoStrings)
+                        {
+                            if (AutoStrings.TryGetValue(autoString, out _) == false)
+                            {
+                                string labelName = $":__str_{index++}__";
+                                AutoStringsFile.AppendLine(labelName);
+                                AutoStringsFile.Append('\t').AppendLine(autoString.ToString());
+                                AutoStrings.Add(autoString, labelName);
+                            }
+                        }
+                    }
+
+                    AutoStringsFile.AppendLine();
+
+                    // NOTE: We might want to not retokenize and parse this file!
+                    // If so we would have to generate all of the procs by hand here
+                    // but then you would have to make the traces ourselves and that is a pain
+
+                    // Here we output the file
+                    string autoStringsPath = Path.Combine(dirInf.FullName, "AutoStrings.12asm");
+                    File.WriteAllText(autoStringsPath, AutoStringsFile.ToString());
+
+                    // Tokenize
+                    watch.Start();
+                    var tokenizer = new Tokenizer(autoStringsPath);
+                    var toks = tokenizer.Tokenize();
+                    watch.Stop();
+                    Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
+                    Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
+                    totalTime += watch.GetMS();
+
+                    lineCount += tokenizer.GetLines();
+                    tokenCount += toks.Count;
+
+                    // Parse
+                    watch.Restart();
+                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var res = parser.Parse();
+                    ParsedFiles.Add(res);
+                    watch.Stop();
+                    Console.ResetColor();
+                }
+
                 watch.Restart();
-                var emitter = new Emitter(ParsedFiles);
+                var emitter = new Emitter(ParsedFiles, AutoStrings);
                 var bin = emitter.Emit();
                 watch.Stop();
                 Console.ResetColor();
@@ -594,7 +646,7 @@ namespace FastVM12Asm
                 FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, Path.ChangeExtension(fileInf.Name, "12exe")));
                 FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, Path.ChangeExtension(fileInf.Name, "12meta")));
 
-                bool dump_mem = true;
+                bool dump_mem = false;
                 if (dump_mem)
                 {
                     bool toFile = false;

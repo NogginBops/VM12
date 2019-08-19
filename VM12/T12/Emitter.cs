@@ -1588,8 +1588,8 @@ namespace T12
 
                                             // We only extern it it will be a constant in 12asm
                                             // Array constants will be procs, so we don't extern them
-                                            if (constDirective.Type is ASTFixedArrayType == false)
-                                                builder.AppendLine($"<{constDirective.Name} = extern>");
+                                            //if (constDirective.Type is ASTFixedArrayType == false)
+                                            //    builder.AppendLine($"<{constDirective.Name} = extern>");
 
                                             constMap.Add(constDirective.Name, constDirective);
                                         }
@@ -1601,7 +1601,7 @@ namespace T12
                                         {
                                             var global = new ASTExternGlobalDirective(globalDirective.Trace, import.ImportName, ImportType(globalDirective.Type), globalDirective.Name, globalDirective);
                                             globalMap.Add(global.Name, global);
-                                            builder.AppendLine($"<{globalDirective.Name} = extern> ; {global.Name}");
+                                            //builder.AppendLine($"<{globalDirective.Name} = extern> ; {global.Name}");
                                         }
                                         else
                                         {
@@ -1612,7 +1612,7 @@ namespace T12
                                             globalMap[globalDirective.Name] = globalDirective;
 
                                             // Then we just include it as extern
-                                            builder.AppendLine($"<{globalDirective.Name} = extern> ; {globalDirective.Name}");
+                                            //builder.AppendLine($"<{globalDirective.Name} = extern> ; {globalDirective.Name}");
                                         }
                                     }
                                     break;
