@@ -32,6 +32,9 @@
         public const int STORAGE_SIZE = 357_913_941 / 2;
 
         public const int STACK_MAX_ADDRESS = 0x100_000;
+
+        public const int MAX_WORD = 4096;
+        public const int MAX_DWORD = 16777216;
     }
     
     public enum InterruptType : int

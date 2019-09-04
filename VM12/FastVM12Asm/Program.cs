@@ -437,8 +437,8 @@ namespace FastVM12Asm
                     var tokenizer = new Tokenizer(file.FullName);
                     var toks = tokenizer.Tokenize();
                     watch.Stop();
-                    Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
-                    Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
+                    //Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
+                    //Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
                     totalTime += watch.GetMS();
 
                     lineCount += tokenizer.GetLines();
@@ -470,104 +470,8 @@ namespace FastVM12Asm
                             IncludeFiles.Enqueue(fi);
                     }
 
-                    /** Deprecated Print Routine
-                    bool print = false;
-                    if (print)
-                    {
-                        foreach (var proc in res.Procs)
-                        {
-                            Console.ResetColor();
-                            Console.WriteLine(proc.Key.GetContents());
-
-                            foreach (var inst in proc.Value)
-                            {
-                                if (inst.Type == InstructionType.RawOpcode)
-                                {
-                                    Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                    Console.WriteLine($"\tInstruction{inst.Opcode}");
-                                }
-                                // FIXME!!
-                                else if (inst.Opcode == Opcode.Nop)
-                                {
-                                    // Here we assume this is not an instruction
-                                    if (inst.Flags.HasFlag(InstructionFlags.Label))
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Label);
-                                        Console.WriteLine($"\tLabel{{{inst.StrArg.ToString()}}}");
-                                    }
-                                    else if (inst.Flags.HasFlag(InstructionFlags.RawNumber))
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Number_litteral);
-                                        Console.WriteLine($"\tNumeric_litteral{{{inst.Arg}}}");
-                                    }
-                                    else
-                                    {
-                                        Console.ResetColor();
-                                        Console.WriteLine($"\tFlags: {inst.Flags} Arg: {inst.Arg} StrArg: {inst.StrArg}, {inst.Opcode}");
-                                    }
-                                }
-                                else
-                                {
-                                    else if (inst.Opcode == Opcode.Load_lit || inst.Opcode == Opcode.Load_lit_l)
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                        if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
-                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
-                                        else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
-                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.StrArg.ToString()}");
-                                        else
-                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Flags}");
-                                    }
-                                    else if (inst.Opcode == Opcode.Load_local || inst.Opcode == Opcode.Load_local_l)
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                        if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
-                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
-                                        else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
-                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Arg}");
-                                        else
-                                            Console.WriteLine($"\tLoad{{{inst.Opcode}}} {inst.Flags}");
-                                    }
-                                    else if (inst.Opcode == Opcode.Store_local || inst.Opcode == Opcode.Store_local_l)
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                        if (inst.Flags.HasFlag(InstructionFlags.WordArg) || inst.Flags.HasFlag(InstructionFlags.DwordArg))
-                                            Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Arg}");
-                                        else if (inst.Flags.HasFlag(InstructionFlags.LabelArg) || inst.Flags.HasFlag(InstructionFlags.IdentArg))
-                                            Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Arg}");
-                                        else
-                                            Console.WriteLine($"\tStore{{{inst.Opcode}}} {inst.Flags}");
-                                    }
-                                    else if (inst.Opcode == Opcode.Set)
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                        Console.WriteLine($"\tSet{{{(SetMode)inst.Arg}}}");
-                                    }
-                                    else if (inst.Opcode == Opcode.Jmp)
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Identifier);
-                                        Console.WriteLine($"\tJmp{{{(JumpMode)inst.Arg}}} {inst.StrArg.ToString()}");
-                                    }
-                                    else if (inst.Opcode == Opcode.Call)
-                                    {
-                                        Console.ForegroundColor = GetColor(TokenType.Call);
-                                        Console.WriteLine($"\tCall{{{inst.StrArg.ToString()}}}");
-                                    }
-                                    else
-                                    {
-                                        Console.ResetColor();
-                                        Console.WriteLine($"\tType: {inst.Flags} OP {inst.Opcode}");
-                                    }
-                                }
-                            }
-
-                            Console.WriteLine();
-                        }
-                    }
-                    */
-
-                    Console.WriteLine($"Parsed {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
-                    Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
+                    //Console.WriteLine($"Parsed {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
+                    //Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
                     totalTime += watch.GetMS();
                     Console.ResetColor();
                 }
@@ -730,10 +634,10 @@ namespace FastVM12Asm
                             }
 
 #if DEBUG_BINFORMAT
-                        if (skipped > 0)
-                        {
-                            Console.WriteLine($"Skipped {skipped} instructions");
-                        }
+                    if (skipped > 0)
+                    {
+                        Console.WriteLine($"Skipped {skipped} instructions");
+                    }
 #endif
 
                             int length = 0;
@@ -762,7 +666,7 @@ namespace FastVM12Asm
                                 // Write block
 
 #if DEBUG_BINFORMAT
-                            Console.WriteLine($"Writing block at pos {pos} and length {length} with fist value {libFile.Instructions[pos]} and last value {libFile.Instructions[pos + length - 1]}");
+                        Console.WriteLine($"Writing block at pos {pos} and length {length} with fist value {libFile.Instructions[pos]} and last value {libFile.Instructions[pos + length - 1]}");
 #endif
 
                                 bw.Write(pos);
@@ -783,10 +687,10 @@ namespace FastVM12Asm
                 using (StreamWriter writer = new StreamWriter(stream))
                 {
                     // FIXME: Get constants data!
-                    /*foreach (var constant in autoConstants)
+                    foreach (var constant in emitter.AutoConstants)
                     {
-                        writer.WriteLine($"[constant:{{{constant.Key},{constant.Value.Length},{constant.Value.Value}}}]");
-                    }*/
+                        writer.WriteLine($"[constant:{{{constant.Name},{constant.Size},0x{Convert.ToString(constant.Location >> 12, 16)}_{Convert.ToString(constant.Location & 0xFFF, 16)}}}]");
+                    }
 
                     writer.WriteLine();
 
@@ -813,34 +717,6 @@ namespace FastVM12Asm
                 Console.WriteLine($"File '{args[0]}' does not exist!");
                 Console.ReadLine();
                 return;
-            }
-        }
-
-        public static ConsoleColor GetColor(TokenType type)
-        {
-            switch (type)
-            {
-                case TokenType.StartOfLineTab:
-                    return ConsoleColor.DarkGray;
-                case TokenType.Call:
-                    return ConsoleColor.Yellow;
-                case TokenType.Comment:
-                    return ConsoleColor.DarkGreen;
-                case TokenType.Label:
-                    return ConsoleColor.Red;
-                case TokenType.Number_litteral:
-                    return ConsoleColor.Magenta;
-                case TokenType.And:
-                    return ConsoleColor.DarkBlue;
-                case TokenType.Char_litteral:
-                case TokenType.String_litteral:
-                    return ConsoleColor.DarkCyan;
-                case TokenType.Open_angle:
-                case TokenType.Close_angle:
-                    return ConsoleColor.Yellow;
-                default:
-                    Console.ResetColor();
-                    return Console.ForegroundColor;
             }
         }
     }

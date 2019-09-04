@@ -67,7 +67,7 @@ namespace FastVM12Asm
         Negative = 1 << 4,
     }
 
-    public struct Token
+    public struct Token : IEquatable<Token>
     {
         public TokenType Type;
         public TokenFlag Flags;
@@ -95,7 +95,7 @@ namespace FastVM12Asm
             return File.Data.Substring(Index, Length);
         }
 
-        public (int Value, int Size) ParseNumber()
+        public SizedNumber ParseNumber()
         {
             if (Type != TokenType.Number_litteral) Debugger.Break();
             string data = File.Data;
@@ -115,7 +115,9 @@ namespace FastVM12Asm
                     result += Util.HexToInt(c);
                 }
 
+                size += 2;
                 size /= 3;
+
                 // Count digits!
             }
             else if (Flags.HasFlag(TokenFlag.Octal))
@@ -161,7 +163,7 @@ namespace FastVM12Asm
                 size++;
             }
 
-            return (result, size);
+            return new SizedNumber(result, size);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -227,6 +229,47 @@ namespace FastVM12Asm
             {
                 return $"{Type}{{{File.Data.Substring(Index, Length)}}}";
             }
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is Token token && Equals(token);
+        }
+
+        public bool Equals(Token other)
+        {
+            if (Type != other.Type || Flags != other.Flags || Length != other.Length) return false;
+            string Data = File.Data;
+            string OtherData = other.File.Data;
+            for (int i = 0; i < Length; i++)
+            {
+                if (Data[Index + i] != OtherData[other.Index + i]) return false;
+            }
+            return true;
+        }
+
+        public override int GetHashCode()
+        {
+            var hashCode = 740877982;
+            hashCode = hashCode * -1521134295 + Type.GetHashCode();
+            hashCode = hashCode * -1521134295 + Flags.GetHashCode();
+            hashCode = hashCode * -1521134295 + Length.GetHashCode();
+            string Data = File.Data;
+            for (int i = 0; i < Length; i++)
+            {
+                hashCode = hashCode * -1521134295 + Data[Index + i].GetHashCode();
+            }
+            return hashCode;
+        }
+
+        public static bool operator ==(Token left, Token right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(Token left, Token right)
+        {
+            return !(left == right);
         }
     }
 

@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
+using System.Runtime.CompilerServices;
 using VM12_Opcode;
 
 namespace FastVM12Asm
@@ -40,6 +39,32 @@ namespace FastVM12Asm
         }
     }
 
+    public struct AutoConstant
+    {
+        public StringRef Name;
+        public int Size;
+        public int Location;
+
+        public AutoConstant(StringRef name, int size, int location)
+        {
+            Name = name;
+            Size = size;
+            Location = location;
+        }
+    }
+
+    public struct DelayedConst
+    {
+        public ConstantExpression Constant;
+        public int MaxSize;
+
+        public DelayedConst(ConstantExpression constant, int maxSize)
+        {
+            Constant = constant;
+            MaxSize = maxSize;
+        }
+    }
+
     public class Emitter
     {
         static int autoVars = Constants.RAM_END;
@@ -53,6 +78,8 @@ namespace FastVM12Asm
 
         public Dictionary<StringRef, ConstantExpression> GlobalConstExprs = new Dictionary<StringRef, ConstantExpression>();
         public Dictionary<ConstantExpression, EvaluatedConstant> AllEvaluatedConstants = new Dictionary<ConstantExpression, EvaluatedConstant>();
+
+        public List<AutoConstant> AutoConstants = new List<AutoConstant>();
 
         public Emitter(List<ParsedFile> files, Dictionary<StringRef, string> autoStrings)
         {
@@ -145,13 +172,22 @@ namespace FastVM12Asm
         public BinFile Emit()
         {
             Dictionary<Token, List<(int Offset, StringRef Proc)>> AllLabelUses = new Dictionary<Token, List<(int Offset, StringRef Proc)>>();
+            Dictionary<Token, List<(int Offset, DelayedConst Const)>> AllDelayedConstants = new Dictionary<Token, List<(int Offset, DelayedConst Const)>>();
 
             Dictionary<Token, Dictionary<StringRef, int>> ProcLabels = new Dictionary<Token, Dictionary<StringRef, int>>();
 
             DynArray<Proc> ProcList = new DynArray<Proc>(100);
 
+            // FIXME: We could just add these to a global dictionary from the beginning!
+            Dictionary<StringRef, int> PlacedProcs = new Dictionary<StringRef, int>();
+
             foreach (var file in FileList)
             {
+                foreach (var placement in file.ProcLocations)
+                {
+                    PlacedProcs.Add(placement.Key, placement.Value);
+                }
+
                 Dictionary<StringRef, ConstantExpression> ImportedConstExprs = new Dictionary<StringRef, ConstantExpression>();
 
                 Dictionary<StringRef, List<Instruction>> ImportedProcs = new Dictionary<StringRef, List<Instruction>>();
@@ -183,6 +219,9 @@ namespace FastVM12Asm
                 // FIXME
                 foreach (var constExpr in file.ConstExprs)
                 {
+                    // FIXME: The IsGlobal part is a workaround for us not having a clear divide between auto generated constants and not generated constants
+                    if (constExpr.Value.IsGlobal && constExpr.Value.Delayed) Error(constExpr.Value.Trace, "A global constant cannot be delayed!");
+
                     // FIXME: Think about how to do this some more!
                     if (constExpr.Value.Type == ConstantExprType.Extern)
                     {
@@ -194,10 +233,12 @@ namespace FastVM12Asm
                             // Here there was an evaluated value for this
                             LocalEvaluatedConstants.Add(constExpr.Key, evalConst);
                         else
+                        {
                             // Here there wasn't en evaluated value for this so we add it to the list of things to eval
                             if (ImportedConstExprs.ContainsKey(constExpr.Key) == false)
                                 ImportedConstExprs.Add(constExpr.Key, constExpr.Value);
-                        else Console.WriteLine("Woah!!");
+                            else Console.WriteLine($"This const is already imported: '{constExpr.Key}'");
+                        }
                     }
                     else
                         ImportedConstExprs.Add(constExpr.Key, constExpr.Value);
@@ -210,16 +251,29 @@ namespace FastVM12Asm
                     if (constExpr.Value.Type == ConstantExprType.Extern)
                         Error(constExpr.Value.Trace, "We should not get extern consts here!!");
 
+                    // FIXME:
+                    if (LocalEvaluatedConstants.ContainsKey(constExpr.Key))
+                    {
+                        //Console.WriteLine("Double import!!!");
+                        continue;
+                    }
+
                     if (AllEvaluatedConstants.TryGetValue(constExpr.Value, out var evalConst) == false)
                     {
                         // The constant was not resolved so we try to resolve it again!
                         evalConst = EvaluateConstantExpr(constExpr.Value);
                         AllEvaluatedConstants.Add(constExpr.Value, evalConst);
+
+                        // If this was an auto string we add it to the list
+                        // FIXME: This is a weird place to do this!! We want something more robust
+                        if (constExpr.Value.Type == ConstantExprType.Auto)
+                            AutoConstants.Add(new AutoConstant(constExpr.Key, evalConst.AutoConstSize, evalConst.NumberValue.Number));
                     }
 
                     LocalEvaluatedConstants.Add(constExpr.Key, evalConst);
                 }
 
+                // Import procs defined in this file
                 foreach (var proc in file.Procs)
                 {
                     ImportedProcs.Add(proc.Key.ToStringRef(), proc.Value);
@@ -233,6 +287,7 @@ namespace FastVM12Asm
                     // A dictionary from label name to instruction index
                     Dictionary<StringRef, int> LocalLabels = new Dictionary<StringRef, int>();
                     List<(int, StringRef)> LabelUses = new List<(int, StringRef)>();
+                    List<(int, DelayedConst)> DelayedConstants = new List<(int, DelayedConst)>();
 
                     int currentSourceLine = 0;
                     foreach (var inst in proc.Value)
@@ -250,6 +305,7 @@ namespace FastVM12Asm
                         else if (inst.Type == InstructionType.RawWord)
                         {
                             // FIXME: When is this used??
+                            Instructions.Add((short)(inst.Arg & 0xFFF));
                         }
                         else if (inst.Type == InstructionType.Number)
                         {
@@ -259,15 +315,24 @@ namespace FastVM12Asm
                                 Instructions.Add(number[i]);
                             }
                         }
-                        else if (inst.Type == InstructionType.AutoConstExpr)
+                        else if (inst.Type == InstructionType.ConstExpr)
                         {
-                            if (LocalEvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
-                                Error(inst, $"Could not find the constant '{inst.StrArg}'");
+                            if (inst.ConstantArg.Delayed)
+                            {
+                                // FIXME: ATM we are expecting this to always be two but this is not true!!
+                                DelayedConstants.Add((Instructions.Count, new DelayedConst(inst.ConstantArg, 2)));
+                                Instructions.Add(0);
+                                Instructions.Add(0);
+                            }
+                            else
+                            {
+                                var evalConst = EvaluateConstantExpr(inst.ConstantArg);
+                                if (evalConst.IsString) Error(inst, "We don't support const strings here atm");
 
-                            if (evalConst.IsString) Error(inst, "We don't support const strings here atm");
-
-                            Instructions.Add((short)(evalConst.NumberValue.Number >> 12));
-                            Instructions.Add((short)(evalConst.NumberValue.Number & 0xFFF));
+                                // FIXME: ATM we are expecting this to always be two but this is not true!!
+                                Instructions.Add((short)(evalConst.NumberValue.Number >> 12));
+                                Instructions.Add((short)(evalConst.NumberValue.Number & 0xFFF));
+                            }
                         }
                         else if (inst.Type == InstructionType.String)
                         {
@@ -330,18 +395,13 @@ namespace FastVM12Asm
                             {
                                 var (value, size) = evalConst.NumberValue;
 
-                                if (size > 2) Error(inst, "We don't support arguments larger than 2 atm!");
-
-                                // FIXME: Here we need to know the max size of the thing we want!
-                                //if (inst.Opcode == Opcode.Load_lit && size > 1) Error(inst, "Constant too big to be loaded as a word");
-                                //if (inst.Opcode == Opcode.Load_lit_l && size > 2) Error(inst, "Constant too big to be loaded as a dword");
+                                if (size > inst.VarSizeArgSize) Error(inst, $"We got a constant that was bigger than we expected! Exptected: {inst.VarSizeArgSize}, Got: {size}");
 
                                 // FIXME: We need to know the size of the arg!!
                                 Instructions.Add((short)inst.Opcode);
-                                for (int i = 0; i < size; i++)
+                                for (int i = 0; i < inst.VarSizeArgSize; i++)
                                 {
-                                    Instructions.Add((short)(value & 0xFFF));
-                                    value >>= 12;
+                                    Instructions.Add((short)((value >> (12 * (inst.VarSizeArgSize - 1 - i))) & 0xFFF));
                                 }
                             }
                             else Error(inst, "We don't support string args atm!");
@@ -349,10 +409,8 @@ namespace FastVM12Asm
                         else if (inst.Type == InstructionType.AutoStringLoad)
                         {
                             // Here we are going to load an auto string
-                            if (AutoStrings.TryGetValue(inst.StrArg, out var labelName) == false)
+                            if (AutoStrings.TryGetValue(inst.StrArg, out var labelName))
                             {
-                                AutoStrings.Add(inst.StrArg, labelName);
-
                                 Instructions.Add((short)inst.Opcode);
 
                                 LabelUses.Add((Instructions.Count, labelName.ToRef()));
@@ -360,28 +418,35 @@ namespace FastVM12Asm
                                 Instructions.Add(0);
 
                                 AutoStrings[inst.StrArg] = labelName;
-
                             }
+                            else Error(inst, $"Could not get label for autostring '{inst.StrArg}'! This is a bug!");
                         }
                         else if (inst.Type == InstructionType.ConstExprArgOpcode)
                         {
-                            if (LocalEvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
-                                Error(inst, $"Couldn't find const expr '{inst.StrArg}'");
-
-                            var (value, size) = evalConst.NumberValue;
-
-                            if (size > 2) Error(inst, "We don't support arguments larger than 2 atm!");
-
-                            // FIXME: Here we need to know the max size of the thing we want!
-                            //if (inst.Opcode == Opcode.Load_lit && size > 1) Error(inst, "Constant to big to be loaded as a word");
-                            //if (inst.Opcode == Opcode.Load_lit_l && size > 2) Error(inst, "Constant to big to be loaded as a dword");
-
-                            // FIXME: We need to know the size of the arg!!
                             Instructions.Add((short)inst.Opcode);
-                            for (int i = 0; i < size; i++)
+
+                            // Here we should evaluate a constant
+                            if (inst.ConstantArg.Delayed)
                             {
-                                Instructions.Add((short)(value & 0xFFF));
-                                value >>= 12;
+                                // FIXME: Here we should also record the proc and the location for the delayed constant
+                                DelayedConstants.Add((Instructions.Count, new DelayedConst(inst.ConstantArg, inst.VarSizeArgSize)));
+                                for (int i = 0; i < inst.VarSizeArgSize; i++)
+                                {
+                                    Instructions.Add(0);
+                                }
+                            }
+                            else
+                            {
+                                var evalConst = EvaluateConstantExpr(inst.ConstantArg);
+                                var (value, size) = evalConst.NumberValue;
+
+                                if (size > inst.VarSizeArgSize) Error(inst, $"Constant is too large for current instruction '{inst.Opcode}'! Exptected: {inst.VarSizeArgSize}, Got: {size}");
+
+                                for (int i = 0; i < size; i++)
+                                {
+                                    Instructions.Add((short)(value & 0xFFF));
+                                    value >>= 12;
+                                }
                             }
                         }
                         else if (inst.Type == InstructionType.Jump)
@@ -415,34 +480,62 @@ namespace FastVM12Asm
                     Proc newProc = default;
                     newProc.ProcName = proc.Key.ToStringRef();
                     newProc.Line = proc.Key.Line;
-                    // FIXME!! Actually emit this data!!!
                     newProc.LinkedLines = LinkedLines;
                     newProc.Instructions = Instructions;
-                    // FIXME: This can be done better!
-                    newProc.Trace = Trace.FromTrace(proc.Value.First().Trace, proc.Value.Last().Trace);
+                    newProc.Trace = Trace.FromTrace(proc.Value[0].Trace, proc.Value[proc.Value.Count - 1].Trace);
 
                     ProcList.Add(newProc);
 
                     AllLabelUses.Add(proc.Key, LabelUses);
                     ProcLabels.Add(proc.Key, LocalLabels);
-                }
 
+                    AllDelayedConstants.Add(proc.Key, DelayedConstants);
+                }
             }
 
             Dictionary<StringRef, Proc> ProcMap = new Dictionary<StringRef, Proc>();
-            
-            int offset = 0;
-            // Here we place all of the procs after eachother
-            for (int i = 0; i < ProcList.Count; i++)
+
             {
-                ref var proc = ref ProcList.IndexByRef(i);
+                int offset = 0;
+                // Here we place all of the procs after eachother
+                for (int i = 0; i < ProcList.Count; i++)
+                {
+                    ref var proc = ref ProcList.IndexByRef(i);
 
-                proc.Address = offset + Constants.ROM_START;
+                    if (PlacedProcs.TryGetValue(proc.ProcName, out int location))
+                        proc.Address = location;
+                    else
+                        proc.Address = offset + Constants.ROM_START;
 
-                //Console.WriteLine($"{proc.ProcName,-15} Offset: {offset} Length: {proc.Size}");
-                offset += proc.Size;
+                    //Console.WriteLine($"{proc.ProcName,-15} Offset: {offset} Length: {proc.Size}");
+                    offset += proc.Size;
 
-                ProcMap.Add(proc.ProcName, proc);
+                    ProcMap.Add(proc.ProcName, proc);
+                }
+            }
+
+            foreach (var procDelayedConst in AllDelayedConstants)
+            {
+                if (ProcMap.TryGetValue(procDelayedConst.Key.ToStringRef(), out var proc) == false)
+                    Error(procDelayedConst.Key, "Could not find proc! This should not happen!");
+
+                foreach (var delayedConstant in procDelayedConst.Value)
+                {
+                    // Evaluate delayed constant
+                    ConstantExpression expr = delayedConstant.Const.Constant;
+                    var evalConst = EvaluateDelayedConstant(expr, ProcMap);
+
+                    if (evalConst.IsString) Error(expr.Trace, "We don't do strings as delayed constants");
+                    if (evalConst.NumberValue.Size > delayedConstant.Const.MaxSize) Error(expr.Trace, $"Constant value is bigger than expected! Expected: {delayedConstant.Const.MaxSize}, Got: {evalConst.NumberValue.Size}");
+
+                    int offset = delayedConstant.Offset;
+                    int value = evalConst.NumberValue.Number;
+                    int size = delayedConstant.Const.MaxSize;
+                    for (int i = 0; i < size; i++)
+                    {
+                        proc.Instructions[offset + i] = (short)((value >> (12 * (size - 1 - i))) & 0xFFF);
+                    }
+                }
             }
 
             foreach (var procUses in AllLabelUses)
@@ -499,7 +592,8 @@ namespace FastVM12Asm
         {
             public ConstantExpression Original;
             public bool IsString;
-            public (int Number, int Size) NumberValue;
+            public SizedNumber NumberValue;
+            public int AutoConstSize;
             public StringRef StringValue;
 
             public override string ToString() => $"EvalConst{{{(IsString ? NumberValue.ToString() : StringValue.ToString())}}}";
@@ -508,6 +602,8 @@ namespace FastVM12Asm
         // FIXME: How should we handle delayed constants?
         public EvaluatedConstant EvaluateConstantExpr(ConstantExpression expr)
         {
+            if (expr.Delayed) Console.WriteLine($"Trying to eval a delayed const!! Type: '{expr.Type}'");
+
             EvaluatedConstant evaluated = default;
             evaluated.Original = expr;
             switch (expr.Type)
@@ -516,7 +612,7 @@ namespace FastVM12Asm
                     evaluated.NumberValue = expr.NumberLit;
                     break;
                 case ConstantExprType.CharLit:
-                    evaluated.NumberValue = (expr.CharLit, 1);
+                    evaluated.NumberValue = (SizedNumber)(expr.CharLit, 1);
                     break;
                 case ConstantExprType.StringLit:
                     evaluated.IsString = true;
@@ -527,98 +623,15 @@ namespace FastVM12Asm
                         var sizeResult = EvaluateConstantExpr(expr.AutoExpr);
                         var (number, _) = sizeResult.NumberValue;
                         autoVars -= number;
-                        evaluated.NumberValue = (autoVars, 2);
+                        evaluated.AutoConstSize = number;
+                        evaluated.NumberValue = (SizedNumber)(autoVars, 2);
                     }
                     break;
                 case ConstantExprType.Extern:
                     Error(expr.Trace, "FIXME: What should we do here!?");
                     break;
                 case ConstantExprType.Compound:
-                    {
-                        Stack<EvaluatedConstant> Stack = new Stack<EvaluatedConstant>();
-
-                        TokenQueue Queue = new TokenQueue(expr.CompoundExpr);
-                        while (Queue.Count > 0)
-                        {
-                            var tok = Queue.Dequeue();
-                            switch (tok.Type)
-                            {
-                                case TokenType.Plus:
-                                    {
-                                        var res = ApplyOperation(Stack.Pop().NumberValue, Stack.Pop().NumberValue, ConstOperation.Addition);
-                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
-                                        break;
-                                    }
-                                case TokenType.Minus:
-                                    {
-                                        var n1 = Stack.Pop();
-                                        var res = ApplyOperation(Stack.Pop().NumberValue, n1.NumberValue, ConstOperation.Subtraction);
-                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
-                                        break;
-                                    }
-                                case TokenType.Asterisk:
-                                    {
-                                        var res = ApplyOperation(Stack.Pop().NumberValue, Stack.Pop().NumberValue, ConstOperation.Multiplication);
-                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
-                                        break;
-                                    }
-                                case TokenType.Slash:
-                                    {
-                                        var n1 = Stack.Pop();
-                                        var res = ApplyOperation(Stack.Pop().NumberValue, n1.NumberValue, ConstOperation.Division);
-                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
-                                        break;
-                                    }
-                                case TokenType.Percent:
-                                    {
-                                        var n1 = Stack.Pop();
-                                        var res = ApplyOperation(Stack.Pop().NumberValue, n1.NumberValue, ConstOperation.Modulo);
-                                        Stack.Push(new EvaluatedConstant() { NumberValue = res });
-                                        break;
-                                    }
-                                case TokenType.Numbersign:
-                                    {
-                                        // Parse a constant
-                                        continue;
-                                    }
-                                default:
-                                    {
-                                        // FIXME: Parse sizeof and similar here!!!
-                                        if (tok.ContentsMatch("sizeof"))
-                                        {
-                                            var openParenTok = Queue.Dequeue();
-                                            if (openParenTok.Type != TokenType.Open_paren)
-                                                Error(openParenTok, "Expected '('!");
-
-                                            var labelTok = Queue.Dequeue();
-                                            if (labelTok.Type != TokenType.Label)
-                                                Error(labelTok, "Expected label!");
-
-                                            // FIXME: Get the size of the proc!!!
-                                            // This needs to be delayed!!
-
-                                            var closeParenTok = Queue.Dequeue();
-                                            if (closeParenTok.Type != TokenType.Close_paren)
-                                                Error(closeParenTok, "Expected ')'!");
-
-                                            Stack.Push(new EvaluatedConstant() { NumberValue = (1, 1) });
-                                            //Error(Trace.FromToken(tok, closeParenTok), "We don't support delayed constants atm!");
-                                        }
-                                        else
-                                        {
-                                            var evalConst = ResolveTokenToEvalConst(tok);
-                                            if (evalConst.IsString) Error(tok, "A compound constant can't contain strings!");
-                                            Stack.Push(evalConst);
-                                        }
-                                        break;
-                                    }
-                            }
-                        }
-
-                        if (Stack.Count > 1) Error(expr.Trace , $"Could not evaluate compound expression! There where still values on the stack! Stack: {{{string.Join(", ", Stack)}}}");
-
-                        if (Stack.Count == 0) Error(expr.Trace, "Compound expression resulted in zero values on the stack!");
-                    }
+                    evaluated = EvaluateCompoundExpression(expr, null);
                     break;
                 default:
                     Error(expr.Trace, $"Unknown const expr type '{expr.Type}'!");
@@ -627,60 +640,139 @@ namespace FastVM12Asm
             return evaluated;
         }
 
-        public EvaluatedConstant ResolveTokenToEvalConst(Token tok)
+        public EvaluatedConstant EvaluateDelayedConstant(ConstantExpression expr, Dictionary<StringRef, Proc> procMap)
         {
-            switch (tok.Type)
+            switch (expr.Type)
             {
-                case TokenType.Identifier:
-                    if (GlobalConstExprs.TryGetValue(tok.ToStringRef(), out var constExpr) == false)
-                        Error(tok, $"Could not resolve ident '{tok.GetContents()}'");
-
-                    // FIXME: This is probably going to execute auto consts multiple times!
-                    return EvaluateConstantExpr(constExpr);
-                case TokenType.Label:
-                    // FIXME: This is because we don't have the label placements yet!
-                    //Error(tok, "Resolve label to number not implemented yet!");
-
-                    return new EvaluatedConstant() { NumberValue = (0x00BADF0D, 2) };
-                case TokenType.Number_litteral:
-                    return new EvaluatedConstant() { NumberValue = tok.ParseNumber() };
-                case TokenType.Char_litteral:
-                    return new EvaluatedConstant() { NumberValue = (tok.GetFirstChar(), 1) };
+                case ConstantExprType.NumberLit:
+                case ConstantExprType.CharLit:
+                case ConstantExprType.StringLit:
+                    return EvaluateConstantExpr(expr);
+                case ConstantExprType.Auto:
+                    {
+                        var sizeResult = EvaluateConstantExpr(expr.AutoExpr);
+                        var (number, _) = sizeResult.NumberValue;
+                        autoVars -= number;
+                        EvaluatedConstant evaluated = default;
+                        evaluated.Original = expr;
+                        evaluated.IsString = false;
+                        evaluated.AutoConstSize = number;
+                        evaluated.NumberValue = (SizedNumber)(autoVars, 2);
+                        return evaluated;
+                    }
+                case ConstantExprType.Compound:
+                    return EvaluateCompoundExpression(expr, procMap);
+                case ConstantExprType.Extern:
+                    Error(expr.Trace, "FIXME: What should we do here!?");
+                    return default;
                 default:
-                    Error(tok, $"Can't resolve token of type '{tok.Type}' to number!");
+                    Error(expr.Trace, $"Unknown const expr type '{expr.Type}'!");
                     return default;
             }
         }
 
-        public (int Number, int Size) ApplyOperation((int Number, int Size) n1, (int Number, int Size) n2, ConstOperation operation)
+        public EvaluatedConstant EvaluateCompoundExpression(ConstantExpression expr, Dictionary<StringRef, Proc> procMap)
         {
-            int res;
+            Stack<SizedNumber> Stack = new Stack<SizedNumber>();
+            foreach (var element in expr.CompoundExpr)
+            {
+                switch (element.Type)
+                {
+                    case CompoundType.NumberLitteral:
+                        Stack.Push(element.NumberLit);
+                        break;
+                    case CompoundType.CharLitteral:
+                        Stack.Push(new SizedNumber(element.CharLit, 1));
+                        break;
+                    case CompoundType.Operation:
+                        Stack.Push(ApplyOperation(Stack.Pop(), Stack.Pop(), element.Operation));
+                        break;
+                    case CompoundType.LabelRef:
+                        if (procMap == null)
+                            Error(expr.Trace, $"Can't use a label ref with no metadata! This is a bug!");
+                        else
+                        {
+                            if (procMap.TryGetValue(element.StringRef, out var proc) == false)
+                                Error(expr.Trace, $"Can't find proc '{element.StringRef}' when trying to ref a label!");
+
+                            Stack.Push(new SizedNumber(proc.Address, 2));
+                        }
+                        break;
+                    case CompoundType.Ident:
+                        {
+                            // FIXME: We need to do this more scoped!!
+                            // Here we only want local imported constants!!
+                            if (GlobalConstExprs.TryGetValue(element.StringRef, out var constExpr) == false)
+                                Error(expr.Trace, $"Could not find consntant '{element.StringRef}'");
+
+                            if (AllEvaluatedConstants.TryGetValue(constExpr, out var evalExpr) == false)
+                            {
+                                // FIXME: Actually evaluate the constant!!
+                                Error(expr.Trace, $"We don't support idents in compound constants yet! Ident: '{element.StringRef}'");
+                            }
+                            else
+                            {
+                                // There is an evaluated version
+                                if (evalExpr.IsString) Error(expr.Trace, "We don't support strings in compound constants!");
+                                Stack.Push(evalExpr.NumberValue);
+                            }
+                            break;
+                        }
+                    case CompoundType.Sizeof:
+                        {
+                            if (procMap == null)
+                                Error(expr.Trace, $"Can't take sizeof with no metadata! This is a bug!");
+                            else
+                            {
+                                if (procMap.TryGetValue(element.StringRef, out var proc) == false)
+                                    Error(expr.Trace, $"Can't find proc '{element.StringRef}' when trying to take sizeof!");
+
+                                Stack.Push(SizedNumber.From(proc.Size));
+                            }
+                            break;
+                        }
+                    default:
+                        Error(expr.Trace, $"Unknown compound element type '{element.Type}'!");
+                        break;
+                }
+            }
+
+            if (Stack.Count > 1) Error(expr.Trace, $"Could not evaluate compound expression! There where still values on the stack! Stack: {{{string.Join(", ", Stack)}}}");
+
+            if (Stack.Count == 0) Error(expr.Trace, "Compound expression resulted in zero values on the stack!");
+
+            EvaluatedConstant evalConst = default;
+            evalConst.Original = expr;
+            evalConst.IsString = false;
+            evalConst.NumberValue = Stack.Pop();
+            return evalConst;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SizedNumber ApplyOperation(SizedNumber n1, SizedNumber n2, ConstOperation operation)
+        {
+            SizedNumber res;
             switch (operation)
             {
                 case ConstOperation.Addition:
-                    res = n1.Number + n2.Number;
+                    res = n1 + n2;
                     break;
                 case ConstOperation.Subtraction:
-                    res = n1.Number - n2.Number;
+                    res = n1 - n2;
                     break;
                 case ConstOperation.Multiplication:
-                    res = n1.Number * n2.Number;
+                    res = n1 * n2;
                     break;
                 case ConstOperation.Division:
-                    res = n1.Number / n2.Number;
+                    res = n1 / n2;
                     break;
                 case ConstOperation.Modulo:
-                    res = n1.Number % n2.Number;
+                    res = n1 % n2;
                     break;
                 default:
                     throw new InvalidOperationException($"Unknown operation '{operation}'!");
             }
-
-            int size = Util.Log2(res);
-            size /= 12;
-            size++;
-            size = Math.Max(size, Math.Max(n1.Size, n2.Size));
-            return (res, size);
+            return res;
         }
     }
 }

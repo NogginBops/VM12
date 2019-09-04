@@ -136,6 +136,72 @@ namespace FastVM12Asm
         public char this[int i] => Data[Index + i];
     }
 
+    public struct SizedNumber
+    {
+        public int Number;
+        public int Size;
+
+        public SizedNumber(int number, int size)
+        {
+            Number = number;
+            Size = size;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int CalcSize(int number, int prevSize) => Math.Max(prevSize, (Util.Log2(number) / 12) + 1);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static SizedNumber operator +(SizedNumber a, SizedNumber b)
+        {
+            SizedNumber res;
+            res.Number = a.Number + b.Number;
+            res.Size = CalcSize(res.Number, Math.Max(a.Size, b.Size));
+            return res;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static SizedNumber operator -(SizedNumber a, SizedNumber b)
+        {
+            SizedNumber res;
+            res.Number = a.Number - b.Number;
+            res.Size = CalcSize(res.Number, Math.Max(a.Size, b.Size));
+            return res;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static SizedNumber operator *(SizedNumber a, SizedNumber b)
+        {
+            SizedNumber res;
+            res.Number = a.Number * b.Number;
+            res.Size = CalcSize(res.Number, Math.Max(a.Size, b.Size));
+            return res;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static SizedNumber operator /(SizedNumber a, SizedNumber b)
+        {
+            SizedNumber res;
+            res.Number = a.Number / b.Number;
+            res.Size = CalcSize(res.Number, Math.Max(a.Size, b.Size));
+            return res;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static SizedNumber operator %(SizedNumber a, SizedNumber b)
+        {
+            SizedNumber res;
+            res.Number = a.Number % b.Number;
+            res.Size = CalcSize(res.Number, Math.Max(a.Size, b.Size));
+            return res;
+        }
+
+        public static explicit operator SizedNumber((int Number, int Size) v) => new SizedNumber() { Number = v.Number, Size = v.Size };
+
+        public void Deconstruct(out int number, out int size)
+        {
+            number = Number;
+            size = Size;
+        }
+
+        public static SizedNumber From(int number) => new SizedNumber(number, CalcSize(number, 0));
+    }
+
     public enum ConstOperation
     {
         Unknown,
@@ -146,8 +212,29 @@ namespace FastVM12Asm
         Modulo,
     }
 
+    public enum CompoundType
+    {
+        NumberLitteral,
+        CharLitteral,
+        Operation,
+        LabelRef,
+        Ident,
+        Sizeof,
+    }
+
+    public struct CompoundElement
+    {
+        public Trace Trace;
+        public CompoundType Type;
+        public ConstOperation Operation;
+        public SizedNumber NumberLit;
+        public char CharLit;
+        public StringRef StringRef;
+    }
+
     public enum ConstantExprType
     {
+        Unknown,
         NumberLit,
         CharLit,
         StringLit,
@@ -158,20 +245,24 @@ namespace FastVM12Asm
 
     public class ConstantExpression
     {
-        // FIXME actually set this!!
         public Trace Trace;
+
         public bool IsGlobal;
         public ConstantExprType Type;
 
-        public (int Number, int Size) NumberLit;
+        public bool Delayed;
+
+        public SizedNumber NumberLit;
         public char CharLit;
         public StringRef StringLit;
+        public List<CompoundElement> CompoundExpr;
+
+        // This is not really needed with the CompoundExpr member....
         public ConstantExpression AutoExpr;
-        public List<Token> CompoundExpr;
 
         public ConstantExpression() { }
     }
-    
+
     public enum InstructionType
     {
         Unknown,
@@ -191,16 +282,18 @@ namespace FastVM12Asm
         Call,
         Identifier,
         RawWord,
-        AutoConstExpr,
+        ConstExpr,
     }
 
     public struct Instruction
     {
+        public Trace Trace;
         public InstructionType Type;
         public Opcode Opcode;
         public int Arg;
         public StringRef StrArg;
-        public Trace Trace;
+        public ConstantExpression ConstantArg;
+        public int VarSizeArgSize;
     }
 
     public class TokenQueue
@@ -243,15 +336,17 @@ namespace FastVM12Asm
         public List<Token> IncludeFiles = new List<Token>();
         public Dictionary<StringRef, ConstantExpression> ConstExprs = new Dictionary<StringRef, ConstantExpression>();
         public Dictionary<Token, List<Instruction>> Procs;
+        public Dictionary<StringRef, int> ProcLocations;
         // All of the strings that where referenced
         public List<StringRef> AutoStrings;
 
-        public ParsedFile(FileData file, List<Token> includeFiles, Dictionary<StringRef, ConstantExpression> constExprs, Dictionary<Token, List<Instruction>> procs, List<StringRef> autoStrings)
+        public ParsedFile(FileData file, List<Token> includeFiles, Dictionary<StringRef, ConstantExpression> constExprs, Dictionary<Token, List<Instruction>> procs, Dictionary<StringRef, int> procLocations, List<StringRef> autoStrings)
         {
             File = file;
             IncludeFiles = includeFiles;
             ConstExprs = constExprs;
             Procs = procs;
+            ProcLocations = procLocations;
             AutoStrings = autoStrings;
         }
 
@@ -382,8 +477,8 @@ namespace FastVM12Asm
             { "lsetle",  SetMode.Le_l },
         };
 
-        private FileData File;
-        private TokenQueue Tokens;
+        private readonly FileData File;
+        private readonly TokenQueue Tokens;
         
         public Parser(FileData file, List<Token> tokens)
         {
@@ -404,16 +499,13 @@ namespace FastVM12Asm
 
         public ParsedFile Parse()
         {
-            Stopwatch flagWatch = new Stopwatch();
-            Stopwatch constWatch = new Stopwatch();
-            Stopwatch importWatch = new Stopwatch();
-            Stopwatch procWatch = new Stopwatch();
-
             List<Token> IncludeFiles = new List<Token>(100);
 
             Dictionary<StringRef, ConstantExpression> ConstExprs = new Dictionary<StringRef, ConstantExpression>(100);
 
             Dictionary<Token, List<Instruction>> Procs = new Dictionary<Token, List<Instruction>>();
+
+            Dictionary<StringRef, int> ProcLocations = new Dictionary<StringRef, int>();
 
             List<StringRef> AutoStrings = new List<StringRef>();
             
@@ -570,6 +662,7 @@ namespace FastVM12Asm
                                                 if (instTok.GetLastChar() == 'l')
                                                     inst.Opcode = Opcode.Load_lit_l;
                                                 else inst.Opcode = Opcode.Load_lit;
+                                                inst.VarSizeArgSize = inst.Opcode == Opcode.Load_lit_l ? 2 : 1;
                                                 // FIXME: Specifiy the size we expect!!
                                                 inst.Type = InstructionType.IdentArgOpcode;
                                                 inst.StrArg = litTok.ToStringRef();
@@ -578,19 +671,13 @@ namespace FastVM12Asm
                                             {
                                                 // Go back to the open_paren token so that the constant expression parsing will work correctly
                                                 Tokens.Revert(1);
-                                                ConstantExpression expr = ParseConstExpr(Tokens);
-
-                                                // FIXME: Better number and name!
-                                                StringRef constName = (StringRef)$"auto_created_const_expr{expr.GetHashCode()}";
-
-                                                ConstExprs.Add(constName, expr);
-
-                                                // FIXME: Specify the size we expect!!
+                                                
                                                 inst.Type = InstructionType.ConstExprArgOpcode;
-                                                inst.StrArg = constName;
+                                                inst.ConstantArg = ParseConstExpr(Tokens);
                                                 if (instTok.GetLastChar() == 'l')
                                                     inst.Opcode = Opcode.Load_lit_l;
                                                 else inst.Opcode = Opcode.Load_lit;
+                                                inst.VarSizeArgSize = inst.Opcode == Opcode.Load_lit_l ? 2 : 1;
                                             }
                                             else Error(litTok, $"Unknown load token!");
 
@@ -950,13 +1037,8 @@ namespace FastVM12Asm
                                         Tokens.Revert(1);
                                         ConstantExpression expr = ParseConstExpr(Tokens);
 
-                                        // FIXME: Better number and name!
-                                        StringRef constName = (StringRef)$"auto_created_const_expr{expr.GetHashCode()}";
-
-                                        ConstExprs.Add(constName, expr);
-
-                                        inst.Type = InstructionType.AutoConstExpr;
-                                        inst.StrArg = constName;
+                                        inst.Type = InstructionType.ConstExpr;
+                                        inst.ConstantArg = expr;
 
                                         inst.Trace = Trace.FromToken(instTok, litTok);
                                     }
@@ -974,6 +1056,8 @@ namespace FastVM12Asm
 
                             // FIXME: Add the location of the proc!!! if there is one!
                             Procs.Add(tok, ProcContent);
+                            if (location.HasValue)
+                                ProcLocations.Add(tok.ToStringRef(), location ?? 0);
 
                             //Console.ForegroundColor = ConsoleColor.Green;
                             //Console.WriteLine($"Proc: {tok.GetContents(),-40} Content: {ProcContent.Count,3} tokens");
@@ -985,7 +1069,7 @@ namespace FastVM12Asm
                 }
             }
 
-            return new ParsedFile(File, IncludeFiles, ConstExprs, Procs, AutoStrings);
+            return new ParsedFile(File, IncludeFiles, ConstExprs, Procs, ProcLocations, AutoStrings);
         }
 
         private ConstantExpression ParseConstExpr(TokenQueue Tokens)
@@ -1020,59 +1104,8 @@ namespace FastVM12Asm
             }
             else if (peek.Type == TokenType.Open_paren)
             {
-                // Here we do proper parsing!!
-
-                Tokens.Dequeue();
-
-                // FIXME: We should make the paren handling here are we are doing a recursing decent anyway!
-                List<Token> Expr = new List<Token>();
-                int parenCounter = 1;
-                var exprPeek = Tokens.Peek();
-                do
-                {
-                    // FIXME: Validate that what we are adding makes some kind of sense!
-                    Expr.Add(exprPeek);
-                    Tokens.Dequeue();
-
-                    exprPeek = Tokens.Peek();
-                    if (exprPeek.Type == TokenType.Open_paren) parenCounter++;
-                    if (exprPeek.Type == TokenType.Close_paren) parenCounter--;
-                }
-                while (parenCounter > 0) ;
-
-                var closeParenTok = Tokens.Dequeue();
-                if (closeParenTok.Type != TokenType.Close_paren) Error(closeParenTok, "Expected ')'!");
-
-                if (Expr.Count == 1)
-                {
-                    if (Expr[0].Type == TokenType.Number_litteral)
-                    {
-                        constExpr.Type = ConstantExprType.NumberLit;
-                        constExpr.NumberLit = Expr[0].ParseNumber();
-                    }
-                    else if (Expr[0].Type == TokenType.Char_litteral)
-                    {
-                        constExpr.Type = ConstantExprType.CharLit;
-                        constExpr.CharLit = Expr[0].GetFirstChar();
-                    }
-                    else if (Expr[0].Type == TokenType.String_litteral)
-                    {
-                        constExpr.Type = ConstantExprType.StringLit;
-                        constExpr.StringLit = Expr[0].ToStringRef();
-                    }
-                    else
-                    {
-                        constExpr.Type = ConstantExprType.Compound;
-                        constExpr.CompoundExpr = Expr;
-                    }
-                }
-                else
-                {
-                    constExpr.Type = ConstantExprType.Compound;
-                    constExpr.CompoundExpr = Expr;
-                }
-
-                constExpr.Trace = Trace.FromToken(Expr.First(), Expr.Last());
+                // Here we do proper parsing!
+                constExpr = ParseCompoundConst(Tokens);
             }
             else if (peek.ContentsMatch("extern"))
             {
@@ -1095,6 +1128,116 @@ namespace FastVM12Asm
             else Error(peek, "Unknown constant type!");
 
             return constExpr;
+        }
+
+        private ConstantExpression ParseCompoundConst(TokenQueue Tokens)
+        {
+            var openTok = Tokens.Dequeue();
+            if (openTok.Type != TokenType.Open_paren) Error(openTok, "Exprected '('!");
+
+            ConstantExpression expr = new ConstantExpression();
+            expr.Type = ConstantExprType.Compound;
+            expr.CompoundExpr = new List<CompoundElement>();
+
+            bool delayed = false;
+            while (Tokens.Peek().Type != TokenType.Close_paren)
+            {
+                var element = ParseCompoundElement(Tokens);
+                expr.CompoundExpr.Add(element);
+                delayed |= element.Type == CompoundType.Sizeof || element.Type == CompoundType.LabelRef;
+            }
+            
+            var closeTok = Tokens.Dequeue();
+
+            expr.Delayed = delayed;
+            expr.Trace = Trace.FromToken(openTok, closeTok);
+
+            return expr;
+        }
+
+        private CompoundElement ParseCompoundElement(TokenQueue Tokens)
+        {
+            CompoundElement element = default;
+            var tok = Tokens.Dequeue();
+            switch (tok.Type)
+            {
+                case TokenType.Numbersign:
+                    // We just ignore the numbersing and try parsing again
+                    element = ParseCompoundElement(Tokens);
+                    // FIXME: This is ugly
+                    element.Trace = Trace.FromTrace(Trace.FromToken(tok), element.Trace);
+                    break;
+                case TokenType.Asterisk:
+                    element.Type = CompoundType.Operation;
+                    element.Operation = ConstOperation.Multiplication;
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                case TokenType.Plus:
+                    element.Type = CompoundType.Operation;
+                    element.Operation = ConstOperation.Addition;
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                case TokenType.Minus:
+                    element.Type = CompoundType.Operation;
+                    element.Operation = ConstOperation.Subtraction;
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                case TokenType.Slash:
+                    element.Type = CompoundType.Operation;
+                    element.Operation = ConstOperation.Division;
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                case TokenType.Percent:
+                    element.Type = CompoundType.Operation;
+                    element.Operation = ConstOperation.Modulo;
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                case TokenType.Identifier:
+                    // Identifier here can be special things like sizeof
+                    if (tok.ContentsMatch("sizeof"))
+                    {
+                        element.Type = CompoundType.Sizeof;
+
+                        var openTok = Tokens.Dequeue();
+                        if (openTok.Type != TokenType.Open_paren) Error(openTok, "Expected '(' after sizeof");
+
+                        var labelTok = Tokens.Dequeue();
+                        if (labelTok.Type != TokenType.Label) Error(labelTok, "Expected label in sizeof!");
+                        element.StringRef = labelTok.ToStringRef();
+
+                        var closeTok = Tokens.Dequeue();
+                        if (closeTok.Type != TokenType.Close_paren) Error(closeTok, "Expected ')'");
+
+                        element.Trace = Trace.FromToken(tok, closeTok);
+                    }
+                    else
+                    {
+                        element.Type = CompoundType.Ident;
+                        element.StringRef = tok.ToStringRef();
+                        element.Trace = Trace.FromToken(tok);
+                    }
+                    break;
+                case TokenType.Label:
+                    element.Type = CompoundType.LabelRef;
+                    element.StringRef = tok.ToStringRef();
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                case TokenType.Number_litteral:
+                    element.Type = CompoundType.NumberLitteral;
+                    element.NumberLit = tok.ParseNumber();
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                case TokenType.Char_litteral:
+                    element.Type = CompoundType.CharLitteral;
+                    element.CharLit = tok.GetFirstChar();
+                    element.Trace = Trace.FromToken(tok);
+                    break;
+                default:
+                    Error(tok, $"Unknown compound constant token: '{tok}'");
+                    break;
+            }
+
+            return element;
         }
     }
 }

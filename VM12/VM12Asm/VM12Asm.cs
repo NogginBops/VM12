@@ -2667,6 +2667,7 @@ namespace VM12Asm
                 {
                     Constant next = new Constant(expr.name + "_auto", expr.file, expr.line, auto_expression.Groups[1].Value);
 
+                    // FIXME: Here there is a bug hiding. If the auto size eval needs to be delayed we cant do that...
                     int size = ToInt(ParseLitteral(expr.file, expr.line, EvalConstant(next, fileConstants[Path.GetFileName(next.file.path)], fileConstants, metadata, out delay), false, constants));
 
                     AutoConst autoc = allocAutoConst(size);
