@@ -13,13 +13,15 @@ namespace FastVM12Asm
 {
     public struct Trace
     {
-        public FileData File;
+        public string FileData;
+        public string FilePath;
         public int StartLine, EndLine;
         public StringRef TraceString;
 
         public Trace(FileData file, int line, StringRef traceString)
         {
-            File = file;
+            FileData = file.Data;
+            FilePath = file.Path;
             StartLine = line;
             EndLine = line;
             TraceString = traceString;
@@ -28,29 +30,32 @@ namespace FastVM12Asm
         public static Trace FromToken(Token tok)
         {
             Trace trace;
-            trace.File = tok.File;
+            trace.FileData = tok.Data.Data;
+            trace.FilePath = tok.Path;
             trace.StartLine = tok.Line;
             trace.EndLine = tok.Line;
-            trace.TraceString = tok.ToStringRef();
+            trace.TraceString = tok.Data;
             return trace;
         }
         public static Trace FromToken(Token start, Token end)
         {
             Trace trace;
-            trace.File = start.File;
+            trace.FileData = start.Data.Data;
+            trace.FilePath = start.Path;
             trace.StartLine = start.Line;
             trace.EndLine = end.Line;
-            trace.TraceString = new StringRef(start.File.Data, start.Index, end.Length + (end.Index - start.Index));
+            trace.TraceString = new StringRef(start.Data.Data, start.Data.Index, end.Data.Length + (end.Data.Index - start.Data.Index));
             return trace;
         }
 
         internal static Trace FromTrace(Trace start, Trace end)
         {
             Trace trace;
-            trace.File = start.File;
+            trace.FileData = start.FileData;
+            trace.FilePath = start.FilePath;
             trace.StartLine = start.StartLine;
             trace.EndLine = end.EndLine;
-            trace.TraceString = new StringRef(start.File.Data, start.TraceString.Index, end.TraceString.Length + (end.TraceString.Index - start.TraceString.Index));
+            trace.TraceString = new StringRef(start.FileData, start.TraceString.Index, end.TraceString.Length + (end.TraceString.Index - start.TraceString.Index));
             return trace;
         }
     }
@@ -69,48 +74,6 @@ namespace FastVM12Asm
             Length = length;
         }
 
-        public override bool Equals(object obj)
-        {
-            return obj is StringRef @ref && Equals(@ref);
-        }
-
-        public bool Equals(StringRef other)
-        {
-            if (Length != other.Length) return false;
-            for (int i = 0; i < Length; i++)
-            {
-                if (Data[Index + i] != other.Data[other.Index + i]) return false;
-            }
-            return true;
-        }
-
-        public override int GetHashCode()
-        {
-            var hashCode = 596452045;
-            for (int i = 0; i < Length; i++)
-            {
-                hashCode = hashCode * -1521134295 + Data[Index + i].GetHashCode();
-            }
-            hashCode = hashCode * -1521134295 + Length.GetHashCode();
-            return hashCode;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override string ToString() => Data?.Substring(Index, Length);
-
-        public static bool operator ==(StringRef left, StringRef right)
-        {
-            return left.Equals(right);
-        }
-
-        public static bool operator !=(StringRef left, StringRef right)
-        {
-            return !(left == right);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static explicit operator StringRef(string str) => new StringRef(str, 0, str.Length);
-
         public bool StartsWith(string str)
         {
             if (str.Length > Length) return false;
@@ -123,6 +86,66 @@ namespace FastVM12Asm
             return true;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StringRef Substring(int start)
+        {
+            if (start > Length) throw new ArgumentException("The start is past the end of the string!");
+            return new StringRef(Data, Index + start, Length - start);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StringRef Substring(int start, int length)
+        {
+            if (length > Length - start) throw new ArgumentException("The start and length provieded exceed the length of the string!");
+            return new StringRef(Data, Index + start, length);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override string ToString() => Data?.Substring(Index, Length);
+
+        public override bool Equals(object obj)
+        {
+            return obj is StringRef @ref && Equals(@ref);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Equals(StringRef other)
+        {
+            if (Length != other.Length) return false;
+            for (int i = 0; i < Length; i++)
+            {
+                if (Data[Index + i] != other.Data[other.Index + i]) return false;
+            }
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int GetHashCode()
+        {
+            var hashCode = 596452045;
+            for (int i = 0; i < Length; i++)
+            {
+                hashCode = hashCode * -1521134295 + Data[Index + i].GetHashCode();
+            }
+            hashCode = hashCode * -1521134295 + Length.GetHashCode();
+            return hashCode;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool operator ==(StringRef left, StringRef right)
+        {
+            return left.Equals(right);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool operator !=(StringRef left, StringRef right)
+        {
+            return !(left == right);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static explicit operator StringRef(string str) => new StringRef(str, 0, str.Length);
+
         public IEnumerator<char> GetEnumerator()
         {
             for (int i = 0; i < Length; i++)
@@ -131,6 +154,7 @@ namespace FastVM12Asm
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         public char this[int i] => Data[Index + i];
@@ -276,7 +300,9 @@ namespace FastVM12Asm
         AutoStringLoad,
 
         String,
+        RawString,
         Label,
+        LabelRef,
         Number,
         Jump,
         Call,
@@ -557,7 +583,7 @@ namespace FastVM12Asm
 
                             constExpr.Trace = Trace.FromToken(tok, closeAngleTok);
 
-                            StringRef constName = identTok.ToStringRef();
+                            StringRef constName = identTok.Data;
                             if (ConstExprs.TryGetValue(constName, out _) == true)
                                 Error(identTok, "A constant with the same name already exists!");
 
@@ -591,9 +617,9 @@ namespace FastVM12Asm
                             if (Tokens.Peek().Type == TokenType.ProcLocation)
                             {
                                 var locationTok = Tokens.Dequeue();
-                                var res = locationTok.ToStringRef(1).ParseNumber();
+                                var res = locationTok.Data.Substring(1).ParseNumber();
                                 if (res.Size > 2) Error(locationTok, "Specified location is too big!");
-                                location = res.Value;
+                                location = res.Number;
                             }
 
                             var peek = Tokens.Peek();
@@ -665,7 +691,7 @@ namespace FastVM12Asm
                                                 inst.VarSizeArgSize = inst.Opcode == Opcode.Load_lit_l ? 2 : 1;
                                                 // FIXME: Specifiy the size we expect!!
                                                 inst.Type = InstructionType.IdentArgOpcode;
-                                                inst.StrArg = litTok.ToStringRef();
+                                                inst.StrArg = litTok.Data;
                                             }
                                             else if (litTok.Type == TokenType.Open_paren)
                                             {
@@ -687,7 +713,7 @@ namespace FastVM12Asm
                                         {
                                             inst.Opcode = Opcode.Load_lit_l;
                                             inst.Type = InstructionType.LabelArgOpcode;
-                                            inst.StrArg = loadTok.ToStringRef();
+                                            inst.StrArg = loadTok.Data;
                                             inst.Trace = Trace.FromToken(instTok, loadTok);
                                         }
                                         else if (loadTok.Type == TokenType.Register)
@@ -707,16 +733,16 @@ namespace FastVM12Asm
                                             if (instTok.GetLastChar() == 'l') Error(loadTok, "Cannot loadl a char litteral!");
                                             inst.Opcode = Opcode.Load_lit;
                                             inst.Type = InstructionType.WordArgOpcode;
-                                            inst.Arg = loadTok.GetFirstChar();
+                                            inst.Arg = loadTok.GetChar(1);
                                             inst.Trace = Trace.FromToken(instTok, loadTok);
                                         }
                                         else if (loadTok.Type == TokenType.String_litteral)
                                         {
-                                            AutoStrings.Add(loadTok.ToStringRef());
+                                            AutoStrings.Add(loadTok.Data);
 
                                             inst.Type = InstructionType.AutoStringLoad;
                                             // We put the string ref here so that we can later get the label from a de-duplicated map
-                                            inst.StrArg = loadTok.ToStringRef();
+                                            inst.StrArg = loadTok.Data;
                                             inst.Opcode = Opcode.Load_lit_l;
                                             inst.Trace = Trace.FromToken(instTok, loadTok);
                                         }
@@ -851,7 +877,7 @@ namespace FastVM12Asm
                                                 var labelTok = Tokens.Dequeue();
                                                 if (labelTok.Type != TokenType.Label) Error(labelTok, "Can only jump to labels!");
 
-                                                inst.StrArg = labelTok.ToStringRef();
+                                                inst.StrArg = labelTok.Data;
 
                                                 inst.Trace = Trace.FromToken(instTok, labelTok);
                                                 break;
@@ -956,7 +982,7 @@ namespace FastVM12Asm
                                             {
                                                 // Here we guess that this is a constant that we want to resolve!
                                                 inst.Type = InstructionType.Identifier;
-                                                inst.StrArg = instTok.ToStringRef();
+                                                inst.StrArg = instTok.Data;
                                                 inst.Trace = Trace.FromToken(instTok);
                                             }
                                             else Error(instTok, "Unknown instruction!");
@@ -967,7 +993,7 @@ namespace FastVM12Asm
                                 {
                                     // Here we assume we just want to output the number raw
                                     inst.Type = InstructionType.Number;
-                                    inst.StrArg = instTok.ToStringRef();
+                                    inst.StrArg = instTok.Data;
                                     inst.Trace = Trace.FromToken(instTok);
                                 }
                                 else if (instTok.Type == TokenType.Register)
@@ -995,22 +1021,35 @@ namespace FastVM12Asm
                                     {
                                         inst.Opcode = Opcode.Call;
                                         inst.Type = InstructionType.Call;
-                                        inst.StrArg = instTok.ToStringRef(1);
+                                        inst.StrArg = instTok.Data.Substring(1);
                                     }
 
                                     inst.Trace = Trace.FromToken(instTok);
                                 }
                                 else if (instTok.Type == TokenType.Label)
                                 {
-                                    inst.Type = InstructionType.Label;
-                                    inst.StrArg = instTok.ToStringRef();
-                                    inst.Trace = Trace.FromToken(instTok);
+                                    if (instTok.GetLastChar() == '*')
+                                    {
+                                        inst.Type = InstructionType.LabelRef;
+                                        // Remove the '*' at the end
+                                        inst.StrArg = instTok.Data;
+                                        inst.Trace = Trace.FromToken(instTok);
+                                    }
+                                    else
+                                    {
+                                        inst.Type = InstructionType.Label;
+                                        inst.StrArg = instTok.Data;
+                                        inst.Trace = Trace.FromToken(instTok);
+                                    }
                                 }
                                 else if (instTok.Type == TokenType.String_litteral)
                                 {
                                     if (ProcContent.Count > 0) Error(instTok, "A string label can only contain a string!");
-                                    inst.Type = InstructionType.String;
-                                    inst.StrArg = instTok.ToStringRef();
+
+                                    if (instTok.GetFirstChar() == '@')
+                                        inst.Type = InstructionType.RawString;
+                                    else inst.Type = InstructionType.String;
+                                    inst.StrArg = instTok.Data;
                                     inst.Trace = Trace.FromToken(instTok);
 
                                     // FIXME: Generate an error if there are more things to add to this label!!!
@@ -1019,7 +1058,7 @@ namespace FastVM12Asm
                                 {
                                     inst.Type = InstructionType.RawWord;
                                     // FIXME: Char escapes!!
-                                    inst.Arg = instTok.GetFirstChar();
+                                    inst.Arg = instTok.GetChar(1);
                                     inst.Trace = Trace.FromToken(instTok);
                                 }
                                 else if (instTok.Type == TokenType.Numbersign)
@@ -1046,7 +1085,7 @@ namespace FastVM12Asm
                                 }
                                 else Error(instTok, "Unknown instruction type!");
 
-                                if (inst.Trace.File == null) Debugger.Break();
+                                if (inst.Trace.FilePath == null || inst.Trace.FileData == null) Debugger.Break();
 
                                 ProcContent.Add(inst);
                                 if (Tokens.Count > 0)
@@ -1057,7 +1096,7 @@ namespace FastVM12Asm
                             // FIXME: Add the location of the proc!!! if there is one!
                             Procs.Add(tok, ProcContent);
                             if (location.HasValue)
-                                ProcLocations.Add(tok.ToStringRef(), location ?? 0);
+                                ProcLocations.Add(tok.Data, location ?? 0);
 
                             //Console.ForegroundColor = ConsoleColor.Green;
                             //Console.WriteLine($"Proc: {tok.GetContents(),-40} Content: {ProcContent.Count,3} tokens");
@@ -1094,13 +1133,13 @@ namespace FastVM12Asm
             {
                 Tokens.Dequeue();
                 constExpr.Type = ConstantExprType.CharLit;
-                constExpr.CharLit = peek.GetFirstChar();
+                constExpr.CharLit = peek.GetChar(1);
             }
             else if (peek.Type == TokenType.String_litteral)
             {
                 Tokens.Dequeue();
                 constExpr.Type = ConstantExprType.StringLit;
-                constExpr.StringLit = peek.ToStringRef();
+                constExpr.StringLit = peek.Data;
             }
             else if (peek.Type == TokenType.Open_paren)
             {
@@ -1137,7 +1176,7 @@ namespace FastVM12Asm
 
             ConstantExpression expr = new ConstantExpression();
             expr.Type = ConstantExprType.Compound;
-            expr.CompoundExpr = new List<CompoundElement>();
+            expr.CompoundExpr = new List<CompoundElement>(10);
 
             bool delayed = false;
             while (Tokens.Peek().Type != TokenType.Close_paren)
@@ -1203,7 +1242,7 @@ namespace FastVM12Asm
 
                         var labelTok = Tokens.Dequeue();
                         if (labelTok.Type != TokenType.Label) Error(labelTok, "Expected label in sizeof!");
-                        element.StringRef = labelTok.ToStringRef();
+                        element.StringRef = labelTok.Data;
 
                         var closeTok = Tokens.Dequeue();
                         if (closeTok.Type != TokenType.Close_paren) Error(closeTok, "Expected ')'");
@@ -1213,13 +1252,13 @@ namespace FastVM12Asm
                     else
                     {
                         element.Type = CompoundType.Ident;
-                        element.StringRef = tok.ToStringRef();
+                        element.StringRef = tok.Data;
                         element.Trace = Trace.FromToken(tok);
                     }
                     break;
                 case TokenType.Label:
                     element.Type = CompoundType.LabelRef;
-                    element.StringRef = tok.ToStringRef();
+                    element.StringRef = tok.Data;
                     element.Trace = Trace.FromToken(tok);
                     break;
                 case TokenType.Number_litteral:
@@ -1229,7 +1268,7 @@ namespace FastVM12Asm
                     break;
                 case TokenType.Char_litteral:
                     element.Type = CompoundType.CharLitteral;
-                    element.CharLit = tok.GetFirstChar();
+                    element.CharLit = tok.GetChar(1);
                     element.Trace = Trace.FromToken(tok);
                     break;
                 default:

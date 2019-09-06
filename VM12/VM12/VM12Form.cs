@@ -118,8 +118,21 @@ namespace VM12
         {
             if (programFile.Extension != ".12exe")
             {
-                VM12Asm.VM12Asm.Reset();
-                VM12Asm.VM12Asm.Main("-src", programFile.FullName, "-dst", Path.GetFileNameWithoutExtension(programFile.Name), "-e", "-o");
+                if (programFile.Extension == ".t12")
+                {
+                    // FIXME: Send in a proper error handler!
+                    T12.Compiler.StartCompiling(programFile.Directory, (e) => Console.WriteLine(e.Message));
+                    T12.Compiler.Compile(programFile);
+                    T12.Compiler.StopCompiling();
+
+                    programFile = new FileInfo(Path.ChangeExtension(programFile.FullName, ".12asm"));
+                }
+
+                // First argument is the src and the second argument is the name of the exe that should be generated
+                FastVM12Asm.Fast12Asm.Main(programFile.FullName, Path.GetFileNameWithoutExtension(programFile.Name));
+
+                //VM12Asm.VM12Asm.Reset();
+                //VM12Asm.VM12Asm.Main("-src", programFile.FullName, "-dst", Path.GetFileNameWithoutExtension(programFile.Name), "-e", "-o");
 
                 programFile = new FileInfo(Path.ChangeExtension(programFile.FullName, "12exe"));
             }

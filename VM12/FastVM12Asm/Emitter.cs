@@ -136,7 +136,7 @@ namespace FastVM12Asm
         public void Error(Token tok, string error)
         {
             Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"In file {Path.GetFileName(tok.File.Path)} on line {tok.Line} character {tok.LineCharIndex}: '{tok.GetContents()}'");
+            Console.WriteLine($"In file {Path.GetFileName(tok.Path)} on line {tok.Line} character {tok.LineCharIndex}: '{tok.GetContents()}'");
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"    {error}");
             //Debugger.Break();
@@ -161,7 +161,7 @@ namespace FastVM12Asm
         {
             Console.ForegroundColor = ConsoleColor.White;
             // FIXME: When start and end line differ
-            Console.WriteLine($"In file {Path.GetFileName(trace.File.Path)} on line {trace.StartLine}: '{trace.TraceString}'");
+            Console.WriteLine($"In file {Path.GetFileName(trace.FilePath)} on line {trace.StartLine}: '{trace.TraceString}'");
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"    {error}");
             //Debugger.Break();
@@ -210,7 +210,7 @@ namespace FastVM12Asm
                     foreach (var proc in includeFile.Procs)
                     {
                         // FIXME: Check if public!!
-                        ImportedProcs.Add(proc.Key.ToStringRef(), proc.Value);
+                        ImportedProcs.Add(proc.Key.Data, proc.Value);
                     }
                 }
 
@@ -237,7 +237,7 @@ namespace FastVM12Asm
                             // Here there wasn't en evaluated value for this so we add it to the list of things to eval
                             if (ImportedConstExprs.ContainsKey(constExpr.Key) == false)
                                 ImportedConstExprs.Add(constExpr.Key, constExpr.Value);
-                            else Console.WriteLine($"This const is already imported: '{constExpr.Key}'");
+                            //else Console.WriteLine($"This const is already imported: '{constExpr.Key}'");
                         }
                     }
                     else
@@ -252,6 +252,7 @@ namespace FastVM12Asm
                         Error(constExpr.Value.Trace, "We should not get extern consts here!!");
 
                     // FIXME:
+
                     if (LocalEvaluatedConstants.ContainsKey(constExpr.Key))
                     {
                         //Console.WriteLine("Double import!!!");
@@ -276,7 +277,7 @@ namespace FastVM12Asm
                 // Import procs defined in this file
                 foreach (var proc in file.Procs)
                 {
-                    ImportedProcs.Add(proc.Key.ToStringRef(), proc.Value);
+                    ImportedProcs.Add(proc.Key.Data, proc.Value);
                 }
 
                 foreach (var proc in file.Procs)
@@ -304,7 +305,6 @@ namespace FastVM12Asm
                         }
                         else if (inst.Type == InstructionType.RawWord)
                         {
-                            // FIXME: When is this used??
                             Instructions.Add((short)(inst.Arg & 0xFFF));
                         }
                         else if (inst.Type == InstructionType.Number)
@@ -329,6 +329,8 @@ namespace FastVM12Asm
                                 var evalConst = EvaluateConstantExpr(inst.ConstantArg);
                                 if (evalConst.IsString) Error(inst, "We don't support const strings here atm");
 
+                                if (evalConst.NumberValue.Size != 2) Error(inst, "We expected a const of size 2 here!");
+
                                 // FIXME: ATM we are expecting this to always be two but this is not true!!
                                 Instructions.Add((short)(evalConst.NumberValue.Number >> 12));
                                 Instructions.Add((short)(evalConst.NumberValue.Number & 0xFFF));
@@ -338,14 +340,29 @@ namespace FastVM12Asm
                         {
                             // This is a string!!
                             if (proc.Value.Count != 1) Error(inst, "A string proc can only contain one string!");
-
+                            
                             // Convert this string into bits
-                            int length = inst.StrArg.Length;
+                            int length = inst.StrArg.Length - 2;
                             if (length > 16777216) Error(inst, "String is too long!");
                             Instructions.Add((short)(length >> 12));
                             Instructions.Add((short)(length & 0xFFF));
 
-                            foreach (var c in inst.StrArg)
+                            StringRef emitStr = inst.StrArg.Substring(1, inst.StrArg.Length - 2);
+                            foreach (var c in emitStr)
+                            {
+                                Instructions.Add((short)c);
+                            }
+                        }
+                        else if (inst.Type == InstructionType.RawString)
+                        {
+                            // This is a string!!
+                            if (proc.Value.Count != 1) Error(inst, "A string proc can only contain one string!");
+
+                            // We don't emit any length because this is a raw string
+
+                            // Remove the @ in the beginning aswell as the quotes
+                            StringRef emitStr = inst.StrArg.Substring(2, inst.StrArg.Length - 3);
+                            foreach (var c in emitStr)
                             {
                                 Instructions.Add((short)c);
                             }
@@ -354,6 +371,13 @@ namespace FastVM12Asm
                         {
                             LocalLabels[inst.StrArg] = Instructions.Count;
                         }
+                        else if (inst.Type == InstructionType.LabelRef)
+                        {
+                            // Remove the trailing '*' on the label name
+                            LabelUses.Add((Instructions.Count, inst.StrArg.Substring(0, inst.StrArg.Length - 1)));
+                            Instructions.Add(0);
+                            Instructions.Add(0);
+                        }
                         else if (inst.Type == InstructionType.Identifier)
                         {
                             if (LocalEvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
@@ -361,9 +385,14 @@ namespace FastVM12Asm
 
                             if (evalConst.IsString) Error(inst, "Cannot load a string here!!");
 
-                            // FIXME: The number should be able to be bigger than an int?
-                            Instructions.Add((short)(evalConst.NumberValue.Number >> 12));
-                            Instructions.Add((short)(evalConst.NumberValue.Number & 0xFFF));
+                            // FIXME: We might want to support very large numbers here in the future?
+
+                            // Here we just assume the size of the eval const
+                            SizedNumber number = evalConst.NumberValue;
+                            for (int i = 0; i < number.Size; i++)
+                            {
+                                Instructions.Add((short)((evalConst.NumberValue.Number >> (12 * (number.Size - 1 - i))) & 0xFFF));
+                            }
                         }
                         else if (inst.Type == InstructionType.WordArgOpcode)
                         {
@@ -397,7 +426,6 @@ namespace FastVM12Asm
 
                                 if (size > inst.VarSizeArgSize) Error(inst, $"We got a constant that was bigger than we expected! Exptected: {inst.VarSizeArgSize}, Got: {size}");
 
-                                // FIXME: We need to know the size of the arg!!
                                 Instructions.Add((short)inst.Opcode);
                                 for (int i = 0; i < inst.VarSizeArgSize; i++)
                                 {
@@ -428,7 +456,6 @@ namespace FastVM12Asm
                             // Here we should evaluate a constant
                             if (inst.ConstantArg.Delayed)
                             {
-                                // FIXME: Here we should also record the proc and the location for the delayed constant
                                 DelayedConstants.Add((Instructions.Count, new DelayedConst(inst.ConstantArg, inst.VarSizeArgSize)));
                                 for (int i = 0; i < inst.VarSizeArgSize; i++)
                                 {
@@ -444,8 +471,7 @@ namespace FastVM12Asm
 
                                 for (int i = 0; i < size; i++)
                                 {
-                                    Instructions.Add((short)(value & 0xFFF));
-                                    value >>= 12;
+                                    Instructions.Add((short)((value >> (12 * (size - 1 - i))) & 0xFFF));
                                 }
                             }
                         }
@@ -478,7 +504,7 @@ namespace FastVM12Asm
                     }
 
                     Proc newProc = default;
-                    newProc.ProcName = proc.Key.ToStringRef();
+                    newProc.ProcName = proc.Key.Data;
                     newProc.Line = proc.Key.Line;
                     newProc.LinkedLines = LinkedLines;
                     newProc.Instructions = Instructions;
@@ -502,21 +528,28 @@ namespace FastVM12Asm
                 {
                     ref var proc = ref ProcList.IndexByRef(i);
 
+                    // FIXME: Detect if a placed proc is intersecting another proc
+                    // Or just make placed procs not placable anywhere!
+
                     if (PlacedProcs.TryGetValue(proc.ProcName, out int location))
+                    {
                         proc.Address = location;
+                    }
                     else
+                    {
                         proc.Address = offset + Constants.ROM_START;
+                        offset += proc.Size;
+                    }
 
                     //Console.WriteLine($"{proc.ProcName,-15} Offset: {offset} Length: {proc.Size}");
-                    offset += proc.Size;
-
+                    
                     ProcMap.Add(proc.ProcName, proc);
                 }
             }
 
             foreach (var procDelayedConst in AllDelayedConstants)
             {
-                if (ProcMap.TryGetValue(procDelayedConst.Key.ToStringRef(), out var proc) == false)
+                if (ProcMap.TryGetValue(procDelayedConst.Key.Data, out var proc) == false)
                     Error(procDelayedConst.Key, "Could not find proc! This should not happen!");
 
                 foreach (var delayedConstant in procDelayedConst.Value)
@@ -541,7 +574,7 @@ namespace FastVM12Asm
             foreach (var procUses in AllLabelUses)
             {
                 // This is the proc that we want edit
-                if (ProcMap.TryGetValue(procUses.Key.ToStringRef(), out var procThatWantsTheLabel) == false)
+                if (ProcMap.TryGetValue(procUses.Key.Data, out var procThatWantsTheLabel) == false)
                     Error(procUses.Key, "Could not find proc! This should not happen!");
 
                 // Get all the lables defined in this proc
@@ -584,7 +617,6 @@ namespace FastVM12Asm
                 proc.Value.Instructions.CopyTo(rom, proc.Value.Address - Constants.ROM_START);
             }
 
-            // FIXME: Do this better!
             return new BinFile() { Instructions = rom, UsedInstructions = usedInstructions, Metadata = ProcList };
         }
 
@@ -599,7 +631,6 @@ namespace FastVM12Asm
             public override string ToString() => $"EvalConst{{{(IsString ? NumberValue.ToString() : StringValue.ToString())}}}";
         }
 
-        // FIXME: How should we handle delayed constants?
         public EvaluatedConstant EvaluateConstantExpr(ConstantExpression expr)
         {
             if (expr.Delayed) Console.WriteLine($"Trying to eval a delayed const!! Type: '{expr.Type}'");
@@ -688,16 +719,17 @@ namespace FastVM12Asm
                         Stack.Push(ApplyOperation(Stack.Pop(), Stack.Pop(), element.Operation));
                         break;
                     case CompoundType.LabelRef:
-                        if (procMap == null)
-                            Error(expr.Trace, $"Can't use a label ref with no metadata! This is a bug!");
-                        else
                         {
-                            if (procMap.TryGetValue(element.StringRef, out var proc) == false)
-                                Error(expr.Trace, $"Can't find proc '{element.StringRef}' when trying to ref a label!");
+                            if (procMap != null) 
+                            {
+                                if (procMap.TryGetValue(element.StringRef, out var proc) == false)
+                                    Error(expr.Trace, $"Can't find proc '{element.StringRef}' when trying to ref a label!");
 
-                            Stack.Push(new SizedNumber(proc.Address, 2));
+                                Stack.Push(new SizedNumber(proc.Address, 2));
+                            }
+                            else Error(expr.Trace, $"Can't use a label ref with no metadata! This is a bug!");
+                            break;
                         }
-                        break;
                     case CompoundType.Ident:
                         {
                             // FIXME: We need to do this more scoped!!
@@ -720,15 +752,14 @@ namespace FastVM12Asm
                         }
                     case CompoundType.Sizeof:
                         {
-                            if (procMap == null)
-                                Error(expr.Trace, $"Can't take sizeof with no metadata! This is a bug!");
-                            else
+                            if (procMap != null) 
                             {
                                 if (procMap.TryGetValue(element.StringRef, out var proc) == false)
                                     Error(expr.Trace, $"Can't find proc '{element.StringRef}' when trying to take sizeof!");
 
                                 Stack.Push(SizedNumber.From(proc.Size));
                             }
+                            else Error(expr.Trace, $"Can't take sizeof with no metadata! This is a bug!");
                             break;
                         }
                     default:

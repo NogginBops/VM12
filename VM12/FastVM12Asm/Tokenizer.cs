@@ -9,6 +9,7 @@ using Util;
 using System.Globalization;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace FastVM12Asm
 {
@@ -57,6 +58,10 @@ namespace FastVM12Asm
         Comment,
     }
 
+    // FIXME: This should really be number format or number base!!
+    // Really it could just be tossed out because all of this data is retained.
+    // But it might be faster to flag it here
+    // But in reality this is C# and this kindof wont matter here
     [Flags]
     public enum TokenFlag
     {
@@ -71,42 +76,36 @@ namespace FastVM12Asm
     {
         public TokenType Type;
         public TokenFlag Flags;
+        public StringRef Data;
 
-        public FileData File;
+        public string Path;
         public int Line;
         // How many characters into the line this token is
         public int LineCharIndex;
 
-        public int Index;
-        public int Length;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public char GetFirstChar() => Data[0];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public char GetFirstChar() => File.Data[Index];
+        public char GetLastChar() => Data[Data.Length - 1];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public char GetLastChar() => File.Data[Index + Length - 1];
+        public char GetChar(int i) => Data[i];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public char GetChar(int i) => File.Data[Index + i];
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string GetContents()
-        {
-            return File.Data.Substring(Index, Length);
-        }
+        public string GetContents() => Data.ToString();
 
         public SizedNumber ParseNumber()
         {
             if (Type != TokenType.Number_litteral) Debugger.Break();
-            string data = File.Data;
             int result = 0;
             int size = 0;
             if (Flags.HasFlag(TokenFlag.Hexadecimal))
             {
                 // Parse hex
-                for (int i = 2; i < Length; i++)
+                for (int i = 2; i < Data.Length; i++)
                 {
-                    char c = data[Index + i];
+                    char c = Data[i];
                     if (c == '_') continue;
 
                     size++;
@@ -123,9 +122,9 @@ namespace FastVM12Asm
             else if (Flags.HasFlag(TokenFlag.Octal))
             {
                 // Parse octal
-                for (int i = 2; i < Length; i++)
+                for (int i = 2; i < Data.Length; i++)
                 {
-                    char c = data[Index + i];
+                    char c = Data[i];
                     if (c == '_') continue;
                     size++;
                     result *= 8;
@@ -136,9 +135,9 @@ namespace FastVM12Asm
             }
             else if (Flags.HasFlag(TokenFlag.Binary))
             {
-                for (int i = 2; i < Length; i++)
+                for (int i = 2; i < Data.Length; i++)
                 {
-                    char c = data[Index + i];
+                    char c = Data[i];
                     if (c == '_') continue;
                     size++;
                     result *= 2;
@@ -149,9 +148,9 @@ namespace FastVM12Asm
             }
             else
             {
-                for (int i = 0; i < Length; i++)
+                for (int i = 0; i < Data.Length; i++)
                 {
-                    char c = data[Index + i];
+                    char c = Data[i];
                     if (c == '_') continue;
                     result *= 10;
                     result += (int)char.GetNumericValue(c);
@@ -169,13 +168,10 @@ namespace FastVM12Asm
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool ContentsMatch(string str)
         {
-            if (Length != str.Length) return false;
+            if (Data.Length != str.Length) return false;
 
-            string data = File.Data;
             for (int i = 0; i < str.Length; i++)
-            {
-                if (data[Index + i] != str[i]) return false;
-            }
+                if (Data[i] != str[i]) return false;
 
             return true;
         }
@@ -183,13 +179,10 @@ namespace FastVM12Asm
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool StartsWith(string str)
         {
-            if (str.Length > Length) return false;
+            if (str.Length > Data.Length) return false;
 
-            string data = File.Data;
             for (int i = 0; i < str.Length; i++)
-            {
-                if (data[Index + i] != str[i]) return false;
-            }
+                if (Data[i] != str[i]) return false;
 
             return true;
         }
@@ -197,26 +190,13 @@ namespace FastVM12Asm
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool EndsWith(string str)
         {
-            if (str.Length > Length) return false;
+            if (str.Length > Data.Length) return false;
 
-            string data = File.Data;
-            int offset = Index + (Length - str.Length);
+            int offset = Data.Length - str.Length;
             for (int i = 0; i < str.Length; i++)
-            {
-                if (data[offset + i] != str[i]) return false;
-            }
+                if (Data[offset + i] != str[i]) return false;
 
             return true;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StringRef ToStringRef(int startOffset = 0)
-        {
-            StringRef strRef;
-            strRef.Data = File.Data;
-            strRef.Index = Index + startOffset;
-            strRef.Length = Length - startOffset;
-            return strRef;
         }
 
         public override string ToString()
@@ -227,7 +207,7 @@ namespace FastVM12Asm
             }
             else
             {
-                return $"{Type}{{{File.Data.Substring(Index, Length)}}}";
+                return $"{Type}{{{Data.ToString()}}}";
             }
         }
 
@@ -236,37 +216,31 @@ namespace FastVM12Asm
             return obj is Token token && Equals(token);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Equals(Token other)
         {
-            if (Type != other.Type || Flags != other.Flags || Length != other.Length) return false;
-            string Data = File.Data;
-            string OtherData = other.File.Data;
-            for (int i = 0; i < Length; i++)
-            {
-                if (Data[Index + i] != OtherData[other.Index + i]) return false;
-            }
-            return true;
+            if (Type != other.Type || Flags != other.Flags) return false;
+            // If they are the same type and same flags we compare the actual contents
+            return Data == other.Data;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public override int GetHashCode()
         {
             var hashCode = 740877982;
             hashCode = hashCode * -1521134295 + Type.GetHashCode();
             hashCode = hashCode * -1521134295 + Flags.GetHashCode();
-            hashCode = hashCode * -1521134295 + Length.GetHashCode();
-            string Data = File.Data;
-            for (int i = 0; i < Length; i++)
-            {
-                hashCode = hashCode * -1521134295 + Data[Index + i].GetHashCode();
-            }
+            hashCode = hashCode * -1521134295 + Data.GetHashCode();
             return hashCode;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool operator ==(Token left, Token right)
         {
             return left.Equals(right);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool operator !=(Token left, Token right)
         {
             return !(left == right);
@@ -461,9 +435,8 @@ namespace FastVM12Asm
             {
                 Type = type,
                 Flags = flags,
-                Index = start,
-                Length = length,
-                File = CurrentFile,
+                Data = new StringRef(CurrentFile.Data, start, length),
+                Path = CurrentFile.Path,
                 Line = line,
                 // FIXME!!!
                 LineCharIndex = start - LineStart,
@@ -476,9 +449,8 @@ namespace FastVM12Asm
             {
                 Type = type,
                 Flags = flags,
-                Index = start,
-                Length = length,
-                File = CurrentFile,
+                Data = new StringRef(CurrentFile.Data, start, length),
+                Path = CurrentFile.Path,
                 Line = Line,
                 LineCharIndex = start - LineStart,
             };
@@ -594,6 +566,8 @@ namespace FastVM12Asm
 
             if (Expect(';') == false) Error("Expected ';'!");
             
+            // PERF: Here we are duplicating work!
+            // We could have something like ExpectNotNewLine() or something
             while (IsNextNewLine() == false) Next();
 
             return CreateToken(TokenType.Comment, start, Index - start);

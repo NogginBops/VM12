@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -95,7 +96,7 @@ namespace FastVM12Asm
             return r;
         }
 
-        public static (int Value, int Size) ParseNumber(this string data)
+        public static SizedNumber ParseNumber(this string data)
         {
             int result = 0;
             int size = 0;
@@ -159,10 +160,10 @@ namespace FastVM12Asm
                 size++;
             }
 
-            return (result, size);
+            return new SizedNumber(result, size);
         }
 
-        public static (int Value, int Size) ParseNumber(this StringRef data)
+        public static SizedNumber ParseNumber(this StringRef data)
         {
             int result = 0;
             int size = 0;
@@ -226,7 +227,7 @@ namespace FastVM12Asm
                 size++;
             }
 
-            return (result, size);
+            return new SizedNumber(result, size);
         }
 
         public static IEnumerable<FileInfo> GetFilesByExtensions(this DirectoryInfo dir, params string[] extensions)
@@ -379,9 +380,9 @@ namespace FastVM12Asm
         }
     }
 
-    class Program
+    public class Fast12Asm
     {
-        static void Main(string[] args)
+        public static void Main(params string[] args)
         {
             if (args.Length < 1)
             {
@@ -390,10 +391,20 @@ namespace FastVM12Asm
                 return;
             }
 
+            Console.WriteLine($"Size of Token: {Marshal.SizeOf(typeof(Token))}");
+            Console.WriteLine($"Size of StringRef: {Marshal.SizeOf(typeof(StringRef))}");
+
             double totalTime = 0;
 
             if (File.Exists(args[0]))
             {
+                Stopwatch totalWatch = new Stopwatch();
+                totalWatch.Start();
+
+                Stopwatch watch = new Stopwatch();
+
+                /**
+                watch.Start();
                 {
                     new Tokenizer(args[0]).Tokenize();
                     new Tokenizer(args[0]).Tokenize();
@@ -412,25 +423,36 @@ namespace FastVM12Asm
                     new Parser(tokenizer.CurrentFile, toks).Parse();
                     new Parser(tokenizer.CurrentFile, toks).Parse();
                 }
+                watch.Stop();
+                Console.WriteLine($"Prewarm in {watch.GetMS():#.000}ms");
+                */
 
                 FileInfo fileInf = new FileInfo(args[0]);
                 DirectoryInfo dirInf = fileInf.Directory;
 
+                string outputName = Path.GetFileNameWithoutExtension(args[0]);
+                if (args.Length >= 2) outputName = args[1];
+
                 // FIXME: Handle t12 files!
                 FileInfo[] dirFiles = dirInf.GetFilesByExtensions(".12asm").ToArray();
 
-                Queue<FileInfo> IncludeFiles = new Queue<FileInfo>();
-                IncludeFiles.Enqueue(new FileInfo(args[0]));
+                Stack<FileInfo> IncludeFiles = new Stack<FileInfo>();
+                IncludeFiles.Push(new FileInfo(args[0]));
 
                 List<ParsedFile> ParsedFiles = new List<ParsedFile>();
 
                 int lineCount = 0;
                 int tokenCount = 0;
 
-                Stopwatch watch = new Stopwatch();
+                
                 while (IncludeFiles.Count > 0)
                 {
-                    FileInfo file = IncludeFiles.Dequeue();
+                    FileInfo file = IncludeFiles.Pop();
+
+                    // If this file was already parsed we don't parse it again
+                    // We do this here instead of when adding IncludeFiles to retain the same import order as the old assembler
+                    if (ParsedFiles.Any(p => Path.GetFileName(p.File.Path) == file.Name))
+                        continue;
 
                     // Tokenize
                     watch.Start();
@@ -452,11 +474,11 @@ namespace FastVM12Asm
                     watch.Stop();
                     Console.ResetColor();
 
-                    foreach (var include in res.IncludeFiles)
+                    foreach (var include in res.IncludeFiles.Reverse<Token>())
                     {
                         string includeFile = include.GetContents();
-                        if (ParsedFiles.Any(p => Path.GetFileName(p.File.Path) == includeFile))
-                            continue;
+                        //if (ParsedFiles.Any(p => Path.GetFileName(p.File.Path) == includeFile))
+                        //    continue;
 
                         FileInfo fi = null;
                         for (int i = 0; i < dirFiles.Length; i++)
@@ -466,8 +488,9 @@ namespace FastVM12Asm
 
                         if (fi == null) throw new InvalidOperationException($"Could not find file called: '{file}'");
 
-                        if (IncludeFiles.Contains(fi) == false)
-                            IncludeFiles.Enqueue(fi);
+                        //if (IncludeFiles.Contains(fi) == false)
+                        if (ParsedFiles.Any(p => Path.GetFileName(p.File.Path) == includeFile) == false)
+                            IncludeFiles.Push(fi);
                     }
 
                     //Console.WriteLine($"Parsed {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
@@ -518,8 +541,8 @@ namespace FastVM12Asm
                     var tokenizer = new Tokenizer(autoStringsPath);
                     var toks = tokenizer.Tokenize();
                     watch.Stop();
-                    Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
-                    Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
+                    //Console.WriteLine($"Tokenized {tokenizer.GetLines()} lines ({toks.Count} tokens) in {watch.GetMS():#.000}ms");
+                    //Console.WriteLine($"This is {tokenizer.GetLines() / watch.GetSec():#} lines / sec");
                     totalTime += watch.GetMS();
 
                     lineCount += tokenizer.GetLines();
@@ -540,83 +563,17 @@ namespace FastVM12Asm
                 watch.Stop();
                 Console.ResetColor();
 
-                Console.WriteLine($"Emitted from {lineCount} lines ({tokenCount} tokens) in {watch.GetMS():#.000}ms");
-                Console.WriteLine($"This is {lineCount / watch.GetSec():#} lines / sec");
+                //Console.WriteLine($"Emitted from {lineCount} lines ({tokenCount} tokens) in {watch.GetMS():#.000}ms");
+                //Console.WriteLine($"This is {lineCount / watch.GetSec():#} lines / sec");
                 totalTime += watch.GetMS();
 
                 Console.WriteLine($"Total {totalTime:#.000}ms");
                 Console.WriteLine($"This is {(lineCount / (totalTime / 1000d)):#} lines / sec");
 
-                FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, Path.ChangeExtension(fileInf.Name, "12exe")));
-                FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, Path.ChangeExtension(fileInf.Name, "12meta")));
+                FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, $"{outputName}.12exe"));
+                FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, $"{outputName}.12meta"));
 
-                bool dump_mem = false;
-                if (dump_mem)
-                {
-                    bool toFile = false;
-                    TextWriter output = Console.Out;
-                    if (toFile)
-                    {
-                        output = new StreamWriter(File.Create(Path.Combine(dirInf.FullName, "output.txt")), Encoding.ASCII, 2048);
-                    }
-
-                    output.WriteLine($"Result ({bin.UsedInstructions} used words ({((double)bin.UsedInstructions / Constants.ROM_SIZE):P5})): ");
-                    output.WriteLine();
-
-                    Console.ForegroundColor = ConsoleColor.White;
-
-                    const int instPerLine = 3;
-                    for (int i = 0; i < bin.Instructions.Length; i++)
-                    {
-                        if ((bin.Instructions[i] & 0xF000) != 0)
-                        {
-                            Console.ForegroundColor = ConsoleColor.Red;
-                            output.Write("¤");
-                        }
-
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        output.Write("{0:X6}: ", i + Constants.ROM_START);
-                        Console.ForegroundColor = ConsoleColor.White;
-                        output.Write("{0:X3}{1,-14}", bin.Instructions[i] & 0xFFF, "(" + (Opcode)(bin.Instructions[i] & 0xFFF) + ")");
-
-                        if ((i + 1) % instPerLine == 0)
-                        {
-                            output.WriteLine();
-
-                            int sum = 0;
-                            for (int j = 0; j < instPerLine; j++)
-                            {
-                                if (i + j < bin.Instructions.Length)
-                                {
-                                    sum += bin.Instructions[i + j];
-                                }
-                            }
-
-                            if (sum == 0)
-                            {
-                                int instructions = 0;
-                                while (i + instructions < bin.Instructions.Length && bin.Instructions[i + instructions] == 0)
-                                {
-                                    instructions++;
-                                }
-
-                                i += instructions;
-                                i -= i % instPerLine;
-                                i--;
-
-                                output.WriteLine($"... ({instructions} instructions)");
-                                continue;
-                            }
-                        }
-                    }
-
-                    Console.WriteLine();
-                    Console.ResetColor();
-                }
-                else
-                {
-                    Console.WriteLine($"Result ({bin.UsedInstructions} used words ({((double)bin.UsedInstructions / Constants.ROM_SIZE):P5}))");
-                }
+                Console.WriteLine($"Result ({bin.UsedInstructions} used words ({((double)bin.UsedInstructions / Constants.ROM_SIZE):P5}))");
 
                 resFile.Delete();
 
@@ -698,7 +655,7 @@ namespace FastVM12Asm
                     {
                         writer.WriteLine(proc.ProcName);
                         // FIXME
-                        writer.WriteLine($"[file:{new FileInfo(proc.Trace.File.Path).Name}]");
+                        writer.WriteLine($"[file:{new FileInfo(proc.Trace.FilePath).Name}]");
                         writer.WriteLine($"[location:{proc.Address - Constants.ROM_START}]");
                         //writer.WriteLine($"[link?]");
                         writer.WriteLine($"[proc-line:{proc.Line}]");
@@ -710,7 +667,11 @@ namespace FastVM12Asm
                     }
                 }
 
-                Console.ReadKey();
+                totalWatch.Stop();
+                Console.WriteLine($"Grand total {totalWatch.GetMS():#.000}ms");
+                Console.WriteLine($"This is {(lineCount / (totalWatch.GetMS() / 1000d)):#} lines / sec");
+
+                //Console.ReadKey();
             }
             else
             {

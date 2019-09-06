@@ -815,6 +815,7 @@ namespace VM12Asm
                 
                 files[fi.Name] = asmFile;
 
+                // FIXME: Reverse here is really weird!!
                 foreach (var u in asmFile.Usings.Reverse())
                 {
                     if (files.ContainsKey(u.Key) == false)
@@ -2173,7 +2174,8 @@ namespace VM12Asm
                                                 instructions.Add(value[0]);
                                             }
 
-                                            tokens.MoveNext();
+                                            // FIXME: This is to remove generation of weird nop:s at the end of some procs
+                                            if (tokens.MoveNext() == false) goto instruction_loop_done;
                                         }
                                         else
                                         {
@@ -2200,7 +2202,8 @@ namespace VM12Asm
                                             instructions.Add((short)current.Opcode);
                                             instructions.Add(value[0]);
 
-                                            tokens.MoveNext();
+                                            // FIXME: This is to remove generation of weird nop:s at the end of some procs
+                                            if (tokens.MoveNext() == false) goto instruction_loop_done;
                                         }
                                         else
                                         {
@@ -2263,6 +2266,7 @@ namespace VM12Asm
 
                         current = tokens.Current;
                     }
+                    instruction_loop_done:
 
                     offset = instructions.Count;
                     
@@ -2317,7 +2321,6 @@ namespace VM12Asm
             }
 
             var metadataArray = metadata.Values.ToArray();
-
             for (int i = 0; i < metadataArray.Length - 1; i++)
             {
                 for (int j = i + 1; j < metadataArray.Length; j++)

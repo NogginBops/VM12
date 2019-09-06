@@ -37,7 +37,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup>
-    <StartupObject>FastVM12Asm.Program</StartupObject>
+    <StartupObject>FastVM12Asm.Fast12Asm</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
@@ -52,7 +52,7 @@
   <ItemGroup>
     <Compile Include="Emitter.cs" />
     <Compile Include="Parser.cs" />
-    <Compile Include="Program.cs" />
+    <Compile Include="Fast12Asm.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Tokenizer.cs" />
   </ItemGroup>

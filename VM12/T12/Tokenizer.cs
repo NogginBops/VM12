@@ -344,7 +344,7 @@ namespace T12
             ( TokenType.Identifier, new Regex("\\G[a-zA-Z_]\\w*") ),
             // TODO: We can do better dword litterals
             ( TokenType.Numeric_Litteral, new Regex("\\G(0b[0-1_]*[0-1]+|8x[0-7_]*[0-7]+|0x[0-9a-fA-F_]*[0-9a-fA-F]+|[0-9_]*[0-9]+(W|w|D|d)?)") ),
-            ( TokenType.Char_Litteral, new Regex("\\G'.'") ),
+            ( TokenType.Char_Litteral, new Regex("\\G'([^'\\\\]|\\\\['\\\\])'") ),
             // TODO: Fix this?
             ( TokenType.String_Litteral, new Regex("\\G\\\"(?:\\\\.|[^\"\\\\])*\\\"") ),
         };

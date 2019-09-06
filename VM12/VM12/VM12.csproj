@@ -218,6 +218,10 @@
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\FastVM12Asm\FastVM12Asm.csproj">
+      <Project>{37452316-1078-476c-9ddf-cf6f549c10b1}</Project>
+      <Name>FastVM12Asm</Name>
+    </ProjectReference>
     <ProjectReference Include="..\T12\T12.csproj">
       <Project>{f4e41638-2df1-412b-af94-a7a311c66ef2}</Project>
       <Name>T12</Name>
