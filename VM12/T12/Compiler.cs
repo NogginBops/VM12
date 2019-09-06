@@ -5,7 +5,7 @@ using System.IO;
 using System.Diagnostics;
 using System.Text;
 using System.Linq;
-using Util;
+using VM12Util;
 
 namespace T12
 {
@@ -78,7 +78,7 @@ namespace T12
 
             public static MessageData FromError(Token tok, string message)
             {
-                return new MessageData(MessageLevel.Error, tok.File, tok.Line, tok.Line, message);
+                return new MessageData(MessageLevel.Error, tok.FilePath, tok.Line, tok.Line, message);
             }
 
             public static MessageData FromError(TraceData trace, string message)
@@ -88,7 +88,7 @@ namespace T12
 
             public static MessageData FromWarning(Token tok, string message)
             {
-                return new MessageData(MessageLevel.Warning, tok.File, tok.Line, tok.Line, message);
+                return new MessageData(MessageLevel.Warning, tok.FilePath, tok.Line, tok.Line, message);
             }
 
             public static MessageData FromWarning(TraceData trace, string message)

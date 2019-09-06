@@ -1886,7 +1886,7 @@ namespace T12
             if (func is ASTInterrupt)
             {
                 // NOTE: We might want to use constants here...
-                VM12_Opcode.InterruptType type = (func as ASTInterrupt).Type;
+                VM12Opcode.InterruptType type = (func as ASTInterrupt).Type;
                 builder.AppendLine($":{func.Name}_interrupt\t@0x{(int)type:X6}\t; {type} interrupt");
 
                 // Load all variables so we can send executrion over to delegate.

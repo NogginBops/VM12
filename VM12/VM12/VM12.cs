@@ -7,7 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Diagnostics;
-using VM12_Opcode;
+using VM12Opcode;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;

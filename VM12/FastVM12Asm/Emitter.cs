@@ -2,7 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
-using VM12_Opcode;
+using VM12Opcode;
+using VM12Util;
 
 namespace FastVM12Asm
 {
@@ -309,7 +310,7 @@ namespace FastVM12Asm
                         }
                         else if (inst.Type == InstructionType.Number)
                         {
-                            short[] number = Util.ParseLargeNumber(inst.Trace, inst.StrArg.ToString());
+                            short[] number = Fast12AsmUtil.ParseLargeNumber(inst.Trace, inst.StrArg.ToString());
                             for (int i = number.Length - 1; i >= 0; i--)
                             {
                                 Instructions.Add(number[i]);

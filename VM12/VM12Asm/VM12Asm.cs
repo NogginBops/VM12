@@ -5,9 +5,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.IO;
 using System.Diagnostics;
-using VM12_Opcode;
+using VM12Opcode;
 using SKON;
-using Util;
+using VM12Util;
 
 namespace VM12Asm
 {

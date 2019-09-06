@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using VM12_Opcode;
+using VM12Opcode;
 using System.IO;
-using Util;
 using System.Globalization;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using VM12Util;
 
 namespace FastVM12Asm
 {

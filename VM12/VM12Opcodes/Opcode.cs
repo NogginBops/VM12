@@ -1,4 +1,4 @@
-﻿namespace VM12_Opcode
+﻿namespace VM12Opcode
 {
     public static class Constants
     {

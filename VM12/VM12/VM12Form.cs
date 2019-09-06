@@ -15,7 +15,8 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using Debugging;
 using Profiler;
-using VM12_Opcode;
+using VM12Opcode;
+using VM12Util;
 
 namespace VM12
 {
@@ -118,18 +119,28 @@ namespace VM12
         {
             if (programFile.Extension != ".12exe")
             {
+                Stopwatch totTimer = new Stopwatch();
+                totTimer.Start();
                 if (programFile.Extension == ".t12")
                 {
+                    Stopwatch t12Timer = new Stopwatch();
+                    t12Timer.Start();
                     // FIXME: Send in a proper error handler!
                     T12.Compiler.StartCompiling(programFile.Directory, (e) => Console.WriteLine(e.Message));
                     T12.Compiler.Compile(programFile);
                     T12.Compiler.StopCompiling();
+
+                    t12Timer.Stop();
+                    Console.WriteLine($"T12 took: {totTimer.GetMS()}ms");
 
                     programFile = new FileInfo(Path.ChangeExtension(programFile.FullName, ".12asm"));
                 }
 
                 // First argument is the src and the second argument is the name of the exe that should be generated
                 FastVM12Asm.Fast12Asm.Main(programFile.FullName, Path.GetFileNameWithoutExtension(programFile.Name));
+
+                totTimer.Stop();
+                Console.WriteLine($"Compilation took: {totTimer.GetMS()}ms");
 
                 //VM12Asm.VM12Asm.Reset();
                 //VM12Asm.VM12Asm.Main("-src", programFile.FullName, "-dst", Path.GetFileNameWithoutExtension(programFile.Name), "-e", "-o");
@@ -393,7 +404,7 @@ namespace VM12
 #if DEBUG
             if (vm12 != null)
             {
-                Frequency_dialog<VM12_Opcode.Opcode> instructionFreq = new Frequency_dialog<VM12_Opcode.Opcode>(vm12.instructionFreq, "Opcode Frequencies", "Opcode", op => (int) op);
+                Frequency_dialog<VM12Opcode.Opcode> instructionFreq = new Frequency_dialog<VM12Opcode.Opcode>(vm12.instructionFreq, "Opcode Frequencies", "Opcode", op => (int) op);
                 
                 instructionFreq.Show();
             }

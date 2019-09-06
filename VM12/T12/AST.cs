@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.IO;
-using VM12_Opcode;
-using Util;
+using VM12Opcode;
+using VM12Util;
 
 namespace T12
 {
@@ -24,17 +24,20 @@ namespace T12
             Compiler.Watch.Stop();
             Compiler.MiscTime += Compiler.Watch.ElapsedTicks;
             
+            // FIXME: Just add the current file as an import and just do all the logic in the while loop
+
             Compiler.Watch.Restart();
             // We can probably do this better!
             // Because we will want to emit comments to the assembly
-            Queue<Token> Tokens = Tokenizer.Tokenize(fileData, inFile.FullName);
+            Tokenizer tokenizer = new Tokenizer(inFile.FullName, fileData);
+            List<Token> TokenList = tokenizer.Tokenize();
             Compiler.Watch.Stop();
             Compiler.TokenizerTime += Compiler.Watch.ElapsedTicks;
             
             Dictionary<string, (ASTFile File, FileInfo FileInfo)> files = new Dictionary<string, (ASTFile File, FileInfo FileInfo)>(Compiler.CurrentAST.Files);
             
             Compiler.Watch.Restart();
-            Tokens = new Queue<Token>(Tokens.Where(tok => tok.Type != TokenType.Comment));
+            Queue<Token> Tokens = new Queue<Token>(TokenList.Where(tok => tok.Type != TokenType.Comment));
             var file = ASTFile.Parse(Tokens);
             files.Add(inFile.Name, (file, inFile));
             Compiler.Watch.Stop();
@@ -42,7 +45,6 @@ namespace T12
             
             List<ASTImportDirective> imports = file.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>().ToList();
 
-            // FIXME: This does not need to be a while loop, we just want to go through all imports once. So this should be a for loop
             while (imports.Count > 0)
             {
                 var import = imports.First();
@@ -60,12 +62,13 @@ namespace T12
                     Compiler.MiscTime += Compiler.Watch.ElapsedTicks;
 
                     Compiler.Watch.Restart();
-                    var tokens = Tokenizer.Tokenize(importedFileData, importFile.FullName);
+                    tokenizer = new Tokenizer(importFile.FullName, importedFileData);
+                    TokenList = tokenizer.Tokenize();
                     Compiler.Watch.Stop();
                     Compiler.TokenizerTime += Compiler.Watch.ElapsedTicks;
                     
                     Compiler.Watch.Restart();
-                    tokens = new Queue<Token>(tokens.Where(tok => tok.Type != TokenType.Comment));
+                    Queue<Token> tokens = new Queue<Token>(TokenList.Where(tok => tok.Type != TokenType.Comment));
                     var importAST = ASTFile.Parse(tokens);
                     Compiler.Watch.Stop();
                     Compiler.ParserTime += Compiler.Watch.ElapsedTicks;
@@ -101,7 +104,7 @@ namespace T12
         {
             return new TraceData
             {
-                File = tok.File,
+                File = tok.FilePath,
                 StartLine = tok.Line,
                 EndLine = tok.Line,
             };
@@ -111,7 +114,7 @@ namespace T12
         {
             return new TraceData
             {
-                File = from.File,
+                File = from.FilePath,
                 StartLine = from.Line,
                 EndLine = to.Line,
             };
@@ -141,14 +144,14 @@ namespace T12
         {
             Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromError(tok, error));
 
-            throw new FormatException($"Error in file {Path.GetFileName(tok.File)} at line {tok.Line}: '{error}'");
+            throw new FormatException($"Error in file {Path.GetFileName(tok.FilePath)} at line {tok.Line}: '{error}'");
         }
 
         internal static void Warning(Token tok, string warning)
         {
             Compiler.CurrentErrorHandler?.Invoke(Compiler.MessageData.FromWarning(tok, warning));
 
-            Console.WriteLine($"WARNING ({Path.GetFileName(tok.File)}:{tok.Line}): '{warning}'");
+            Console.WriteLine($"WARNING ({Path.GetFileName(tok.FilePath)}:{tok.Line}): '{warning}'");
         }
     }
     
@@ -170,7 +173,7 @@ namespace T12
             
             var trace = new TraceData
             {
-                File = Tokens.Peek().File,
+                File = Tokens.Peek().FilePath,
                 StartLine = Tokens.Peek().Line,
                 EndLine = Tokens.Last().Line,
             };
@@ -230,7 +233,7 @@ namespace T12
 
                         var trace = new TraceData
                         {
-                            File = publicTok.File,
+                            File = publicTok.FilePath,
                             StartLine = publicTok.Line,
                             EndLine = colonTok.Line,
                         };
@@ -245,7 +248,7 @@ namespace T12
 
                         var trace = new TraceData
                         {
-                            File = privateTok.File,
+                            File = privateTok.FilePath,
                             StartLine = privateTok.Line,
                             EndLine = colonTok.Line,
                         };
@@ -317,7 +320,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = useTok.File,
+                File = useTok.FilePath,
                 StartLine = useTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -376,7 +379,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = importTok.File,
+                File = importTok.FilePath,
                 StartLine = importTok.Line,
                 EndLine = endTok.Line,
             };
@@ -437,7 +440,7 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, $"Expected external function name (identifier)! Got {nameTok}");
-            string funcName = nameTok.Value;
+            string funcName = (string)nameTok.Value;
 
             List<(ASTType, string)> parameters = new List<(ASTType, string)>();
 
@@ -453,7 +456,7 @@ namespace T12
 
                 string name = "";
                 if (Tokens.Peek().IsIdentifier)
-                    name = Tokens.Dequeue().Value;
+                    name = (string)Tokens.Dequeue().Value;
 
                 parameters.Add((type, name));
 
@@ -474,7 +477,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = externTok.File,
+                File = externTok.FilePath,
                 StartLine = externTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -506,14 +509,14 @@ namespace T12
             
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
-            string name = nameTok.Value;
+            string name = (string)nameTok.Value;
 
             var semicolonTok = Tokens.Dequeue();
             if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
             var trace = new TraceData
             {
-                File = externTok.File,
+                File = externTok.FilePath,
                 StartLine = externTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -545,7 +548,7 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.Type != TokenType.Identifier) Fail(nameTok, $"Expected constant name!");
-            string name = nameTok.Value;
+            string name = (string)nameTok.Value;
 
             var equalsTok = Tokens.Dequeue();
             if (equalsTok.Type != TokenType.Equal) Fail(equalsTok, $"Expected equals!");
@@ -562,7 +565,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = constTok.File,
+                File = constTok.FilePath,
                 StartLine = constTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -591,14 +594,14 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected global name!");
-            string name = nameTok.Value;
+            string name = (string)nameTok.Value;
             
             var semicolonTok = Tokens.Dequeue();
             if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
 
             var trace = new TraceData
             {
-                File = globalTok.File,
+                File = globalTok.FilePath,
                 StartLine = globalTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -641,25 +644,25 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, $"Expected struct name! Got '{nameTok}'!");
-            string name = nameTok.Value;
+            string name = (string)nameTok.Value;
 
             List<string> genericNames = null;
-            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+            if (Tokens.Peek().Type == TokenType.LessThan)
             {
                 Tokens.Dequeue();
 
                 genericNames = new List<string>();
 
                 // Parse the generic names list
-                while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+                while (Tokens.Peek().Type != TokenType.GreaterThan)
                 {
                     var genNameTok = Tokens.Dequeue();
                     if (genNameTok.Type != TokenType.Identifier) Fail(genNameTok, $"Expected generic name! Got '{genNameTok}'");
-                    if (genericNames.Contains(genNameTok.Value)) Fail(genNameTok, $"There is already a generic parameter called '{genNameTok.Value}'");
-                    genericNames.Add(genNameTok.Value);
+                    if (genericNames.Contains((string)genNameTok.Value)) Fail(genNameTok, $"There is already a generic parameter called '{genNameTok.Value}'");
+                    genericNames.Add((string)genNameTok.Value);
 
                     var contToken = Tokens.Peek();
-                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.GreaterThan) break;
                     else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
                     // Dequeue the comma
                     Tokens.Dequeue();
@@ -668,7 +671,7 @@ namespace T12
                 if (genericNames.Count == 0) Fail(Tokens.Peek(), "Generic structs must define atleast one generic name!");
 
                 var closeAngleTok = Tokens.Dequeue();
-                if (closeAngleTok.Type != TokenType.Close_angle_bracket) Fail(closeAngleTok, "Expected '>'");
+                if (closeAngleTok.Type != TokenType.GreaterThan) Fail(closeAngleTok, "Expected '>'");
 
                 // Here we create the new name for the type
                 //name = $"{name}<{string.Join(",", genericNames)}>";
@@ -688,7 +691,7 @@ namespace T12
 
                         var trace = new TraceData
                         {
-                            File = structTok.File,
+                            File = structTok.FilePath,
                             StartLine = structTok.Line,
                             EndLine = semicolonTok.Line,
                         };
@@ -708,7 +711,7 @@ namespace T12
                             var type = ASTType.Parse(Tokens);
                             var memberNameTok = Tokens.Dequeue();
                             if (memberNameTok.IsIdentifier == false) Fail(memberNameTok, $"Expected member name! Got {memberNameTok}!");
-                            string memberName = memberNameTok.Value;
+                            string memberName = (string)memberNameTok.Value;
 
                             var semicolonTok = Tokens.Dequeue();
                             if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
@@ -726,7 +729,7 @@ namespace T12
 
                         var trace = new TraceData
                         {
-                            File = structTok.File,
+                            File = structTok.FilePath,
                             StartLine = structTok.Line,
                             EndLine = closeBrace.Line,
                         };
@@ -769,25 +772,25 @@ namespace T12
             
             var identTok = Tokens.Dequeue();
             if (identTok.Type != TokenType.Identifier) Fail(identTok, "Expected an identifier!");
-            var name = identTok.Value;
+            string name = (string)identTok.Value;
 
             List<string> genericNames = null;
-            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+            if (Tokens.Peek().Type == TokenType.LessThan)
             {
                 Tokens.Dequeue();
 
                 genericNames = new List<string>();
 
                 // Parse the generic names list
-                while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+                while (Tokens.Peek().Type != TokenType.GreaterThan)
                 {
                     var nameTok = Tokens.Dequeue();
                     if (nameTok.Type != TokenType.Identifier) Fail(nameTok, $"Expected generic name! Got '{nameTok}'");
-                    if (genericNames.Contains(nameTok.Value)) Fail(nameTok, $"There is already a generic parameter called '{nameTok.Value}'");
-                    genericNames.Add(nameTok.Value);
+                    if (genericNames.Contains((string)nameTok.Value)) Fail(nameTok, $"There is already a generic parameter called '{nameTok.Value}'");
+                    genericNames.Add((string)nameTok.Value);
 
                     var contToken = Tokens.Peek();
-                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.GreaterThan) break;
                     else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
                     // Dequeue the comma
                     Tokens.Dequeue();
@@ -796,7 +799,7 @@ namespace T12
                 if (genericNames.Count == 0) Fail(Tokens.Peek(), "Generic function must define atleast one generic name!");
 
                 var closeAngleTok = Tokens.Dequeue();
-                if (closeAngleTok.Type != TokenType.Close_angle_bracket) Fail(closeAngleTok, "Expected '>'");
+                if (closeAngleTok.Type != TokenType.GreaterThan) Fail(closeAngleTok, "Expected '>'");
             }
 
             List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
@@ -812,7 +815,7 @@ namespace T12
 
                 var paramIdentTok = Tokens.Dequeue();
                 if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
-                string param_name = paramIdentTok.Value;
+                string param_name = (string)paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
 
@@ -844,7 +847,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = typeTok.File,
+                File = typeTok.FilePath,
                 StartLine = typeTok.Line,
                 EndLine = closeBraceTok.Line,
             };
@@ -929,7 +932,7 @@ namespace T12
 
             var interruptTypeTok = Tokens.Dequeue();
             if (interruptTypeTok.IsIdentifier == false) Fail(interruptTypeTok, "Expected interrupt type!");
-            if (Enum.TryParse(interruptTypeTok.Value, out InterruptType interruptType) == false) Fail(interruptTypeTok, $"'{interruptTypeTok.Value}' is not a valid interrupt type!");
+            if (Enum.TryParse((string)interruptTypeTok.Value, out InterruptType interruptType) == false) Fail(interruptTypeTok, $"'{interruptTypeTok.Value}' is not a valid interrupt type!");
 
             if (interruptType == InterruptType.stop)
                 Fail(interruptTypeTok, "Cannot define a interupt procedure for the interrupt stop");
@@ -951,7 +954,7 @@ namespace T12
 
                 var paramIdentTok = Tokens.Dequeue();
                 if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
-                string param_name = paramIdentTok.Value;
+                string param_name = (string)paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
                 paramTokens.Add(paramIdentTok);
@@ -999,7 +1002,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = interruptTok.File,
+                File = interruptTok.FilePath,
                 StartLine = interruptTok.Line,
                 EndLine = closeBraceTok.Line,
             };
@@ -1028,7 +1031,7 @@ namespace T12
 
             var identTok = Tokens.Dequeue();
             if (identTok.Type != TokenType.Identifier) Fail(identTok, "Expected an identifier!");
-            var name = identTok.Value;
+            string name = (string)identTok.Value;
 
             List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
 
@@ -1044,7 +1047,7 @@ namespace T12
 
                 var paramIdentTok = Tokens.Dequeue();
                 if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
-                string param_name = paramIdentTok.Value;
+                string param_name = (string)paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
 
@@ -1078,7 +1081,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = intrinsicTok.File,
+                File = intrinsicTok.FilePath,
                 StartLine = closeBraceTok.Line,
                 EndLine = closeBraceTok.Line,
             };
@@ -1175,7 +1178,7 @@ namespace T12
 
             var identTok = Tokens.Dequeue();
             if (identTok.Type != TokenType.Identifier) Fail(identTok, $"Invalid identifier in variable declareation. '{identTok}'");
-            string name = identTok.Value;
+            string name = (string)identTok.Value;
 
             ASTExpression init = null;
 
@@ -1256,7 +1259,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = semicolonTok.File,
+                File = semicolonTok.FilePath,
                 StartLine = semicolonTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -1309,7 +1312,7 @@ namespace T12
 
             var identTok = Tokens.Dequeue();
             if (identTok.IsIdentifier == false) Fail(identTok, "Expected identifier!");
-            ids.Add(identTok.Value);
+            ids.Add((string)identTok.Value);
 
             ASTExpression expr = null;
 
@@ -1323,7 +1326,7 @@ namespace T12
                 if (contIdentTok.IsIdentifier)
                 {
                     // Here we add another value to assign to.
-                    ids.Add(contIdentTok.Value);
+                    ids.Add((string)contIdentTok.Value);
                     Tokens.Dequeue();
                 }
                 else
@@ -1343,7 +1346,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = identTok.File,
+                File = identTok.FilePath,
                 StartLine = identTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -1379,7 +1382,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = retTok.File,
+                File = retTok.FilePath,
                 StartLine = retTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -1429,7 +1432,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = ifTok.File,
+                File = ifTok.FilePath,
                 StartLine = ifTok.Line,
                 EndLine = ifFalse?.Trace.EndLine ?? ifTrue.Trace.EndLine,
             };
@@ -1467,7 +1470,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = openBraceTok.File,
+                File = openBraceTok.FilePath,
                 StartLine = openBraceTok.Line,
                 EndLine = closeBraceTok.Line,
             };
@@ -1516,7 +1519,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = forTok.File,
+                File = forTok.FilePath,
                 StartLine = forTok.Line,
                 EndLine = body.Trace.EndLine,
             };
@@ -1553,7 +1556,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = whileTok.File,
+                File = whileTok.FilePath,
                 StartLine = whileTok.Line,
                 EndLine = body.Trace.EndLine,
             };
@@ -1596,7 +1599,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = doTok.File,
+                File = doTok.FilePath,
                 StartLine = doTok.Line,
                 EndLine = semicolonTok.Line,
             };
@@ -1867,10 +1870,10 @@ namespace T12
             var expr = ParseAddative(Tokens);
 
             var peek = Tokens.Peek();
-            while (peek.Type == TokenType.Open_angle_bracket ||
-                peek.Type == TokenType.Close_angle_bracket ||
-                peek.Type == TokenType.Less_than_or_equal ||
-                peek.Type == TokenType.Greater_than_or_equal)
+            while (peek.Type == TokenType.LessThan ||
+                peek.Type == TokenType.GreaterThan ||
+                peek.Type == TokenType.LessThanOrEqual ||
+                peek.Type == TokenType.GreaterThanOrEqual)
             {
                 var opType = ASTBinaryOp.TokenToOperatorType(Tokens.Dequeue());
                 var nextTerm = ParseAddative(Tokens);
@@ -1965,7 +1968,7 @@ namespace T12
 
                 var trace = new TraceData
                 {
-                    File = opTok.File,
+                    File = opTok.FilePath,
                     StartLine = opTok.Line,
                     EndLine = factor.Trace.EndLine,
                 };
@@ -2001,7 +2004,7 @@ namespace T12
                 {
                     expr = ASTFunctionCall.Parse(Tokens);
                 }
-                else if (peekActionTok.Type == TokenType.Open_angle_bracket)
+                else if (peekActionTok.Type == TokenType.LessThan)
                 {
                     // Here we need to check if this is a generic function call or a comparison
 
@@ -2015,18 +2018,18 @@ namespace T12
                     int index = 0;
                     foreach (var peekGeneric in check.Skip(2))
                     {
-                        if (peekGeneric.IsType || peekGeneric.Type == TokenType.Comma || peekGeneric.Type == TokenType.Open_angle_bracket ||
+                        if (peekGeneric.IsType || peekGeneric.Type == TokenType.Comma || peekGeneric.Type == TokenType.LessThan ||
                             // FIXME: Do proper parsing for fixed arrays!
                             peekGeneric.Type == TokenType.Close_squre_bracket || peekGeneric.Type == TokenType.Numeric_Litteral)
                         {
-                            if (peekGeneric.Type == TokenType.Open_angle_bracket) openAngles++;
+                            if (peekGeneric.Type == TokenType.LessThan) openAngles++;
 
                             index++;
                             continue;
                         }
-                        else if (peekGeneric.Type == TokenType.Close_angle_bracket || peekGeneric.Type == TokenType.ShiftRight)
+                        else if (peekGeneric.Type == TokenType.GreaterThan || peekGeneric.Type == TokenType.ShiftRight)
                         {
-                            openAngles -= peekGeneric.Type == TokenType.Close_angle_bracket ? 1 : 2;
+                            openAngles -= peekGeneric.Type == TokenType.GreaterThan ? 1 : 2;
 
                             // FIXME: For now we do this, but it's probably not an error
                             if (openAngles < 0) Fail(peekGeneric, "Angle bracket missamatch!");
@@ -2214,7 +2217,7 @@ namespace T12
                 Fail(peek, $"Expected numeric litteral! Got {peek}");
 
             // Remove any underscores
-            string number = peek.Value.Replace("_", "");
+            string number = ((string)peek.Value).Replace("_", "");
 
             bool forceDouble = false;
             int value;
@@ -2263,17 +2266,17 @@ namespace T12
                 }
                 else if (-value < ASTWordLitteral.WORD_MIN_SIGNED_VALUE || forceDouble)
                 {
-                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
+                    if (((string)peek.Value).EndsWith("w") || ((string)peek.Value).EndsWith("W"))
                     {
                         Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
                         return default;
                     }
 
-                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                    return new ASTDoubleWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
                 }
                 else
                 {
-                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                    return new ASTWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
                 }
             }
             else
@@ -2285,17 +2288,17 @@ namespace T12
                 }
                 else if (value > ASTWordLitteral.WORD_MAX_VALUE || forceDouble)
                 {
-                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
+                    if (((string)peek.Value).EndsWith("w") || ((string)peek.Value).EndsWith("W"))
                     {
                         Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
                         return default;
                     }
 
-                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                    return new ASTDoubleWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
                 }
                 else
                 {
-                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
+                    return new ASTWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
                 }
             }
         }
@@ -2383,15 +2386,15 @@ namespace T12
             var tok = Tokens.Dequeue();
             if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
             
-            if (int.TryParse(tok.Value, out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
+            if (int.TryParse((string)tok.Value, out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
             
             if (value > WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is to big for a word litteral!");
 
             var trace = TraceData.From(tok);
 
-            NumberFormat format = GetFormat(tok.Value);
+            NumberFormat format = GetFormat((string)tok.Value);
 
-            return new ASTWordLitteral(trace, tok.Value, value, format);
+            return new ASTWordLitteral(trace, (string)tok.Value, value, format);
         }
 
         public new static ASTWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
@@ -2421,15 +2424,15 @@ namespace T12
             if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
 
             // Parse without the end letter!
-            if (int.TryParse(tok.Value.Substring(0, tok.Value.Length - 1), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
+            if (int.TryParse((string)tok.Value.Substring(0, tok.Value.Length - 1), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
 
             if (value > DOUBLE_WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is too big for a double word!");
 
             var trace = TraceData.From(tok);
 
-            NumberFormat format = GetFormat(tok.Value);
+            NumberFormat format = GetFormat((string)tok.Value);
 
-            return new ASTDoubleWordLitteral(trace, tok.Value, value, format);
+            return new ASTDoubleWordLitteral(trace, (string)tok.Value, value, format);
         }
 
         public new static ASTDoubleWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
@@ -2492,7 +2495,7 @@ namespace T12
 
             var trace = TraceData.From(tok);
 
-            return new ASTCharLitteral(trace, tok.Value, value);
+            return new ASTCharLitteral(trace, (string)tok.Value, value);
         }
     }
 
@@ -2512,7 +2515,7 @@ namespace T12
 
             var trace = TraceData.From(stringTok);
 
-            return new ASTStringLitteral(trace, stringTok.Value);
+            return new ASTStringLitteral(trace, (string)stringTok.Value);
         }
     }
 
@@ -2566,7 +2569,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = open_brace_tok.File,
+                File = open_brace_tok.FilePath,
                 StartLine = open_brace_tok.Line,
                 EndLine = closeParenTok.Line,
             };
@@ -2623,7 +2626,7 @@ namespace T12
         {
             var identTok = Tokens.Dequeue();
             if (identTok.IsIdentifier == false) Fail(identTok, "Expected an identifier!");
-            string name = identTok.Value;
+            string name = (string)identTok.Value;
 
             ASTExpression expr = null;
 
@@ -2641,7 +2644,7 @@ namespace T12
 
                     var assignmentTrace = new TraceData
                     {
-                        File = identTok.File,
+                        File = identTok.FilePath,
                         StartLine = identTok.Line,
                         EndLine = expr.Trace.EndLine,
                     };
@@ -2652,7 +2655,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = identTok.File,
+                File = identTok.FilePath,
                 StartLine = identTok.Line,
                 EndLine = expr?.Trace.EndLine ?? identTok.Line,
             };
@@ -2702,7 +2705,7 @@ namespace T12
         {
             var namespaceTok = Tokens.Dequeue();
             if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected namespace identifier!");
-            string @namespace = namespaceTok.Value;
+            string @namespace = (string)namespaceTok.Value;
 
             var doubleColonTok = Tokens.Dequeue();
             if (doubleColonTok.Type != TokenType.DoubleColon) Fail(doubleColonTok, "Expected '::'!");
@@ -2711,7 +2714,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = namespaceTok.File,
+                File = namespaceTok.FilePath,
                 StartLine = namespaceTok.Line,
                 EndLine = varExpr.Trace.EndLine,
             };
@@ -2770,7 +2773,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = openSquareTok.File,
+                File = openSquareTok.FilePath,
                 StartLine = openSquareTok.Line,
                 EndLine = assignment?.Trace.EndLine ?? closedSquareTok.Line,
             };
@@ -2902,13 +2905,13 @@ namespace T12
                     return BinaryOperatorType.Equal;
                 case TokenType.NotEqual:
                     return BinaryOperatorType.Not_equal;
-                case TokenType.Less_than_or_equal:
+                case TokenType.LessThanOrEqual:
                     return BinaryOperatorType.Less_than_or_equal;
-                case TokenType.Greater_than_or_equal:
+                case TokenType.GreaterThanOrEqual:
                     return BinaryOperatorType.Greater_than_or_equal;
-                case TokenType.Open_angle_bracket:
+                case TokenType.LessThan:
                     return BinaryOperatorType.Less_than;
-                case TokenType.Close_angle_bracket:
+                case TokenType.GreaterThan:
                     return BinaryOperatorType.Greater_than;
                 default:
                     Fail(token, $"Expected a binary operator token, not '{token}'");
@@ -3127,7 +3130,7 @@ namespace T12
         {
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
-            string funcName = nameTok.Value;
+            string funcName = (string)nameTok.Value;
             
             var openParenTok = Tokens.Dequeue();
             if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
@@ -3153,7 +3156,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = nameTok.File,
+                File = nameTok.FilePath,
                 StartLine = nameTok.Line,
                 EndLine = closeParenTok.Line,
             };
@@ -3206,7 +3209,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = openParenTok.File,
+                File = openParenTok.FilePath,
                 StartLine = openParenTok.Line,
                 EndLine = closeParenTok.Line,
             };
@@ -3229,23 +3232,23 @@ namespace T12
         {
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
-            string funcName = nameTok.Value;
+            string funcName = (string)nameTok.Value;
 
             List<ASTType> genericTypes = null;
 
             var openAngleTok = Tokens.Dequeue();
-            if (openAngleTok.Type != TokenType.Open_angle_bracket) Fail(openAngleTok, "Expected '<'");
+            if (openAngleTok.Type != TokenType.LessThan) Fail(openAngleTok, "Expected '<'");
 
             genericTypes = new List<ASTType>();
 
-            while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+            while (Tokens.Peek().Type != TokenType.GreaterThan)
             {
                 var type = ASTType.Parse(Tokens);
                 genericTypes.Add(type);
 
                 // FIXME: This needs some cleanup
                 var contToken = Tokens.Peek();
-                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.GreaterThan) break;
                 else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
 
                 // Dequeue the comma
@@ -3253,7 +3256,7 @@ namespace T12
             }
 
             var closeAngleTok = Tokens.Dequeue();
-            if (closeAngleTok.Type != TokenType.Close_angle_bracket) Fail(closeAngleTok, "Expected '>'");
+            if (closeAngleTok.Type != TokenType.GreaterThan) Fail(closeAngleTok, "Expected '>'");
 
             var openParenTok = Tokens.Dequeue();
             if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
@@ -3279,7 +3282,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = nameTok.File,
+                File = nameTok.FilePath,
                 StartLine = nameTok.Line,
                 EndLine = closeParenTok.Line,
             };
@@ -3308,7 +3311,7 @@ namespace T12
         {
             var namespaceTok = Tokens.Dequeue();
             if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected namespace identifier!");
-            string @namespace = namespaceTok.Value;
+            string @namespace = (string)namespaceTok.Value;
 
             var doubleColonTok = Tokens.Dequeue();
             if (doubleColonTok.Type != TokenType.DoubleColon) Fail(doubleColonTok, "Expected '::'!");
@@ -3317,7 +3320,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = namespaceTok.File,
+                File = namespaceTok.FilePath,
                 StartLine = namespaceTok.Line,
                 EndLine = funcCall.Trace.EndLine,
             };
@@ -3352,7 +3355,7 @@ namespace T12
 
             var memberTok = Tokens.Dequeue();
             if (memberTok.IsIdentifier == false) Fail(memberTok, "Expected member name!");
-            string memberName = memberTok.Value;
+            string memberName = (string)memberTok.Value;
             
             ASTExpression assignment = null;
             
@@ -3387,7 +3390,7 @@ namespace T12
             
             var trace = new TraceData
             {
-                File = periodTok.File,
+                File = periodTok.FilePath,
                 StartLine = periodTok.Line,
                 EndLine = assignment?.Trace.EndLine ?? memberTok.Line,
             };
@@ -3426,7 +3429,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = sizeofTok.File,
+                File = sizeofTok.FilePath,
                 StartLine = sizeofTok.Line,
                 EndLine = closeParen.Line,
             };
@@ -3456,7 +3459,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = andTok.File,
+                File = andTok.FilePath,
                 StartLine = andTok.Line,
                 EndLine = expr.Trace.EndLine,
             };
@@ -3489,7 +3492,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = typeofTok.File,
+                File = typeofTok.FilePath,
                 StartLine = typeofTok.Line,
                 EndLine = closeParen.Line,
             };
@@ -3522,7 +3525,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = defaultTok.File,
+                File = defaultTok.FilePath,
                 StartLine = defaultTok.Line,
                 EndLine = closeParen.Line,
             };
@@ -3577,7 +3580,7 @@ namespace T12
             
             var trace = new TraceData
             {
-                File = assemTok.File,
+                File = assemTok.FilePath,
                 StartLine = assemTok.Line,
                 EndLine = retType is ASTBaseType == false ? retType.Trace.EndLine : closeParenthesis.Line, // Base types have no usefull trace!
             };
@@ -3651,7 +3654,7 @@ namespace T12
 
             var trace = new TraceData
             {
-                File = castTok.File,
+                File = castTok.FilePath,
                 StartLine = castTok.Line,
                 EndLine = expression.Trace.EndLine,
             };
@@ -3758,18 +3761,18 @@ namespace T12
                 // This is a ref to another file
                 var namespaceTok = Tokens.Dequeue();
                 if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected identifier!");
-                string space = namespaceTok.Value;
+                string space = (string)namespaceTok.Value;
 
                 // Dequeue '::'
                 Tokens.Dequeue();
 
                 var typeNameTok = Tokens.Dequeue();
                 if (typeNameTok.IsIdentifier == false) Fail(typeNameTok, "");
-                string typeName = typeNameTok.Value;
+                string typeName = (string)typeNameTok.Value;
 
                 var trace = new TraceData
                 {
-                    File = namespaceTok.File,
+                    File = namespaceTok.FilePath,
                     StartLine = namespaceTok.Line,
                     EndLine = typeNameTok.Line,
                 };
@@ -3833,7 +3836,7 @@ namespace T12
 
                         var trace = new TraceData
                         {
-                            File = tok.File,
+                            File = tok.FilePath,
                             StartLine = tok.Line,
                             EndLine = returnType.Trace.EndLine,
                         };
@@ -3846,7 +3849,7 @@ namespace T12
 
                         var trace = new TraceData
                         {
-                            File = tok.File,
+                            File = tok.FilePath,
                             StartLine = tok.Line,
                             // Use the types line if it exists, NOTE: This should be removed when base types get traces!
                             EndLine = type.Trace.EndLine == -1 ? tok.Line : type.Trace.EndLine,
@@ -3870,7 +3873,7 @@ namespace T12
 
                             var trace = new TraceData
                             {
-                                File = tok.File,
+                                File = tok.FilePath,
                                 StartLine = tok.Line,
                                 EndLine = type.Trace.EndLine,
                             };
@@ -3888,7 +3891,7 @@ namespace T12
 
                             var trace = new TraceData
                             {
-                                File = tok.File,
+                                File = tok.FilePath,
                                 StartLine = tok.Line,
                                 EndLine = type.Trace.EndLine,
                             };
@@ -3908,30 +3911,30 @@ namespace T12
 
                         // TODO: Fix traces for base types?
                         ASTType type;
-                        if (ASTBaseType.BaseTypeMap.TryGetValue(tok.Value, out ASTBaseType baseType))
+                        if (ASTBaseType.BaseTypeMap.TryGetValue((string)tok.Value, out ASTBaseType baseType))
                         {
                             // FIXME: We could create somekind of copy here that contains an actual trace!
                             type = baseType;
 
-                            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+                            if (Tokens.Peek().Type == TokenType.LessThan)
                                 Fail(Tokens.Peek(), $"Base types cannot have generic arguments!!");
                         }
                         else
                         {
-                            if (Tokens.Peek().Type == TokenType.Open_angle_bracket)
+                            if (Tokens.Peek().Type == TokenType.LessThan)
                             {
                                 // Remove open angle
                                 Tokens.Dequeue();
 
                                 List<ASTType> genericTypes = new List<ASTType>();
 
-                                while (Tokens.Peek().Type != TokenType.Close_angle_bracket)
+                                while (Tokens.Peek().Type != TokenType.GreaterThan)
                                 {
                                     genericTypes.Add(ASTType.Parse(Tokens));
 
                                     // FIXME: This needs some cleanup
                                     var contToken = Tokens.Peek();
-                                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_angle_bracket) break;
+                                    if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.GreaterThan) break;
                                     else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '>'");
 
                                     // Dequeue the comma
@@ -3943,17 +3946,17 @@ namespace T12
 
                                 var trace = new TraceData
                                 {
-                                    File = tok.File,
+                                    File = tok.FilePath,
                                     StartLine = tok.Line,
                                     EndLine = closeAngle.Line,
                                 };
 
-                                type = new ASTGenericTypeRef(trace, tok.Value, genericTypes);
+                                type = new ASTGenericTypeRef(trace, (string)tok.Value, genericTypes);
                             }
                             else
                             {
                                 var trace = TraceData.From(tok);
-                                type = new ASTTypeRef(trace, tok.Value);
+                                type = new ASTTypeRef(trace, (string)tok.Value);
                             }
                         }
 
