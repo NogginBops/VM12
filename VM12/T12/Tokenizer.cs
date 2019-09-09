@@ -373,14 +373,6 @@ namespace T12
                     case '"': Tokens.Add(ReadString()); break;
                     case '\'': Tokens.Add(ReadChar()); break;
                     #region Keywords
-                    // KEYWORDS
-                    // FIXME!!!!!!!!!!!!!!!
-                    // FIXME!!!!!!!!!!!!!!!
-                    // FIXME!!!!!!!!!!!!!!!
-                    // FIXME!!!!!!!!!!!!!!!
-                    // Keywords need to end with a delimiter that is not part of the
-                    // token itself! That way we can have variables called 'used' without
-                    // it beeing parsed as the keyword 'use' and the ident 'd'!
                     case 'v':
                         if (IsNextWithDelimiter("void")) Tokens.Add(CreateTokenAndAdvanceLength(TokenType.Keyword_Void, "void".Length));
                         else Tokens.Add(ReadIdent());
