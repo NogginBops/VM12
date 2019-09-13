@@ -601,6 +601,11 @@ namespace T12
                         var expr = SpecializeExpression(trace, addressOfExpression.Expr, genericMap);
                         return new ASTAddressOfExpression(addressOfExpression.Trace, expr);
                     }
+                case ASTTypeOfExpression typeOfExpression:
+                    {
+                        var type = SpecializeType(trace, typeOfExpression.Type, genericMap);
+                        return new ASTTypeOfExpression(typeOfExpression.Trace, type);
+                    }
                 case ASTDefaultExpression defaultExpression:
                     {
                         var type = SpecializeType(trace, defaultExpression.Type, genericMap);

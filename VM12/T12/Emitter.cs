@@ -1748,7 +1748,7 @@ namespace T12
                                     }
                                     else
                                     {
-                                        label = $":{constDirective.Name}_element_{element}";
+                                        label = $":__{constDirective.Name}_element_{element}";
                                         elementDict[value] = label;
                                         labels[element] = label;
                                         element++;

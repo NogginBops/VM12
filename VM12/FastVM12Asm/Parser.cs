@@ -265,6 +265,7 @@ namespace FastVM12Asm
     public class ParsedFile
     {
         public FileData File;
+        public HashSet<StringRef> Flags = new HashSet<StringRef>();
         public List<Token> IncludeFiles = new List<Token>();
         public Dictionary<StringRef, ConstantExpression> ConstExprs = new Dictionary<StringRef, ConstantExpression>();
         public Dictionary<Token, List<Instruction>> Procs;
@@ -272,9 +273,10 @@ namespace FastVM12Asm
         // All of the strings that where referenced
         public List<StringRef> AutoStrings;
 
-        public ParsedFile(FileData file, List<Token> includeFiles, Dictionary<StringRef, ConstantExpression> constExprs, Dictionary<Token, List<Instruction>> procs, Dictionary<StringRef, int> procLocations, List<StringRef> autoStrings)
+        public ParsedFile(FileData file, HashSet<StringRef> flags, List<Token> includeFiles, Dictionary<StringRef, ConstantExpression> constExprs, Dictionary<Token, List<Instruction>> procs, Dictionary<StringRef, int> procLocations, List<StringRef> autoStrings)
         {
             File = file;
+            Flags = flags;
             IncludeFiles = includeFiles;
             ConstExprs = constExprs;
             Procs = procs;
@@ -431,6 +433,8 @@ namespace FastVM12Asm
 
         public ParsedFile Parse()
         {
+            HashSet<StringRef> Flags = new HashSet<StringRef>();
+
             List<Token> IncludeFiles = new List<Token>(100);
 
             Dictionary<StringRef, ConstantExpression> ConstExprs = new Dictionary<StringRef, ConstantExpression>(100);
@@ -461,11 +465,11 @@ namespace FastVM12Asm
                             }
                             else if (tok.ContentsMatch("!noprintout") || tok.ContentsMatch("!noprintouts"))
                             {
-                                // FIXME: Implenent this flag!
+                                Flags.Add(tok.Data);
                             }
                             else if (tok.ContentsMatch("!no_map"))
                             {
-                                // FIXME: Implement this flag!
+                                Flags.Add(tok.Data);
                             }
                             else Error(tok, "Unknown flag!");
                             break;
@@ -1014,7 +1018,7 @@ namespace FastVM12Asm
                 }
             }
 
-            return new ParsedFile(File, IncludeFiles, ConstExprs, Procs, ProcLocations, AutoStrings);
+            return new ParsedFile(File, Flags, IncludeFiles, ConstExprs, Procs, ProcLocations, AutoStrings);
         }
 
         private ConstantExpression ParseConstExpr(TokenQueue Tokens)

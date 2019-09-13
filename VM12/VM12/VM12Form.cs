@@ -78,7 +78,7 @@ namespace VM12
 
             GenerateLUT();
 
-            SetSize(VM12.SCREEN_HEIGHT, InterpolationMode.NearestNeighbor);
+            SetSize(VM12.SCREEN_HEIGHT * 2, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -129,9 +129,10 @@ namespace VM12
                     T12.Compiler.StartCompiling(programFile.Directory, (e) => Console.WriteLine(e.Message));
                     T12.Compiler.Compile(programFile);
                     T12.Compiler.StopCompiling();
-
                     t12Timer.Stop();
-                    Console.WriteLine($"T12 took: {totTimer.GetMS()}ms");
+
+                    Console.WriteLine($"T12 took: {totTimer.GetMS()}ms for {T12.Compiler.CompiledLines} lines ({T12.Compiler.CompiledFiles} files).");
+                    Console.WriteLine($"This is {T12.Compiler.CompiledLines / totTimer.GetSec():0.00} lines/sec");
 
                     programFile = new FileInfo(Path.ChangeExtension(programFile.FullName, ".12asm"));
                 }
@@ -139,8 +140,10 @@ namespace VM12
                 // First argument is the src and the second argument is the name of the exe that should be generated
                 FastVM12Asm.Fast12Asm.Main(programFile.FullName, Path.GetFileNameWithoutExtension(programFile.Name));
 
+                int totLines = T12.Compiler.CompiledLines + T12.Compiler.ResultLines;
                 totTimer.Stop();
-                Console.WriteLine($"Compilation took: {totTimer.GetMS()}ms");
+                Console.WriteLine($"Compilation took: {totTimer.GetMS():0.00}ms for {totLines} lines");
+                Console.WriteLine($"This is {totLines/totTimer.GetSec():0.00} lines/sec");
 
                 //VM12Asm.VM12Asm.Reset();
                 //VM12Asm.VM12Asm.Main("-src", programFile.FullName, "-dst", Path.GetFileNameWithoutExtension(programFile.Name), "-e", "-o");

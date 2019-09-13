@@ -279,6 +279,8 @@ namespace FastVM12Asm
 
     public class Fast12Asm
     {
+        const string compiler_generated_warning = "; This is a compiler generated file! Changes to this file will be lost.\n\n";
+
         public static void Main(params string[] args)
         {
             if (args.Length < 1)
@@ -288,8 +290,8 @@ namespace FastVM12Asm
                 return;
             }
 
-            Console.WriteLine($"Size of Token: {Marshal.SizeOf(typeof(Token))}");
-            Console.WriteLine($"Size of StringRef: {Marshal.SizeOf(typeof(StringRef))}");
+            //Console.WriteLine($"Size of Token: {Marshal.SizeOf(typeof(Token))}");
+            //Console.WriteLine($"Size of StringRef: {Marshal.SizeOf(typeof(StringRef))}");
 
             double totalTime = 0;
 
@@ -351,6 +353,9 @@ namespace FastVM12Asm
                     if (ParsedFiles.Any(p => Path.GetFileName(p.File.Path) == file.Name))
                         continue;
 
+                    // Skip including this file as it will be created later!
+                    if (file.Name == "ProcMapData.12asm") continue;
+
                     // Tokenize
                     watch.Start();
                     var tokenizer = new Tokenizer(file.FullName);
@@ -401,6 +406,7 @@ namespace FastVM12Asm
                 {
                     StringBuilder AutoStringsFile = new StringBuilder();
 
+                    AutoStringsFile.Append(compiler_generated_warning);
                     AutoStringsFile.AppendLine("; This is a compiler generated file! Changes to this file will be lost.");
                     AutoStringsFile.AppendLine();
                     AutoStringsFile.AppendLine("!noprintouts");
@@ -454,6 +460,73 @@ namespace FastVM12Asm
                     Console.ResetColor();
                 }
 
+                // Generate ProcMapData file!
+                {
+                    StringBuilder ProcMapDataFile = new StringBuilder();
+                    StringBuilder ProcNameBuilder = new StringBuilder();
+
+                    ProcMapDataFile.Append(compiler_generated_warning);
+                    ProcMapDataFile.AppendLine("!noprintouts");
+                    ProcMapDataFile.AppendLine("!no_map");
+                    ProcMapDataFile.AppendLine("!global");
+                    ProcMapDataFile.AppendLine("");
+
+                    int insertIndex = ProcMapDataFile.Length;
+
+                    ProcMapDataFile.AppendLine(":__proc_map__");
+
+                    int procsMapped = 0;
+                    foreach (var file in ParsedFiles)
+                    {
+                        if (file.Flags.Contains((StringRef)"!no_map") == false)
+                        {
+                            foreach (var procName in file.Procs.Keys)
+                            {
+                                if (procName.StartsWith(":__")) continue;
+
+                                ProcMapDataFile.AppendLine($"\t{procName.Data}* #(sizeof({procName.Data})) 0x{ProcNameBuilder.Length:X6} 0x{procName.Data.Length:X6}");
+                                ProcNameBuilder.Append(procName.Data);
+                                procsMapped++;
+                            }
+                        }
+                    }
+
+                    ProcMapDataFile.AppendLine();
+
+                    ProcMapDataFile.AppendLine($":__proc_map_strings__");
+                    ProcMapDataFile.AppendLine($"\t@\"{ProcNameBuilder}\"");
+
+                    ProcMapDataFile.Insert(insertIndex, $"<proc_map_entries = {procsMapped}>\n" +
+                                                    $"<proc_map_strings_length = {ProcNameBuilder.Length}>\n" +
+                                                    $"<proc_map_length = #({procsMapped} 8 *)>\n\n");
+
+                    // NOTE: We might want to not retokenize and parse this file!
+                    // If so we would have to generate all of the procs by hand here
+                    // but then you would have to make the traces ourselves and that is a pain
+
+                    // Here we output the file
+                    string procMapDataPath = Path.Combine(dirInf.FullName, "ProcMapData.12asm");
+                    File.WriteAllText(procMapDataPath, ProcMapDataFile.ToString());
+
+                    // Tokenize
+                    watch.Start();
+                    var tokenizer = new Tokenizer(procMapDataPath);
+                    var toks = tokenizer.Tokenize();
+                    watch.Stop();
+                    totalTime += watch.GetMS();
+
+                    lineCount += tokenizer.GetLines();
+                    tokenCount += toks.Count;
+
+                    // Parse
+                    watch.Restart();
+                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var res = parser.Parse();
+                    ParsedFiles.Add(res);
+                    watch.Stop();
+                    Console.ResetColor();
+                }
+
                 watch.Restart();
                 var emitter = new Emitter(ParsedFiles, AutoStrings);
                 var bin = emitter.Emit();
@@ -464,8 +537,8 @@ namespace FastVM12Asm
                 //Console.WriteLine($"This is {lineCount / watch.GetSec():#} lines / sec");
                 totalTime += watch.GetMS();
 
-                Console.WriteLine($"Total {totalTime:#.000}ms");
-                Console.WriteLine($"This is {(lineCount / (totalTime / 1000d)):#} lines / sec");
+                Console.WriteLine($"Fast12Asm Total {totalTime:#.000}ms");
+                Console.WriteLine($"This is {(lineCount / (totalTime / 1000d)):#} lines/sec for {lineCount} lines");
 
                 FileInfo resFile = new FileInfo(Path.Combine(dirInf.FullName, $"{outputName}.12exe"));
                 FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, $"{outputName}.12meta"));
