@@ -355,6 +355,7 @@ namespace FastVM12Asm
 
                     // Skip including this file as it will be created later!
                     if (file.Name == "ProcMapData.12asm") continue;
+                    if (file.Name == "TypeMapData.12asm") continue;
 
                     // Tokenize
                     watch.Start();
@@ -511,6 +512,35 @@ namespace FastVM12Asm
                     // Tokenize
                     watch.Start();
                     var tokenizer = new Tokenizer(procMapDataPath);
+                    var toks = tokenizer.Tokenize();
+                    watch.Stop();
+                    totalTime += watch.GetMS();
+
+                    lineCount += tokenizer.GetLines();
+                    tokenCount += toks.Count;
+
+                    // Parse
+                    watch.Restart();
+                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var res = parser.Parse();
+                    ParsedFiles.Add(res);
+                    watch.Stop();
+                    Console.ResetColor();
+                }
+
+                // Emit TypeMapData file!
+                {
+                    // FIXME: Remove dependency on T12!!!
+                    // Let someone else emit this file!!
+                    string typeData = T12.Compiler.GetTypeMapData();
+
+                    // Here we output the file
+                    string typeMapDataPath = Path.Combine(dirInf.FullName, "TypeMapData.12asm");
+                    File.WriteAllText(typeMapDataPath, typeData);
+
+                    // Tokenize
+                    watch.Start();
+                    var tokenizer = new Tokenizer(typeMapDataPath);
                     var toks = tokenizer.Tokenize();
                     watch.Stop();
                     totalTime += watch.GetMS();
