@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26730.10
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29311.281
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12Asm", "VM12Asm\VM12Asm.csproj", "{0BDA1018-A90E-4429-86E4-FADD2D141260}"
 EndProject
@@ -14,6 +14,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "T12", "T12\T12.csproj", "{F4E41638-2DF1-412B-AF94-A7A311C66EF2}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastVM12Asm", "FastVM12Asm\FastVM12Asm.csproj", "{37452316-1078-476C-9DDF-CF6F549C10B1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VM12C3", "VM12C3\VM12C3.csproj", "{B7DF7663-4ECA-4363-B26D-B9EBAF6E8CDC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -45,6 +47,10 @@ Global
 		{37452316-1078-476C-9DDF-CF6F549C10B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{37452316-1078-476C-9DDF-CF6F549C10B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{37452316-1078-476C-9DDF-CF6F549C10B1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B7DF7663-4ECA-4363-B26D-B9EBAF6E8CDC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7DF7663-4ECA-4363-B26D-B9EBAF6E8CDC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7DF7663-4ECA-4363-B26D-B9EBAF6E8CDC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7DF7663-4ECA-4363-B26D-B9EBAF6E8CDC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

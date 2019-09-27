@@ -6,7 +6,6 @@ using System.Text.RegularExpressions;
 using System.IO;
 using System.Diagnostics;
 using VM12Opcode;
-using SKON;
 using VM12Util;
 
 namespace VM12Asm
@@ -1241,40 +1240,24 @@ namespace VM12Asm
             }
 
             FileInfo metaFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".12meta"));
-            FileInfo metaSKONFile = new FileInfo(Path.Combine(dirInf.FullName, name + ".skon"));
 
             metaFile.Delete();
-
-            //SKONObject skonObject = SKONObject.GetEmptyMap();
 
             using (FileStream stream = metaFile.Create())
             using (StreamWriter writer = new StreamWriter(stream))
             {
-                //SKONObjec   onstants = SKONObject.GetEmptyArray();
-
                 foreach (var constant in autoConstants)
                 {
                     writer.WriteLine($"[constant:{{{constant.Key},{constant.Value.Length},{constant.Value.Value}}}]");
-
-                    /*constants.Add(new Dictionary<string, SKONObject> {
-                        { "name", constant.Key },
-                        { "value", constant.Value.Value },
-                        { "length", constant.Value.Length },
-                    });*/
                 }
 
-                //skonObject.Add("constants", constants);
-
                 writer.WriteLine();
-
-                //SKONObject procs = SKONObject.GetEmptyArray();
 
                 foreach (var proc in libFile.Metadata)
                 {
                     writer.WriteLine(proc.name);
                     writer.WriteLine($"[file:{new FileInfo(proc.source.path).Name}]");
                     writer.WriteLine($"[location:{proc.location}]");
-                    //writer.WriteLine($"[link?]");
                     writer.WriteLine($"[proc-line:{proc.line}]");
                     if (proc.breaks?.Count > 0)
                     {
@@ -1283,23 +1266,7 @@ namespace VM12Asm
                     writer.WriteLine($"[link-lines:{{{string.Join(",", proc.linkedLines.Select(kvp => $"{kvp.Key}:{kvp.Value}"))}}}]");
                     writer.WriteLine($"[size:{proc.size}]");
                     writer.WriteLine();
-
-                    /*
-                    procs.Add(new Dictionary<string, SKONObject> {
-                        { "name", proc.name },
-                        { "file", new FileInfo(proc.source.path).Name },
-                        { "location", proc.location },
-                        { "proc-line", proc.line },
-                        { "break", proc.breaks },
-                        { "link-lines", proc.linkedLines.Select(kvp => (SKONObject) $"{kvp.Key}:{kvp.Value}").ToList() },
-                        { "size", proc.size }
-                    });
-
-                    skonObject.Add("procs", procs);
-                    */
                 }
-
-                //SKON.SKON.WriteToFile(metaSKONFile.FullName, skonObject);
             }
 
             if (open)

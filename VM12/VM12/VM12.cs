@@ -2,17 +2,12 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Diagnostics;
 using VM12Opcode;
 using System.IO;
 using System.Text.RegularExpressions;
-using System.Runtime.InteropServices;
-using SKON;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace VM12
@@ -692,45 +687,6 @@ namespace VM12
         }
 
         Regex command = new Regex("^\\[(\\S+?):(.+)\\]$");
-
-        void ReadSKONMetadata(FileInfo metadataFile)
-        {
-            SKONObject metadata = SKON.SKON.LoadFile(Path.ChangeExtension(metadataFile.FullName, "skon"));
-
-            foreach (var constant in metadata["constants"].Values)
-            {
-                AutoConst c = new AutoConst(constant["name"].String, Convert.ToInt32(constant["value"].String.Substring(2).Replace("_", ""), 16), constant["length"].Int ?? -1);
-
-                autoConsts[c.Name] = c;
-            }
-
-            foreach (var proc in metadata["procs"].Values)
-            {
-                ProcMetadata procMeta = new ProcMetadata();
-
-                procMeta.name = proc["name"].String;
-                procMeta.file = proc["file"].String;
-                procMeta.location = (ROM_START + proc["location"].Int) ?? -1;
-                procMeta.sourceLine = proc["proc-line"].Int ?? -1;
-                procMeta.breaks = new List<int>(proc["break"].Values.Select(skon => skon.Int ?? -1));
-                procMeta.lineLinks = proc["link-lines"].Values
-                    .Select(v => v.String.Split(':'))
-                    .Select(v => v.Select(i => int.Parse(i)).ToArray())
-                    .ToDictionary(kvs => kvs[0], kvs => kvs[1]);
-                procMeta.size = proc["size"].Int ?? -1;
-
-                if (!source.ContainsKey(procMeta.file))
-                {
-                    string file = Directory.EnumerateFiles(metadataFile.DirectoryName, Path.GetExtension(procMeta.file), SearchOption.AllDirectories).FirstOrDefault(p => Path.GetFileName(p) == procMeta.file);
-                    if (File.Exists(file))
-                    {
-                        source[procMeta.file] = File.ReadAllLines(file);
-                    }
-                }
-
-                this.metadata.Add(procMeta);
-            }
-        }
 
         void ParseMetadata(FileInfo metadataFile)
         {

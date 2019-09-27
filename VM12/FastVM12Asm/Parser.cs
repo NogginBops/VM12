@@ -826,14 +826,14 @@ namespace FastVM12Asm
                                         {
                                             // This is a raw inc inst
                                             inst.Type = InstructionType.RawOpcode;
-                                            if (instTok.GetChar(1) == 'i')
-                                                if (instTok.GetFirstChar() == 'l')
+                                            if (instTok.GetFirstChar() == 'l')
+                                                if (instTok.GetChar(1) == 'i')
                                                     inst.Opcode = Opcode.Inc_l;
-                                                else inst.Opcode = Opcode.Inc;
+                                                else inst.Opcode = Opcode.Dec_l;
                                             else
-                                                if (instTok.GetFirstChar() == 'l')
-                                                inst.Opcode = Opcode.Dec_l;
-                                            else inst.Opcode = Opcode.Dec;
+                                                if (instTok.GetFirstChar() == 'i')
+                                                    inst.Opcode = Opcode.Inc;
+                                                else inst.Opcode = Opcode.Dec;
 
                                             inst.Trace = Trace.FromToken(instTok);
                                         }
