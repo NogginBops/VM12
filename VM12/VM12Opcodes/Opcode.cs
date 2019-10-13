@@ -112,7 +112,7 @@
         Swap, Swap_l, Swap_s_l,
         Dup, Dup_l,
         Over, Over_l_l, Over_l_s, Over_s_l,
-        Add, Add_l, Add_c,
+        Add, Add_l, Add_c, Add_c_l,
         Sub, Sub_l,
         Neg, Neg_l,
         Inc, Inc_l,

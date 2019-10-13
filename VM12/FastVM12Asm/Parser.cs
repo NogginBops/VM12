@@ -309,6 +309,8 @@ namespace FastVM12Asm
             { "soverl", Opcode.Over_s_l },
             { "add", Opcode.Add },
             { "ladd", Opcode.Add_l },
+            { "adc", Opcode.Add_c },
+            { "ladc", Opcode.Add_c_l },
             { "sub", Opcode.Sub },
             { "lsub", Opcode.Sub_l },
             { "neg", Opcode.Neg },

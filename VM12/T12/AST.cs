@@ -3914,8 +3914,8 @@ namespace T12
                         if (ASTBaseType.BaseTypeMap.TryGetValue((string)tok.Value, out ASTBaseType baseType))
                         {
                             // FIXME: We could create somekind of copy here that contains an actual trace!
-                            type = baseType;
-
+                            type = baseType.WithTrace(TraceData.From(tok));
+                            
                             if (Tokens.Peek().Type == TokenType.LessThan)
                                 Fail(Tokens.Peek(), $"Base types cannot have generic arguments!!");
                         }
@@ -3994,6 +3994,11 @@ namespace T12
             Size = size;
         }
 
+        private ASTBaseType(string name, int size, TraceData trace) : base(trace, name)
+        {
+            Size = size;
+        }
+
         public static bool IsNumericType(ASTType type)
         {
             if (type is ASTBaseType == false)
@@ -4018,6 +4023,8 @@ namespace T12
                 return false;
             }
         }
+
+        public ASTBaseType WithTrace(TraceData trace) => new ASTBaseType(TypeName, Size, trace);
     }
 
     public abstract class ASTDereferenceableType : ASTType

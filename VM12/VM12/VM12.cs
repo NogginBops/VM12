@@ -1127,7 +1127,25 @@ namespace VM12
                             PC++;
                             break;
                         case Opcode.Add_c:
-                            throw new NotImplementedException();
+                            // TODO: The sign might not work here!
+                            uint add_c_temp = (uint)(mem[SP] + mem[SP - 1]);
+                            add_c_temp += carry ? 1u : 0u;
+                            carry = add_c_temp > 0xFFF;
+                            SP--;
+                            mem[SP] = (short)(add_c_temp - (carry ? 0x1000 : 0));
+                            PC++;
+                            break;
+                        case Opcode.Add_c_l:
+                            int addc1 = (mem[SP - 1] << 12) | (ushort)(mem[SP]);
+                            int addc2 = (mem[SP - 3] << 12) | (ushort)(mem[SP - 2]);
+                            SP -= 2;
+                            addc2 += addc1;
+                            addc2 += carry ? 1 : 0;
+                            carry = (addc2 >> 12) > 0xFFF;
+                            mem[SP - 1] = addc2 >> 12 & 0xFFF;
+                            mem[SP] = addc2 & 0xFFF;
+                            PC++;
+                            break;
                         case Opcode.Sub:
                             // TODO: The sign might not work here!
                             int sub_temp = mem[SP - 1] - mem[SP];

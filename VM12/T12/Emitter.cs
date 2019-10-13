@@ -911,8 +911,21 @@ namespace T12
                     break;
                 default:
                     // We can't do something smart here :(
-                    EmitExpression(builder, condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
-                    builder.AppendLine($"\tjz {jmpLabel}");
+                    if (typeSize == 1)
+                    {
+                        EmitExpression(builder, condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        builder.AppendLine($"\tjz {jmpLabel}");
+                    }
+                    else if (typeSize == 2)
+                    {
+                        EmitExpression(builder, condition, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
+                        builder.AppendLine($"\tjzl {jmpLabel}");
+                    }
+                    else
+                    {
+                        Fail(condition.Trace, $"We only support types with a max size of 2 right now! Got type {resultType} size {typeSize}");
+                    }
+                    
                     break;
             }
         }
@@ -2480,13 +2493,19 @@ namespace T12
                                 }
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Logical_negation:
-                                EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
-                                if (produceResult)
+                                // NOTE: For now we don't support this as we should only do this on logical types which are always 1 word!
+                                if (typeSize != 1) Fail(unaryOp.Expr.Trace, $"Cannot negate a type of size {typeSize}!");
+
+                                if (unaryOp.Expr is ASTExplicitCast cast && CalcReturnType(cast.From, scope, typeMap, functionMap, constMap, globalMap) == ASTBaseType.DoubleWord)
                                 {
-                                    if (typeSize == 1) builder.AppendLine("\tsetz");
-                                    // NOTE: For now we don't support this as we should only do this on logical types which are always 1 word!
-                                    //else if (typeSize == 2) builder.AppendLine("\tlsetz swap pop");
-                                    else Fail(unaryOp.Expr.Trace, $"Cannot negate a type of size {typeSize}!");
+                                    // FIXME: This is a very specific optimization that should be implemented more generally
+                                    EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                    if (produceResult) builder.AppendLine("\tor setz");
+                                }
+                                else
+                                {
+                                    EmitExpression(builder, unaryOp.Expr, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                    if (produceResult) builder.AppendLine("\tsetz");
                                 }
                                 break;
                             case ASTUnaryOp.UnaryOperationType.Dereference:
@@ -2972,7 +2991,8 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    builder.AppendLine("\tlswap lsub lsetgz or ; Less than");
+                                    //builder.AppendLine("\tlswap lsub lsetgz or ; Less than");
+                                    builder.AppendLine("\tccl lswap lsub lsetcz or ; Less than");
                                 }
                                 else
                                 {
@@ -3843,9 +3863,34 @@ namespace T12
                             // TODO: Should we hardcode these casts? The list is getting pretty long, I don't think we should hard code them like this...
                             else if (fromType == ASTBaseType.DoubleWord && toType == ASTBaseType.Word)
                             {
-                                // This cast is easy
-                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
-                                if (produceResult) builder.AppendLine($"\tswap pop\t; cast({toType})");
+                                if (cast.From is ASTVariableExpression variableExpression)
+                                {
+                                    if (TryResolveVariable(variableExpression.Name, scope, globalMap, constMap, functionMap, typeMap, out VariableRef var) == false)
+                                        Fail(cast.Trace, $"Could not find variable {variableExpression.Name}");
+
+                                    switch (var.VariableType)
+                                    {
+                                        case VariableType.Local:
+                                            if (produceResult) builder.AppendLineWithComment($"\tload {var.LocalAddress + 1}", $"[cast(word) {variableExpression.Name}]");
+                                            break;
+                                        case VariableType.Pointer:
+                                        case VariableType.Global:
+                                        case VariableType.Constant:
+                                            // TODO: Investigate if this ever happens and implement an optimization in that case
+                                        case VariableType.Function:
+                                        default:
+                                            // Do the default implementation for now
+                                            EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                            if (produceResult) builder.AppendLine($"\tswap pop\t; cast({toType})");
+                                            break;
+                                    }
+                                }
+                                else
+                                {
+                                    // This cast is easy
+                                    EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                                    if (produceResult) builder.AppendLine($"\tswap pop\t; cast({toType})");
+                                }
                             }
                             else if (fromType is ASTPointerType && toType is ASTPointerType)
                             {
@@ -3958,6 +4003,11 @@ namespace T12
                             else if (fromType == ASTBaseType.Bool && toType == ASTBaseType.Word)
                             {
                                 // Here we do nothing but emit the bool
+                                EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                            }
+                            else if (fromType is ASTStructType && toType is ASTStructType && SizeOfType(fromType, typeMap) == SizeOfType(toType, typeMap))
+                            {
+                                Warning(cast.Trace, "Using same size struct to struct cast!!");
                                 EmitExpression(builder, cast.From, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else
@@ -4353,6 +4403,8 @@ namespace T12
 
                             if (produceResult) LoadVariable(builder, target.Trace, variable, typeMap, constMap);
                         }
+                        // TODO: Optimization where the explicit cast is a struct to struct of same size cast
+                        /*else if (target.TargetExpr is ASTExplicitCast explicitCast && )*/
                         else
                         {
                             if (target.Dereference)
