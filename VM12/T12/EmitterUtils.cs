@@ -379,6 +379,20 @@ namespace T12
             }
         }
 
+        private static void LoadZeroes(StringBuilder builder, int zerosToLoad)
+        {
+            while (zerosToLoad >= 2)
+            {
+                builder.AppendLine($"\tloadl #0");
+                zerosToLoad -= 2;
+            }
+
+            if (zerosToLoad == 1)
+            {
+                builder.AppendLine($"\tload #0");
+            }
+        }
+
         private static ASTFunction SpecializeFunction(TraceData trace, ASTGenericFunction GenericFunction, List<ASTType> GenericTypes, TypeMap typeMap, FunctionMap functionMap)
         {
             GenericMap GenericMap = GenerateGenericMap(trace, GenericFunction.GenericNames, GenericTypes);

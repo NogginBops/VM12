@@ -2054,10 +2054,25 @@ namespace T12
 
                     if (expr == null) Fail(peekActionTok, "THIS SHOULD NOT HAPPEN!!!");
                 }
+                else if (peekActionTok.Type == TokenType.Open_brace)
+                {
+                    // This is a struct litteral!
+                    return ASTStructLitteral.Parse(Tokens);
+                }
+                // FIXME: Make a robust way to detect that a variable expression has ended!
+                else if (peekActionTok.IsAssignmentOp || peekActionTok.IsPostfixOperator || peekActionTok.IsBinaryOp ||
+                    peekActionTok.Type == TokenType.Comma || peekActionTok.Type == TokenType.Close_parenthesis || 
+                    peekActionTok.Type == TokenType.Semicolon || peekActionTok.Type == TokenType.Close_squre_bracket ||
+                    peekActionTok.Type == TokenType.Contains || peekActionTok.Type == TokenType.Colon || 
+                    peekActionTok.Type == TokenType.Questionmark || peekActionTok.Type == TokenType.Close_brace)
+                {
+                    // This is just a variable expression.
+                    expr = ASTVariableExpression.Parse(Tokens);
+                }
                 else
                 {
-                    // We know its a variable but we don't know what we will do with it
-                    expr = ASTVariableExpression.Parse(Tokens);
+                    Fail(peekActionTok, $"Unknown variable operation '{peekActionTok}'!");
+                    expr = default;
                 }
 
                 return ParsePostfix(Tokens, expr);
@@ -2587,6 +2602,68 @@ namespace T12
         {
             PType = pType;
             this.Type = pType;
+        }
+    }
+
+    // NOTE: This does not extend ASTLitteral but extends ASTExpression instead
+    public class ASTStructLitteral : ASTExpression
+    {
+        public ASTType StructType;
+        public Dictionary<StringRef, ASTExpression> MemberInitializers;
+
+        public ASTStructLitteral(TraceData trace, ASTType structType, Dictionary<StringRef, ASTExpression> initializers) : base(trace)
+        {
+            StructType = structType;
+            MemberInitializers = initializers;
+        }
+
+        public override string ToString()
+        {
+            return $"{StructType}{{ {(string.Join(", ", MemberInitializers.Select(kvp => $"{kvp.Key}={kvp.Value}")))} }}";
+        }
+
+        public static new ASTStructLitteral Parse(Queue<Token> Tokens)
+        {
+            ASTType type = ASTType.Parse(Tokens);
+
+            var braceTok = Tokens.Dequeue();
+            if (braceTok.Type != TokenType.Open_brace) Fail(braceTok, "Expected '{'!");
+
+            Dictionary<StringRef, ASTExpression> inits = new Dictionary<StringRef, ASTExpression>();
+
+            var peek = Tokens.Peek();
+            while (peek.Type != TokenType.Close_brace)
+            {
+                if (peek.IsIdentifier == false) Fail(peek, "Expected identifier!");
+                StringRef name = Tokens.Dequeue().Value;
+
+                var equalsTok = Tokens.Dequeue();
+                if (equalsTok.Type != TokenType.Equal) Fail(equalsTok, "Expected equals!");
+
+                ASTExpression init = ASTExpression.Parse(Tokens);
+
+                if (inits.ContainsKey(name)) Fail(peek, $"Cannot have two initializers for the member '{name}'!");
+                inits.Add(name, init);
+
+                var contToken = Tokens.Peek();
+                if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.Close_brace) break;
+                else if (contToken.Type != TokenType.Comma) Fail(contToken, "Expected ',' or a '}'");
+                Tokens.Dequeue();
+
+                peek = Tokens.Peek();
+            }
+
+            var closeBraceTok = Tokens.Dequeue();
+            if (closeBraceTok.Type != TokenType.Close_brace) Fail(closeBraceTok, "Expected '}'!");
+
+            TraceData trace = new TraceData
+            {
+                File = type.Trace.File,
+                StartLine = type.Trace.StartLine,
+                EndLine = closeBraceTok.Line,
+            };
+
+            return new ASTStructLitteral(trace, type, inits);
         }
     }
 

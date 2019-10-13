@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using VM12Util;
 
 namespace T12
 {
@@ -184,6 +185,8 @@ namespace T12
             {
                 case ASTLitteral litteral:
                     return litteral.Type;
+                case ASTStructLitteral structLitteral:
+                    return structLitteral.StructType;
                 case ASTVariableExpression variableExpression:
                     {
                         if (scope.TryGetValue(variableExpression.Name, out var varType))
@@ -244,7 +247,7 @@ namespace T12
                         }
                     }
                 case ASTContainsExpression containsExpression:
-                    return ASTBaseType.Bool;
+                    return ASTBaseType.Bool.WithTrace(containsExpression.Trace);
                 case ASTPointerExpression pointerExpression:
                     {
                         var targetType = ResolveType(CalcReturnType(pointerExpression.Pointer, scope, typeMap, functionMap, constMap, globalMap), typeMap);
@@ -1703,6 +1706,7 @@ namespace T12
 
                         var constType = ResolveType(constDirective.Type, typeMap);
 
+                        // FIXME: This is no longer true and we want to try support constant structs!
                         if (constType is ASTStructType)
                             Fail(constDirective.Type.Trace, "We don't do constant structs yet? Or there cannot be constant structs!");
                         
@@ -1790,16 +1794,70 @@ namespace T12
 
                                     var folded = ConstantFold(casted, new VarMap(), typeMap, functionMap, constMap, globalMap);
 
-                                    if (folded is ASTLitteral == false)
+                                    if (folded is ASTLitteral astlit)
+                                    {
+                                        string value = astlit.Value;
+                                        if (folded is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
+                                            value = value.TrimEnd('d', 'D', 'w', 'W');
+                                        else if (folded is ASTDoubleWordLitteral dwordLit && dwordLit.NumberFromat == ASTNumericLitteral.NumberFormat.Hexadecimal)
+                                            value = $"0x{dwordLit.IntValue:X6}";
+
+                                        builder.Append($"{value} ");
+                                    }
+                                    else if (folded is ASTStructLitteral structLit)
+                                    {
+                                        ASTType type = ResolveType(structLit.StructType, typeMap);
+                                        if (type is ASTStructType == false) Fail(structLit.Trace, "Cannot init a non-struct type using struct litterals!");
+                                        ASTStructType stype = type as ASTStructType;
+
+                                        // For a struct litteral to be a constant all of it's initializers need to resolve to constant values
+                                        List<ASTExpression> initializers = new List<ASTExpression>();
+
+                                        var inits = structLit.MemberInitializers;
+                                        foreach (var member in stype.Members)
+                                        {
+                                            if (inits.TryGetValue((StringRef)member.Name, out var init) == false)
+                                                // If there was not explicit initializer create a default one.
+                                                init = new ASTDefaultExpression(structLit.Trace, member.Type);
+
+                                            var initType = CalcReturnType(init, new VarMap(), typeMap, functionMap, constMap, globalMap);
+
+                                            if (TryGenerateImplicitCast(init, member.Type, new VarMap(), typeMap, functionMap, constMap, globalMap, out var typedInit, out error) == false)
+                                                Fail(init.Trace, $"Cannot assign expression of type '{initType}' to member '{member.Name}' of type '{member.Type}'! (Implicit cast error: '{error}')");
+
+                                            var foldedInit = ConstantFold(typedInit, new VarMap(), typeMap, functionMap, constMap, globalMap);
+
+                                            // Here we go through all the initializers and make sure that they are either a default expression or a constant value
+                                            if (foldedInit is ASTDefaultExpression defaultExpression)
+                                            {
+                                                // Here we just emit as meny zeros as we need to
+                                                int typeSize = SizeOfType(defaultExpression.Type, typeMap);
+
+                                                while (typeSize > 1)
+                                                {
+                                                    builder.Append($"{0x000_000} ");
+                                                    typeSize -= 2;
+                                                }
+
+                                                if (typeSize == 1) builder.Append($"{0x000} ");
+                                            }
+                                            else if (foldedInit is ASTLitteral litteral)
+                                            {
+                                                string value = litteral.Value;
+                                                if (foldedInit is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
+                                                    value = value.TrimEnd('d', 'D', 'w', 'W');
+                                                else if (foldedInit is ASTDoubleWordLitteral dwordLit && dwordLit.NumberFromat == ASTNumericLitteral.NumberFormat.Hexadecimal)
+                                                    value = $"0x{dwordLit.IntValue:X6}";
+
+                                                builder.Append($"{value} ");
+                                            }
+                                            else Fail(foldedInit.Trace, $"Initializer for member '{member.Name}' did not resolve to a constant! Expression: {init}");
+                                        }
+                                    }
+                                    else
+                                    {
                                         Fail(lit.Trace, $"Could not evaluate this as a constant! Got '{folded}'");
-
-                                    string value = (folded as ASTLitteral).Value;
-                                    if (folded is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
-                                        value = value.TrimEnd('d', 'D', 'w', 'W');
-                                    else if (folded is ASTDoubleWordLitteral dwordLit && dwordLit.NumberFromat == ASTNumericLitteral.NumberFormat.Hexadecimal)
-                                        value = $"0x{dwordLit.IntValue:X6}";
-
-                                    builder.Append($"{value} ");
+                                    }
 
                                     if (index++ % 10 == 0) builder.Append("\n\t");
                                 }
@@ -2353,6 +2411,38 @@ namespace T12
                 case ASTLitteral litteral:
                     {
                         EmitLitteral(builder, litteral);
+                        break;
+                    }
+                case ASTStructLitteral structLitteral:
+                    {
+                        // FIXME: Make this work for array types!
+
+                        int structSize = SizeOfType(structLitteral.StructType, typeMap);
+                        ASTType type = ResolveType(structLitteral.StructType, typeMap);
+
+                        if (type is ASTStructType == false) Fail(structLitteral.StructType.Trace, "Cannot init a non-struct type using struct litterals!");
+                        ASTStructType stype = type as ASTStructType;
+
+                        var inits = structLitteral.MemberInitializers;
+                        foreach (var member in stype.Members)
+                        {
+                            // Check to see if this member has a initializer
+                            // If not, initialize with zeroes
+
+                            // FIXME: Move over to StringRef!
+                            if (inits.TryGetValue((StringRef)member.Name, out var init) == false)
+                                // If there was not explicit initializer create a default one.
+                                init = new ASTDefaultExpression(structLitteral.Trace, member.Type);
+
+                            var initType = CalcReturnType(init, scope, typeMap, functionMap, constMap, globalMap);
+
+                            if (TryGenerateImplicitCast(init, member.Type, scope, typeMap, functionMap, constMap, globalMap, out var typedInit, out string error) == false)
+                                Fail(init.Trace, $"Cannot assign expression of type '{initType}' to member '{member.Name}' of type '{member.Type}'! (Implicit cast error: '{error}')");
+
+                            var foldedInit = ConstantFold(typedInit, scope, typeMap, functionMap, constMap, globalMap);
+
+                            EmitExpression(builder, foldedInit, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
+                        }
                         break;
                     }
                 case ASTVariableExpression variableExpr:
@@ -4657,17 +4747,7 @@ namespace T12
                         if (produceResult)
                         {
                             builder.AppendLine($"\t; Default value for type '{defaultExpression.Type}'({typeSize})");
-                            int sizeLeft = typeSize;
-                            while (sizeLeft >= 2)
-                            {
-                                builder.AppendLine($"\tloadl #0");
-                                sizeLeft -= 2;
-                            }
-
-                            if (sizeLeft == 1)
-                            {
-                                builder.AppendLine($"\tload #0");
-                            }
+                            LoadZeroes(builder, typeSize);
                         }
                         break;
                     }
