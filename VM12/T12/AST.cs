@@ -53,7 +53,7 @@ namespace T12
                     // We have not parsed this file yet
                     if (dirFiles.TryGetValue(import.File, out var importFile) == false)
                         // TODO: Better error thing here!
-                        Emitter.Fail(import.Trace, $"Could not import '{import.ImportName ?? import.File}', did not find file '{import.File}'!");
+                        Emitter.Fail(import.Trace, $"Could not import '{import.File}', did not find file '{import.File}'!");
                     
                     // Parse the file!
                     Compiler.Watch.Restart();
@@ -332,12 +332,10 @@ namespace T12
     public class ASTImportDirective : ASTDirective, IEquatable<ASTImportDirective>
     {
         public readonly string File;
-        public readonly string ImportName;
 
-        public ASTImportDirective(TraceData trace, string file, string importName) : base(trace)
+        public ASTImportDirective(TraceData trace, string file) : base(trace)
         {
             File = file;
-            ImportName = importName;
         }
 
         public static new ASTImportDirective Parse(Queue<Token> Tokens)
@@ -348,35 +346,15 @@ namespace T12
             string file = "";
 
             var peek = Tokens.Peek();
-            while (peek.Type != TokenType.Keyword_As && peek.Type != TokenType.Semicolon)
+            while (peek.Type != TokenType.Semicolon)
             {
                 file += Tokens.Dequeue().Value;
                 peek = Tokens.Peek();
             }
-
-            string importName = null;
             
             var endTok = Tokens.Dequeue();
-            if (endTok.Type == TokenType.Keyword_As)
-            {
-                importName = "";
-
-                peek = Tokens.Peek();
-                while (peek.Type != TokenType.Semicolon)
-                {
-                    importName += Tokens.Dequeue().Value;
-                    peek = Tokens.Peek();
-                }
-
-                // Dequeue semicolon
-                endTok = Tokens.Dequeue();
-            }
-            else
-            {
-                // Here we want to import all things directly into our filespace
-                //importName = Path.GetFileNameWithoutExtension(file);
-            }
-
+            if (endTok.Type != TokenType.Semicolon) Fail(endTok, "Expected ';'!");
+            
             var trace = new TraceData
             {
                 File = importTok.FilePath,
@@ -384,7 +362,7 @@ namespace T12
                 EndLine = endTok.Line,
             };
 
-            return new ASTImportDirective(trace, file, importName);
+            return new ASTImportDirective(trace, file);
         }
 
         public override bool Equals(object obj)
@@ -395,15 +373,13 @@ namespace T12
         public bool Equals(ASTImportDirective other)
         {
             return other != null &&
-                   File == other.File &&
-                   ImportName == other.ImportName;
+                   File == other.File;
         }
 
         public override int GetHashCode()
         {
             var hashCode = 780891818;
             hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(File);
-            hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(ImportName);
             return hashCode;
         }
 
@@ -858,19 +834,7 @@ namespace T12
                 return new ASTFunction(trace, name, returnType, parameters, body);
         }
     }
-
-    public class ASTExternFunction : ASTFunction
-    {
-        public readonly string Namespace;
-        public readonly ASTFunction Func;
-
-        public ASTExternFunction(TraceData trace, string @namespace, string name, ASTType returnType, List<(ASTType, string)> parameters, List<ASTBlockItem> body, ASTFunction func) : base(trace, $"{@namespace}::{name}", returnType, parameters, body)
-        {
-            Namespace = @namespace;
-            Func = func;
-        }
-    }
-
+    
     public class ASTInterrupt : ASTFunction
     {
         public readonly InterruptType Type;

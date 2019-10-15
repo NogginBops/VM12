@@ -175,6 +175,7 @@ namespace T12
                 default:
                     // We don't fully know the size of the type yet so we consult the TypeMap
                     // FIXME: We can get stuck looping here!
+                    // Why do we get stuck in a loop here??? - 2019-10-15
                     return SizeOfType(ResolveType(type, typeMap), typeMap);
             }
         }
@@ -323,9 +324,7 @@ namespace T12
                         {
                             targetType = pointerType.BaseType;
                         }
-
-                        // FIXME: This is a hack for now?
-                        // We should implement this for normal arrays too
+                        
                         if (targetType is ASTFixedArrayType fixedArrayType)
                         {
                             switch (memberExpression.MemberName)
@@ -482,9 +481,13 @@ namespace T12
                 if (fromBase.Size == toBase.Size)
                 {
                     // FIXME: This is not entierly correct!
+                    // When is this not correct? - 2019-10-15
                     return true;
                 }
+
                 // FIXME: This should not allow word -> string casts...
+                // I think that we should just allow all casts of this type and have a
+                // well defined meaning. Something like zero padding or sign extending
                 else if (fromBase.Size < toBase.Size)
                 {
                     return true;
@@ -573,6 +576,7 @@ namespace T12
             else if (exprType is ASTPointerType && targetType == ASTBaseType.DoubleWord)
             {
                 // FIXME: Actually change the type!
+                // What is the reason we can't change the type?? - 2019-10-15
                 result = expression;
                 error = default;
                 return true;
@@ -594,7 +598,7 @@ namespace T12
             {
                 // FIXME!!! This is a ugly hack!! When we go over to struct strings this will have to change
                 // So we just say that we can conver this. We rely on the fact that we never actually check
-                // to see if the expression results in a pointer when generating the cast
+                // to see if the expression results in a pointer when generating the cast.
                 result = new ASTPointerToVoidPointerCast(expression.Trace, expression, ASTPointerType.Of(ASTBaseType.Word));
                 error = default;
                 return true;
@@ -629,6 +633,7 @@ namespace T12
                         return true;
                     }
                     // FIXME: This should not allow word -> string cast
+                    // We should allow all casts, they just need well defined behaviour.
                     if (exprSize < targetSize)
                     {
                         result = new ASTImplicitCast(expression.Trace, expression, exprBaseType, targetBaseType);
@@ -1028,12 +1033,7 @@ namespace T12
                     FunctionName = functions[0].Name,
                     Type = ASTFunctionPointerType.Of(functions[0].Trace, functions[0]),
                 };
-
-                if (functions[0] is ASTExternFunction externFunc)
-                {
-                    variable.FunctionName = externFunc.Func.Name;
-                }
-
+                
                 return true;
             }
             else
@@ -1051,7 +1051,12 @@ namespace T12
 
         internal static ASTType ResolveGenericType(ASTType type, TypeMap typeMap)
         {
-            // FIXME: We want to resolve generic arrays too!
+            // TODO: Make sure we are doing the right resolving for generic arrays!
+            if (type is ASTFixedArrayType fixedArrayType)
+                return new ASTFixedArrayType(fixedArrayType.Trace, ResolveGenericType(fixedArrayType.BaseType, typeMap), fixedArrayType.Size);
+
+            if (type is ASTArrayType arrayType)
+                return new ASTArrayType(arrayType.Trace, ResolveGenericType(arrayType.BaseType, typeMap));
 
             if (type is ASTGenericTypeRef genericRef)
                 return ResolveType(type.Trace, genericRef, typeMap);
@@ -1302,8 +1307,6 @@ namespace T12
         {
             if (fmap.TryGetValue(name, out var funcList))
             {
-                // When we implement generics, could a function be overloaded on generics too?
-                // If any function has the same signature we can't add this function to the map
                 foreach (var f in funcList)
                 {
                     if (FunctionParamsEqual(func, f))
@@ -1311,7 +1314,7 @@ namespace T12
                         if (f is ASTGenericFunction)
                         {
                             // FIXME: For now we allow this but we should think about this 
-                            // so that it does the right thing
+                            // so that it does the right thing!!!
                         }
                         else
                         {
@@ -1355,17 +1358,7 @@ namespace T12
                 }
             }
 
-            StringBuilder functionLabelBuilder;
-            if (func is ASTExternFunction externFunction)
-            {
-                // FIXME: This is not necessarily true...
-                // If it is overloaded only in this file then the label will be wrong...
-                functionLabelBuilder = new StringBuilder(externFunction.Func.Name);
-            }
-            else
-            {
-                functionLabelBuilder = new StringBuilder(func.Name);
-            }
+            StringBuilder functionLabelBuilder = new StringBuilder(func.Name);
 
             // FIXME: Generics will affect this generation!
             if (functionMap.TryGetValue(func.Name, out var functions) && functions.Count > 1)
@@ -1516,67 +1509,12 @@ namespace T12
                     {
                         var test = import;
                         if (importMap.TryGetValue(import.File, out ASTFile file) == false)
-                            Fail(import.Trace, $"Could not resolve import of type '{import.ImportName}' and file '{import.File}'!");
-
-                        // FIXME: If we import multiple files into the same name
-
+                            Fail(import.Trace, $"Could not resolve import of file '{import.File}'!");
+                        
                         // FIXME: When one file uses a type from another file and that other file is using a type from the first
                         
-                        ASTType ImportType(ASTType type)
-                        {
-                            // Fast path for base types
-                            if (type is ASTBaseType) return type;
-
-                            Stack<ASTDereferenceableType> indirections = new Stack<ASTDereferenceableType>();
-
-                            ASTType baseType = type;
-                            while (baseType is ASTDereferenceableType dereferenceableType)
-                            {
-                                indirections.Push(dereferenceableType);
-                                baseType = dereferenceableType.DerefType;
-                            }
-
-                            // Fast path for base types
-                            if (baseType is ASTBaseType) return type;
-                            
-                            ASTType externType = new ASTExternType(type.Trace, import.ImportName, baseType);
-                            
-                            // TODO: Fix this fast path!
-                            // FIXME: When two file declare the same struct name!!
-                            // Here the base type is a type we know! This means it is fine to use it just like it is!
-                            //if (typeMap.TryGetValue(externType.TypeName, out ASTType existingType)) return type;
-
-                            // The type to return, with all levels of indirection
-                            ASTType returnType = externType;
-
-                            // Here we imnport the extern type and then add back all levels of indirection to the type!
-                            foreach (var indirType in indirections)
-                            {
-                                switch (indirType)
-                                {
-                                    case ASTPointerType pointerType:
-                                        returnType = new ASTPointerType(pointerType.Trace, returnType);
-                                        break;
-                                    case ASTArrayType arrayType:
-                                        returnType = new ASTArrayType(arrayType.Trace, returnType);
-                                        break;
-                                    case ASTFixedArrayType fixedArrayType:
-                                        returnType = new ASTFixedArrayType(fixedArrayType.Trace, returnType, fixedArrayType.Size);
-                                        break;
-                                    default:
-                                        Fail(type.Trace, $"Unknown indirection '{indirType}'! This is a compiler bug!");
-                                        break;
-                                }
-                            }
-
-                            return returnType;
-                        }
-
-                        builder.AppendLine($"& {import.ImportName ?? import.File.Replace(".t12", "")} {Path.ChangeExtension(import.File, ".12asm")}");
-
-                        // We set this if we import this 'as' something
-                        bool importWithNamespace = import.ImportName != null;
-
+                        builder.AppendLine($"& {import.File.Replace(".t12", "")} {Path.ChangeExtension(import.File, ".12asm")}");
+                        
                         bool visible = false;
                         foreach (var direct in file.Directives)
                         {
@@ -1592,68 +1530,39 @@ namespace T12
                                     break;
                                 case ASTConstDirective constDirective:
                                     {
-                                        // FIXME: Implement!!!
-                                        if (importWithNamespace)
-                                        {
-                                            Warning(import.Trace, $"We do not import constants in namespaces!! So we did not import constant '{constDirective.Name}' into the namespace '{import.ImportName}'");
-                                        }
-                                        else
-                                        {
-                                            if (constMap.TryGetValue(constDirective.Name, out var constant))
-                                                Fail(import.Trace, $"Could not import constant '{constDirective.Name}' from '{import.File}'. There already is a global called '{constDirective.Name}' in this filescope imported from file '{Path.GetFileName(constant.Trace.File)}'.");
+                                        if (constMap.TryGetValue(constDirective.Name, out var constant))
+                                            Fail(import.Trace, $"Could not import constant '{constDirective.Name}' from '{import.File}'. There already is a global called '{constDirective.Name}' in this filescope imported from file '{Path.GetFileName(constant.Trace.File)}'.");
 
-                                            // We only extern it it will be a constant in 12asm
-                                            // Array constants will be procs, so we don't extern them
-                                            //if (constDirective.Type is ASTFixedArrayType == false)
-                                            //    builder.AppendLine($"<{constDirective.Name} = extern>");
+                                        // We only extern it it will be a constant in 12asm
+                                        // Array constants will be procs, so we don't extern them
+                                        //if (constDirective.Type is ASTFixedArrayType == false)
+                                        //    builder.AppendLine($"<{constDirective.Name} = extern>");
 
-                                            constMap.Add(constDirective.Name, constDirective);
-                                        }
+                                        constMap.Add(constDirective.Name, constDirective);
                                     }
                                     break;
                                 case ASTGlobalDirective globalDirective:
                                     {
-                                        if (importWithNamespace)
-                                        {
-                                            var global = new ASTExternGlobalDirective(globalDirective.Trace, import.ImportName, ImportType(globalDirective.Type), globalDirective.Name, globalDirective);
-                                            globalMap.Add(global.Name, global);
-                                            //builder.AppendLine($"<{globalDirective.Name} = extern> ; {global.Name}");
-                                        }
-                                        else
-                                        {
-                                            if (globalMap.TryGetValue(globalDirective.Name, out var value))
-                                                Fail(import.Trace, $"Could not import global '{globalDirective.Name}' from '{import.File}'. There already is a global called '{globalDirective.Name}' in this filescope imported from file '{Path.GetFileName(value.Trace.File)}'.");
+                                        if (globalMap.TryGetValue(globalDirective.Name, out var value))
+                                            Fail(import.Trace, $"Could not import global '{globalDirective.Name}' from '{import.File}'. There already is a global called '{globalDirective.Name}' in this filescope imported from file '{Path.GetFileName(value.Trace.File)}'.");
 
-                                            // Add the directive as is was our own
-                                            globalMap[globalDirective.Name] = globalDirective;
+                                        // Add the directive as is was our own
+                                        globalMap[globalDirective.Name] = globalDirective;
 
-                                            // Then we just include it as extern
-                                            //builder.AppendLine($"<{globalDirective.Name} = extern> ; {globalDirective.Name}");
-                                        }
+                                        // Then we just include it as extern
+                                        // NOTE: With the new assembler this is no longer necessary
+                                        //builder.AppendLine($"<{globalDirective.Name} = extern> ; {globalDirective.Name}");
                                     }
                                     break;
                                 case ASTStructDeclarationDirective structDecl:
                                     {
-                                        if (importWithNamespace)
-                                        {
-                                            string name = $"{import.ImportName}::{structDecl.Name}";
-
-                                            if (typeMap.ContainsKey(name))
-                                                Fail(import.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name!");
-
-                                            typeMap.Add(name, ImportType(structDecl.DeclaredType));
-                                        }
-                                        else
-                                        {
-                                            if (typeMap.TryGetValue(structDecl.Name, out var value))
-                                                Fail(import.Trace, $"Could not import struct '{structDecl.Name}' from '{import.File}'. There already is one in '{Path.GetFileName(value.Trace.File)}'.");
+                                        if (typeMap.TryGetValue(structDecl.Name, out var value))
+                                            Fail(import.Trace, $"Could not import struct '{structDecl.Name}' from '{import.File}'. There already is one in '{Path.GetFileName(value.Trace.File)}'.");
                                             
-                                            // We just add the type to the type map and call it done.
-                                            // NOTE: There could be something weird going on with types
-                                            // that this struct uses that get imported only in the second file.
-                                            typeMap.Add(structDecl.Name, structDecl.DeclaredType);
-                                        }
-                                        
+                                        // We just add the type to the type map and call it done.
+                                        // NOTE: There could be something weird going on with types
+                                        // that this struct uses that get imported only in the second file.
+                                        typeMap.Add(structDecl.Name, structDecl.DeclaredType);
                                         break;
                                     }
                                 default:
@@ -1663,18 +1572,8 @@ namespace T12
 
                         foreach (var func in file.Functions)
                         {
-                            if (importWithNamespace)
-                            {
-                                var @params = func.Parameters.Select(p => { p.Type = ImportType(p.Type); return p; }).ToList();
-                                var importFunc = new ASTExternFunction(func.Trace, import.ImportName, func.Name, ImportType(func.ReturnType), @params, func.Body, func);
-
-                                AddFunctionToMap(import.Trace, functionMap, importFunc.Name, importFunc);
-                            }
-                            else
-                            {
-                                // Just add the function no modification.
-                                AddFunctionToMap(import.Trace, functionMap, func.Name, func);
-                            }
+                            // Just add the function no modification.
+                            AddFunctionToMap(import.Trace, functionMap, func.Name, func);
                         }
                         
                         break;

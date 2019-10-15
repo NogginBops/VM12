@@ -98,7 +98,6 @@ namespace T12
         Keyword_Private,
         Keyword_Use,
         Keyword_Import,
-        Keyword_As,
         Keyword_Extern,
         Keyword_Const,
         Keyword_Global,
@@ -448,7 +447,6 @@ namespace T12
                         break;
                     case 'a':
                         if (IsNextWithDelimiter("assembly")) Tokens.Add(CreateTokenAndAdvanceLength(TokenType.Keyword_Assembly, "assembly".Length));
-                        else if (IsNextWithDelimiter("as")) Tokens.Add(CreateTokenAndAdvanceLength(TokenType.Keyword_As, "as".Length));
                         else Tokens.Add(ReadIdent());
                         break;
                     case 'g':
