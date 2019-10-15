@@ -637,8 +637,6 @@ namespace T12
             {
                 case ASTBaseType baseType:
                     return baseType;
-                case ASTExternType externType:
-                    return externType;
                 case ASTStructType structType:
                     // FIXME: When we implement generic striucts we want to fix this!!
                     return structType;

@@ -158,18 +158,6 @@ namespace T12
                     return ASTArrayType.Size;
                 case ASTFunctionPointerType functionType:
                     return ASTFunctionPointerType.Size;
-                case ASTExternType externType:
-                    if (typeMap.TryGetValue(externType.TypeName, out var outType))
-                        if (outType is ASTExternType outExternType)
-                        {
-                            return SizeOfType(outExternType.Type, typeMap);
-                        }
-                        else
-                        {
-                            return SizeOfType(outType, typeMap);
-                        }
-                    else
-                        return SizeOfType(externType.Type, typeMap);
                 case ASTAliasedType aliasedType:
                     return SizeOfType(aliasedType.RealType, typeMap);
                 default:
@@ -1074,26 +1062,7 @@ namespace T12
 
             if (type is ASTTypeRef)
                 return ResolveType(type.Trace, type.TypeName, typeMap);
-
-            if (type is ASTExternType externType)
-            {
-                if (externType.Type is ASTTypeRef)
-                {
-                    if (typeMap.TryGetValue(type.TypeName, out var outType) == false)
-                        Fail(type.Trace, $"No type called '{type.TypeName}'!");
-
-                    // The type we will have gotten now will be the imported one with the full type info
-                    
-                    // FIXME: Do proper checks to ensure that we handle extern type refs 
-                    // NOTE: We could check that outType actually is a ASTExternType
-                    return (outType as ASTExternType)?.Type ?? outType;
-                }
-                else
-                {
-                    return externType.Type;
-                }
-            }
-
+            
             if (type is ASTPointerType)
                 return ASTPointerType.Of(ResolveType((type as ASTPointerType).BaseType, typeMap));
 

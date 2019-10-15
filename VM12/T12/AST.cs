@@ -5,6 +5,7 @@ using System.Linq;
 using System.IO;
 using VM12Opcode;
 using VM12Util;
+using System.Text;
 
 namespace T12
 {
@@ -343,12 +344,17 @@ namespace T12
             var importTok = Tokens.Dequeue();
             if (importTok.Type != TokenType.Keyword_Import) Fail(importTok, "Expected 'import'!");
 
-            string file = "";
+            // FIXME: Move over to StringRef
+            // It will be easy to get a ref of the complete name then.
+            StringBuilder file = new StringBuilder();
 
+            // NOTE: This is not great tbh, because it will
+            // eat the entire file before it knows it's wrong.
+            // We could really like a more robust way to parse filenames.
             var peek = Tokens.Peek();
             while (peek.Type != TokenType.Semicolon)
             {
-                file += Tokens.Dequeue().Value;
+                file.Append(Tokens.Dequeue().Value);
                 peek = Tokens.Peek();
             }
             
@@ -362,7 +368,7 @@ namespace T12
                 EndLine = endTok.Line,
             };
 
-            return new ASTImportDirective(trace, file);
+            return new ASTImportDirective(trace, file.ToString());
         }
 
         public override bool Equals(object obj)
@@ -3781,46 +3787,16 @@ namespace T12
 
         public static bool operator ==(ASTType type1, ASTType type2)
         {
-            while (type1 is ASTExternType externType1) type1 = externType1.Type;
-            while (type2 is ASTExternType externType2) type2 = externType2.Type;
-
             return EqualityComparer<ASTType>.Default.Equals(type1, type2);
         }
 
         public static bool operator !=(ASTType type1, ASTType type2)
         {
-            while (type1 is ASTExternType externType1) type1 = externType1.Type;
-            while (type2 is ASTExternType externType2) type2 = externType2.Type;
-
             return !(type1 == type2);
         }
 
         public static ASTType Parse(Queue<Token> Tokens)
         {
-            if (Tokens.ElementAt(1).Type == TokenType.DoubleColon)
-            {
-                // This is a ref to another file
-                var namespaceTok = Tokens.Dequeue();
-                if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected identifier!");
-                string space = (string)namespaceTok.Value;
-
-                // Dequeue '::'
-                Tokens.Dequeue();
-
-                var typeNameTok = Tokens.Dequeue();
-                if (typeNameTok.IsIdentifier == false) Fail(typeNameTok, "");
-                string typeName = (string)typeNameTok.Value;
-
-                var trace = new TraceData
-                {
-                    File = namespaceTok.FilePath,
-                    StartLine = namespaceTok.Line,
-                    EndLine = typeNameTok.Line,
-                };
-
-                return new ASTExternType(trace, space, new ASTTypeRef(trace, typeName));
-            }
-
             var tok = Tokens.Dequeue();
             switch (tok.Type)
             {
@@ -4215,46 +4191,6 @@ namespace T12
         }
     }
     
-    /// <summary>
-    /// This is a type that is a reference to a type in another file.
-    /// </summary>
-    public class ASTExternType : ASTType
-    {
-        public readonly string NamespaceName;
-        public readonly ASTType Type;
-
-        public ASTExternType(TraceData trace, string spaceName, ASTType type) : base(trace, $"{spaceName}::{type.TypeName}")
-        {
-            NamespaceName = spaceName;
-            Type = type;
-        }
-
-        public override bool Equals(object obj)
-        {
-            if (obj is ASTExternType)
-            {
-                var objType = obj as ASTType;
-                while (objType is ASTExternType)
-                {
-                    objType = (objType as ASTExternType).Type;
-                }
-
-                return Type == objType;
-            }
-
-            return base.Equals(obj);
-        }
-
-        public override int GetHashCode()
-        {
-            var hashCode = -1176423218;
-            hashCode = hashCode * -1521134295 + base.GetHashCode();
-            hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(NamespaceName);
-            hashCode = hashCode * -1521134295 + EqualityComparer<ASTType>.Default.GetHashCode(Type);
-            return hashCode;
-        }
-    }
-
     public class ASTFunctionPointerType : ASTType, IEquatable<ASTFunctionPointerType>
     {
         public const int Size = 2;
