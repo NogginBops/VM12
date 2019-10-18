@@ -1211,11 +1211,13 @@ namespace T12
                     var fType = ResolveGenericType(function.Parameters[i].Type, typeMap);
                     var argType = ResolveGenericType(argumentTypes[i], typeMap);
                     // TODO: Do we need to resolve the types?
+
+                    // FIXME: Here we need to see if the types are generically compatible and create a score based on that too!!
                     if (fType == argType)
                     {
                         score += 1;
                     }
-                    else if (HasImplicitCast(argumentTypes[i], fType, typeMap))
+                    else if (HasImplicitCast(argType, fType, typeMap))
                     {
                         score += .5f;
                     }
