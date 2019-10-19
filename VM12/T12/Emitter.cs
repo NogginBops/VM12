@@ -262,7 +262,7 @@ namespace T12
 
                         List<ASTType> argumentTypes = functionCall.Arguments.Select(a => CalcReturnType(a, scope, typeMap, functionMap, constMap, globalMap)).ToList();
 
-                        if(TryFindBestFunctionMatch(functionCall.Trace, functions,  argumentTypes, typeMap, out var func) == false)
+                        if(TryFindBestFunctionMatch(functionCall.Trace, functions,  argumentTypes, (functionCall as ASTGenericFunctionCall)?.GenericTypes ?? new List<ASTType>(), typeMap, out var func) == false)
                             Fail(functionCall.Trace, $"No overload for function '{functionCall.FunctionName}' taking arguments of types {string.Join(", ",  argumentTypes)}!");
 
                         ASTType returnType = func.ReturnType;
@@ -429,7 +429,7 @@ namespace T12
                 return false;
             }
         }
-
+        
         internal static bool HasImplicitCast(ASTType from, ASTType to, TypeMap typeMap)
         {
             if (from == to)
@@ -1175,7 +1175,7 @@ namespace T12
             }
         }
         
-        internal static bool TryFindBestFunctionMatch(TraceData trace, List<ASTFunction> functions, List<ASTType> argumentTypes, TypeMap typeMap, out ASTFunction func)
+        internal static bool TryFindBestFunctionMatch(TraceData trace, List<ASTFunction> functions, List<ASTType> argumentTypes, List<ASTType> genericTypes, TypeMap typeMap, out ASTFunction func)
         {
             double bestScore = 0;
             func = default;
@@ -1206,13 +1206,29 @@ namespace T12
                 if (function.Parameters.Count != argumentTypes.Count)
                     continue;
 
+                // If there are generic arguments this function can't match
+                if (genericTypes?.Count > 0 && (function is ASTGenericFunction == false))
+                    continue;
+
+                List<ASTType> parameterTypes = new List<ASTType>(function.Parameters.Select(p => p.Type));
+
+                // Here we want to specialize the signature of the function and see how well it fits
+                if (function is ASTGenericFunction genFunc)
+                {
+                    var genericMap = GenerateGenericMap(trace, genFunc.GenericNames, genericTypes);
+                    
+                    for (int i = 0; i < genFunc.Parameters.Count; i++)
+                    {
+                        parameterTypes[i] = SpecializeType(trace, parameterTypes[i], genericMap);
+                    }
+                }
+
                 for (int i = 0; i < argumentTypes.Count; i++)
                 {
-                    var fType = ResolveGenericType(function.Parameters[i].Type, typeMap);
+                    var fType = ResolveGenericType(parameterTypes[i], typeMap);
                     var argType = ResolveGenericType(argumentTypes[i], typeMap);
                     // TODO: Do we need to resolve the types?
-
-                    // FIXME: Here we need to see if the types are generically compatible and create a score based on that too!!
+                    
                     if (fType == argType)
                     {
                         score += 1;
@@ -3221,9 +3237,10 @@ namespace T12
                         }
                         else if (functionMap.TryGetValue(functionCall.FunctionName, out var functions))
                         {
-                            if (TryFindBestFunctionMatch(functionCall.Trace, functions, argumentTypes, typeMap, out var function) == false)
+                            ASTFunction function;
+                            if (TryFindBestFunctionMatch(functionCall.Trace, functions, argumentTypes, (functionCall as ASTGenericFunctionCall)?.GenericTypes, typeMap, out function) == false)
                                 Fail(functionCall.Trace, $"Did not find a overload for function '{functionCall.FunctionName}' with types '{string.Join(", ", argumentTypes)}'");
-                            
+
                             name = function.Name;
                             parameters = function.Parameters;
                             returnType = function.ReturnType;

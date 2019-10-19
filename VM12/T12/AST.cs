@@ -794,7 +794,7 @@ namespace T12
             while (Tokens.Peek().Type != TokenType.Close_parenthesis)
             {
                 ASTType type = ASTType.Parse(Tokens);
-
+                
                 var paramIdentTok = Tokens.Dequeue();
                 if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
                 string param_name = (string)paramIdentTok.Value;
