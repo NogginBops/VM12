@@ -394,7 +394,7 @@ namespace T12
             return;
         }
 
-        internal static (StringBuilder File, StringBuilder Debug) AppendToFile(TraceData trace, string file)
+        internal static (StringBuilder File, StringBuilder Debug) AppendToFile(TraceData trace, string functionName, string file)
         {
             if (WorkingAST.Files.ContainsKey(Path.GetFileName(file)) == false)
                 Emitter.Fail(trace, $"Tried to add appendage to unknown file '{file}'");
@@ -409,7 +409,7 @@ namespace T12
             appendageList.Add(sbs);
 
             // FIXME: We want to document all files that caused specializations to happen so we need some other way to do this!
-            sbs.File.AppendLine($"; Appendage generated from file '{Path.GetFileName(trace.File)}' line {trace.StartLine}");
+            sbs.File.AppendLine($"; Appendage generated from file '{Path.GetFileName(trace.File)}' in function {functionName}");
             sbs.File.AppendLine();
 
             return sbs;

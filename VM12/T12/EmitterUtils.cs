@@ -48,6 +48,17 @@ namespace T12
                     label.Append($"F{fType.Size}.");
                     AppendTypeToFunctionLabel(label, fType.BaseType);
                     break;
+                case ASTFunctionPointerType fpType:
+                    // FIXME
+                    label.Append($"FP..");
+                    foreach (var param in fpType.ParamTypes)
+                    {
+                        label.Append("_");
+                        AppendTypeToFunctionLabel(label, param);
+                    }
+                    label.Append("..");
+                    AppendTypeToFunctionLabel(label, fpType.ReturnType);
+                    break;
                 default:
                     label.Append(type.TypeName);
                     break;

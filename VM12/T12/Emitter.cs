@@ -308,9 +308,9 @@ namespace T12
 
                         var test = memberExpression;
 
-                        if (memberExpression.Dereference && targetType is ASTPointerType pointerType && pointerType.BaseType is ASTStructType)
+                        if (memberExpression.Dereference && targetType is ASTDereferenceableType derefType)
                         {
-                            targetType = pointerType.BaseType;
+                            targetType = derefType.DerefType;
                         }
                         
                         if (targetType is ASTFixedArrayType fixedArrayType)
@@ -1159,14 +1159,15 @@ namespace T12
         {
             if (pointerType is ASTDereferenceableType derefType)
             {
-                if (derefType.DerefType is ASTStructType == false)
+                if (derefType.DerefType is ASTStructType) return derefType.DerefType;
+                else if (derefType.DerefType is ASTArrayType) return derefType.DerefType;
+                else if (derefType.DerefType is ASTFixedArrayType) return derefType.DerefType;
+                else
                 {
                     // NOTE: Figure out why this is a fail?
                     Fail(trace, $"Type '{derefType.DerefType}' does not have any members!");
                     return default;
                 }
-
-                return derefType.DerefType;
             }
             else
             {
@@ -1320,31 +1321,6 @@ namespace T12
 
         internal static string GetFunctionLabel(ASTFunction func, TypeMap typeMap, FunctionMap functionMap)
         {
-            void AppendTypeToFunctionLabel(StringBuilder label, ASTType type)
-            {
-                switch (type)
-                {
-                    case ASTBaseType baseType:
-                        label.Append(baseType);
-                        break;
-                    case ASTPointerType pType:
-                        label.Append("P.");
-                        AppendTypeToFunctionLabel(label, pType.BaseType);
-                        break;
-                    case ASTArrayType aType:
-                        label.Append("A.");
-                        AppendTypeToFunctionLabel(label, aType.BaseType);
-                        break;
-                    case ASTFixedArrayType fType:
-                        label.Append($"F{fType.Size}.");
-                        AppendTypeToFunctionLabel(label, fType.BaseType);
-                        break;
-                    default:
-                        label.Append(type.TypeName);
-                        break;
-                }
-            }
-
             StringBuilder functionLabelBuilder = new StringBuilder(func.Name);
 
             // FIXME: Generics will affect this generation!
@@ -2967,8 +2943,7 @@ namespace T12
                                 }
                                 else if (typeSize == 2)
                                 {
-                                    //builder.AppendLine("\tlswap lsub lsetgz or ; Less than");
-                                    builder.AppendLine("\tccl lswap lsub lsetcz or ; Less than");
+                                    builder.AppendLine("\tlswap lsub lsetgz or ; Less than");
                                 }
                                 else
                                 {
@@ -3273,8 +3248,9 @@ namespace T12
                                     {
                                         // Here we need to specialize the generic function!
                                         specializedFunc = SpecializeFunction(functionCall.Trace, genericFunction, genericFunctionCall.GenericTypes, typeMap, functionMap);
-
-                                        var (appendageBuilder, debugBuilder) = Compiler.AppendToFile(genericFunctionCall.Trace, genericFunction.Trace.File);
+                                        
+                                        var (appendageBuilder, debugBuilder) = 
+                                            Compiler.AppendToFile(genericFunctionCall.Trace, context.FunctionConext.FunctionName, genericFunction.Trace.File);
 
                                         // FIXME: This should be able to use the local typemap, functionmap etc, that the generic function was able to!
                                         // We should not be using the local maps for this!!!
@@ -3674,7 +3650,9 @@ namespace T12
                                 }
                                 else
                                 {
-                                    Fail(pointerExpression.Pointer.Trace, $"We don't support indexing fixed arrays like this atm!");
+                                    // FIXME: We might not be able to take the pointer here...!!!
+                                    ASTAddressOfExpression addressOf = new ASTAddressOfExpression(pointerExpression.Trace, pointerExpression.Pointer);
+                                    EmitExpression(builder, addressOf, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                                 }
                             }
                             else
@@ -4015,9 +3993,6 @@ namespace T12
                         {
                             if (memberExpression.Assignment != null)
                                 Fail(memberExpression.Trace, $"We don't support assignments to fixed array type members! (yet?)");
-
-                            if (memberExpression.Dereference == true)
-                                Fail(memberExpression.Trace, $"Cannot dereference members of a fixed array! Use '.' instead of '->'.");
 
                             // All of these branches should end here!
                             switch (memberExpression.MemberName)
