@@ -8,13 +8,13 @@ using VM12Util;
 
 namespace T12
 {
-    using ConstMap = Dictionary<string, ASTConstDirective>;
-    using FunctionMap = Dictionary<string, List<ASTFunction>>;
-    using GlobalMap = Dictionary<string, ASTGlobalDirective>;
-    using ImportMap = Dictionary<string, ASTFile>;
-    using TypeMap = Dictionary<string, ASTType>;
-    using VarList = List<(string Name, int Offset, ASTType Type)>;
-    using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
+    using ConstMap = Dictionary<StringRef, ASTConstDirective>;
+    using FunctionMap = Dictionary<StringRef, List<ASTFunction>>;
+    using GlobalMap = Dictionary<StringRef, ASTGlobalDirective>;
+    using ImportMap = Dictionary<StringRef, ASTFile>;
+    using TypeMap = Dictionary<StringRef, ASTType>;
+    using VarList = List<(StringRef Name, int Offset, ASTType Type)>;
+    using VarMap = Dictionary<StringRef, (int Offset, ASTType Type)>;
     using SpecializationList = List<(ASTFunction Specialization, List<ASTType> GenericTypes)>;
     using SpecializationMap = Dictionary<ASTGenericFunction, List<(ASTFunction Specialization, List<ASTType> GenericTypes)>>;
 
@@ -72,10 +72,10 @@ namespace T12
 
     public struct FunctionConext
     {
-        public readonly string FunctionName;
+        public readonly StringRef FunctionName;
         public readonly ASTType ReturnType;
 
-        public FunctionConext(string functionName, ASTType returnType)
+        public FunctionConext(StringRef functionName, ASTType returnType)
         {
             FunctionName = functionName;
             ReturnType = returnType;
@@ -129,7 +129,7 @@ namespace T12
         }
 
         // TODO: Should we really include the trace?
-        internal static ASTType TypeOfVariable(TraceData trace, string variableName, VarMap scope, TypeMap typeMap)
+        internal static ASTType TypeOfVariable(TraceData trace, StringRef variableName, VarMap scope, TypeMap typeMap)
         {
             if (scope.TryGetValue(variableName, out var varType) == false)
                 Fail(trace, $"No variable called '{variableName}'!");
@@ -315,7 +315,7 @@ namespace T12
                         
                         if (targetType is ASTFixedArrayType fixedArrayType)
                         {
-                            switch (memberExpression.MemberName)
+                            switch (memberExpression.MemberName.ToString())
                             {
                                 case "length":
                                     return ASTBaseType.DoubleWord;
@@ -332,7 +332,7 @@ namespace T12
                         }
                         else if (targetType is ASTArrayType arrayType)
                         {
-                            switch (memberExpression.MemberName)
+                            switch (memberExpression.MemberName.ToString())
                             {
                                 case "length":
                                     return ASTBaseType.DoubleWord;
@@ -367,7 +367,7 @@ namespace T12
                 case ASTTypeOfExpression typeExpr:
                     // FIXME: We actually want to return a pointer to a struct...? Or do we want a offset into the type table...?
                     // Anyways we want a more proper type! For now we are doing an offset into the type table
-                    return ASTAliasedType.Of("TypeID", ASTBaseType.DoubleWord);
+                    return ASTAliasedType.Of((StringRef)"TypeID", ASTBaseType.DoubleWord);
                 case ASTDefaultExpression defaultExpression:
                     return defaultExpression.Type;
                 case ASTInlineAssemblyExpression assemblyExpression:
@@ -539,7 +539,7 @@ namespace T12
                 // This is just getting the data member of the fixed array
                 // NOTE: This might mean we try to edit ROM by accident
                 // but for now we allow this implicit convertion
-                result = new ASTMemberExpression(expression.Trace, expression, "data", null, false);
+                result = new ASTMemberExpression(expression.Trace, expression, (StringRef)"data", null, false);
                 error = null;
                 return true;
             }
@@ -548,7 +548,7 @@ namespace T12
                 // This is just getting the data member of the fixed array
                 // NOTE: This might mean we try to edit ROM by accident
                 // but for now we allow this implicit convertion
-                result = new ASTMemberExpression(expression.Trace, expression, "data", null, false);
+                result = new ASTMemberExpression(expression.Trace, expression, (StringRef)"data", null, false);
                 error = null;
                 return true;
             }
@@ -577,7 +577,7 @@ namespace T12
             }
             else if (exprType is ASTArrayType && targetType == ASTPointerType.Of(ASTBaseType.Void))
             {
-                result = new ASTMemberExpression(expression.Trace, expression, "data", null, false);
+                result = new ASTMemberExpression(expression.Trace, expression, (StringRef)"data", null, false);
                 //result = new ASTPointerToVoidPointerCast(expression.Trace, expression, exprType as ASTPointerType);
                 error = default;
                 return true;
@@ -943,14 +943,14 @@ namespace T12
             /// This member is valid of VariableType is local!
             /// </summary>
             public int LocalAddress;
-            public string GlobalName;
-            public string ConstantName;
-            public string FunctionName;
+            public StringRef GlobalName;
+            public StringRef ConstantName;
+            public StringRef FunctionName;
             public ASTType Type;
             public string Comment;
         }
 
-        private static bool TryGetLocalVariableRef(string name, VarMap scope, TypeMap typeMap, out VariableRef variable)
+        private static bool TryGetLocalVariableRef(StringRef name, VarMap scope, TypeMap typeMap, out VariableRef variable)
         {
             if (scope.TryGetValue(name, out var local))
             {
@@ -971,7 +971,7 @@ namespace T12
             }
         }
 
-        internal static bool TryResolveVariable(string name, VarMap scope, GlobalMap globalMap, ConstMap constMap, FunctionMap functionMap, TypeMap typeMap, out VariableRef variable)
+        internal static bool TryResolveVariable(StringRef name, VarMap scope, GlobalMap globalMap, ConstMap constMap, FunctionMap functionMap, TypeMap typeMap, out VariableRef variable)
         {
             if (TryGetLocalVariableRef(name, scope, typeMap, out variable))
             {
@@ -1069,7 +1069,7 @@ namespace T12
             return type;
         }
 
-        private static ASTType ResolveType(TraceData trace, string typeName, TypeMap typeMap)
+        private static ASTType ResolveType(TraceData trace, StringRef typeName, TypeMap typeMap)
         {
             if (typeMap.TryGetValue(typeName, out ASTType type) == false)
                 Fail(trace, $"There is no type called '{typeName}'");
@@ -1122,7 +1122,7 @@ namespace T12
             public int Offset;
         }
         
-        internal static bool TryGetStructMember(ASTStructType structType, string memberName, TypeMap typeMap, out StructMember member)
+        internal static bool TryGetStructMember(ASTStructType structType, StringRef memberName, TypeMap typeMap, out StructMember member)
         {
             var members = structType.Members;
             int memberIndex = members.FindIndex(m => m.Name == memberName);
@@ -1291,7 +1291,7 @@ namespace T12
         // FIXME: When we import something we just parse it, we don't emit it before using it's AST
         // this means that errors like, duplicate function names will be detected first when we import them
         // This will cause the error message to have a weird trace...
-        internal static void AddFunctionToMap(TraceData trace, FunctionMap fmap, string name, ASTFunction func)
+        internal static void AddFunctionToMap(TraceData trace, FunctionMap fmap, StringRef name, ASTFunction func)
         {
             if (fmap.TryGetValue(name, out var funcList))
             {
@@ -1321,7 +1321,8 @@ namespace T12
 
         internal static string GetFunctionLabel(ASTFunction func, TypeMap typeMap, FunctionMap functionMap)
         {
-            StringBuilder functionLabelBuilder = new StringBuilder(func.Name);
+            // FIXME: Avoid the ToString()
+            StringBuilder functionLabelBuilder = new StringBuilder(func.Name.ToString());
 
             // FIXME: Generics will affect this generation!
             if (functionMap.TryGetValue(func.Name, out var functions) && functions.Count > 1)
@@ -1341,7 +1342,8 @@ namespace T12
             if (sourceFunction.GenericNames.Count != GenericTypes.Count)
                 Fail(trace, $"Missmatching number of generic arguments! Got: {GenericTypes.Count} Expected: {sourceFunction.GenericNames.Count}");
 
-            StringBuilder functionLabelBuilder = new StringBuilder(sourceFunction.Name);
+            // FIXME: Better way to init a stringbuilder with a string ref!
+            StringBuilder functionLabelBuilder = new StringBuilder(sourceFunction.Name.ToString());
 
             for (int i = 0; i < sourceFunction.GenericNames.Count; i++)
             {
@@ -1367,8 +1369,9 @@ namespace T12
             // TODO: Error message for duplicate types.
             TypeMap typeMap = ASTBaseType.BaseTypeMap.ToDictionary(kvp => kvp.Key, kvp => (ASTType)kvp.Value);
 
+            // FIXME: We might want to store (StringRef)"TypeID" statically instead of casting the string every time.
             // Here we add an alias for the type 'TypeID'
-            typeMap.Add("TypeID", ASTAliasedType.Of("TypeID", ASTBaseType.DoubleWord));
+            typeMap.Add((StringRef)"TypeID", ASTAliasedType.Of((StringRef)"TypeID", ASTBaseType.DoubleWord));
 
             return typeMap;
         }
@@ -1465,7 +1468,7 @@ namespace T12
                     }
                 case ASTUseDirective use:
                     {
-                        builder.AppendLine($"& {Path.GetFileNameWithoutExtension(use.FileName)} {use.FileName}");
+                        builder.AppendLine($"& {Path.GetFileNameWithoutExtension(use.FileName.ToString())} {use.FileName}");
                         break;
                     }
                 case ASTImportDirective import:
@@ -1473,10 +1476,11 @@ namespace T12
                         var test = import;
                         if (importMap.TryGetValue(import.File, out ASTFile file) == false)
                             Fail(import.Trace, $"Could not resolve import of file '{import.File}'!");
-                        
+
                         // FIXME: When one file uses a type from another file and that other file is using a type from the first
-                        
-                        builder.AppendLine($"& {import.File.Replace(".t12", "")} {Path.ChangeExtension(import.File, ".12asm")}");
+
+                        string fileName = import.File.ToString();
+                        builder.AppendLine($"& {fileName.Replace(".t12", "")} {Path.ChangeExtension(fileName, ".12asm")}");
                         
                         bool visible = false;
                         foreach (var direct in file.Directives)
@@ -1603,7 +1607,7 @@ namespace T12
                                 // We need to manually de-duplicate them
                                 // We would actually like this to be done by the assemblers autostring function
                                 // but we don't have a facility for that yet.
-                                Dictionary<string, string> elementDict = new Dictionary<string, string>();
+                                Dictionary<StringRef, string> elementDict = new Dictionary<StringRef, string>();
                                 string[] labels = new string[arrayLitteral.Values.Count];
 
                                 int element = 0;
@@ -1617,7 +1621,7 @@ namespace T12
                                     if (folded is ASTStringLitteral == false)
                                         Fail(str.Trace, $"Could not evaluate this string as a constant! Got '{folded}'");
 
-                                    string value = (folded as ASTStringLitteral).Value;
+                                    StringRef value = (folded as ASTStringLitteral).Value;
 
                                     if (elementDict.TryGetValue(value, out string label))
                                     {
@@ -1658,11 +1662,11 @@ namespace T12
 
                                     if (folded is ASTLitteral astlit)
                                     {
-                                        string value = astlit.Value;
+                                        StringRef value = astlit.Value;
                                         if (folded is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
                                             value = value.TrimEnd('d', 'D', 'w', 'W');
                                         else if (folded is ASTDoubleWordLitteral dwordLit && dwordLit.NumberFromat == ASTNumericLitteral.NumberFormat.Hexadecimal)
-                                            value = $"0x{dwordLit.IntValue:X6}";
+                                            value = (StringRef)$"0x{dwordLit.IntValue:X6}";
 
                                         builder.Append($"{value} ");
                                     }
@@ -1705,11 +1709,11 @@ namespace T12
                                             }
                                             else if (foldedInit is ASTLitteral litteral)
                                             {
-                                                string value = litteral.Value;
+                                                StringRef value = litteral.Value;
                                                 if (foldedInit is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
                                                     value = value.TrimEnd('d', 'D', 'w', 'W');
                                                 else if (foldedInit is ASTDoubleWordLitteral dwordLit && dwordLit.NumberFromat == ASTNumericLitteral.NumberFormat.Hexadecimal)
-                                                    value = $"0x{dwordLit.IntValue:X6}";
+                                                    value = (StringRef)$"0x{dwordLit.IntValue:X6}";
 
                                                 builder.Append($"{value} ");
                                             }
@@ -1749,7 +1753,7 @@ namespace T12
                             if (foldedConst is ASTLitteral == false)
                                 Fail(constDirective.Value.Trace, $"Value for constant '{constDirective.Name}' could not be folded to a constant. It got folded to '{foldedConst}'");
                             
-                            string value = (foldedConst as ASTLitteral).Value;
+                            StringRef value = (foldedConst as ASTLitteral).Value;
                             if (foldedConst is ASTNumericLitteral numLit && numLit.NumberFromat == ASTNumericLitteral.NumberFormat.Decimal)
                                 value = value.TrimEnd('d', 'D', 'w', 'W');
 
@@ -1772,14 +1776,13 @@ namespace T12
                         // If we can know the size of this struct we output that constant
                         if (structDeclaration.DeclaredType is ASTGenericType == false)
                         {
-                            string name = structDeclaration.Name;
+                            StringRef name = structDeclaration.Name;
 
                             if (typeMap.TryGetValue(name, out var value))
                                 Fail(structDeclaration.Trace, $"Cannot declare struct '{name}' as there already exists a struct with that name! {(value.Trace.File != structDeclaration.Trace.File ? $"Imported from file '{value.Trace.File}'" : "")}");
 
-                            builder.AppendLine($"<{name.ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
-
-                            
+                            // FIXME: We might want a ToLowerInvariant for StringRef but this is ok for now. - 2019-10-28
+                            builder.AppendLine($"<{name.ToString().ToLowerInvariant()}_struct_size = {SizeOfType(structDeclaration.DeclaredType, typeMap)}>");
                         }
 
                         // NOTE: We might want to do something about generic types!
@@ -2004,7 +2007,7 @@ namespace T12
             {
                 case ASTVariableDeclaration variableDeclaration:
                     {
-                        string varName = variableDeclaration.VariableName;
+                        StringRef varName = variableDeclaration.VariableName;
                         if (scope.ContainsKey(varName)) Fail(variableDeclaration.Trace, $"Cannot declare the variable '{varName}' more than once!");
 
                         var varType = ResolveType(variableDeclaration.Type, typeMap);
@@ -2091,7 +2094,7 @@ namespace T12
                     {
                         // This is not used!
                         Fail(assignment.Trace, $"We don't use this AST node type! {assignment}");
-                        string varName = assignment.VariableNames[0];
+                        StringRef varName = assignment.VariableNames[0];
                         EmitExpression(builder, assignment.AssignmentExpression, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                         builder.AppendLine($"\tstore {scope[varName].Offset}\t; [{varName}]");
                         break;
@@ -3180,8 +3183,8 @@ namespace T12
                     {
                         int funcCallIndex = context.LabelContext.FunctionCalls++;
 
-                        string name;
-                        List<(ASTType Type, string Name)> parameters;
+                        StringRef name;
+                        List<(ASTType Type, StringRef Name)> parameters;
                         ASTType returnType;
 
                         bool virtualCall = false;
@@ -3201,7 +3204,7 @@ namespace T12
                             // This function call is referencing a local var
                             virtualCall = true;
 
-                            name = $"{functionCall.FunctionName}({string.Join(", ", functionPointerType.ParamTypes)}) -> {functionPointerType.ReturnType}";
+                            name = (StringRef)$"{functionCall.FunctionName}({string.Join(", ", functionPointerType.ParamTypes)}) -> {functionPointerType.ReturnType}";
                             parameters = functionPointerType.ParamTypes.Select(p => (p, p.TypeName)).ToList();
                             returnType = functionPointerType.ReturnType;
 
@@ -3552,7 +3555,7 @@ namespace T12
 
                             // Basically load the data member and do the same ASTPointerExpression with that instead
                             var pExpr = pointerExpression;
-                            var dataPointerExpression = new ASTPointerExpression(pExpr.Trace, new ASTMemberExpression(pExpr.Trace, pExpr.Pointer, "data", null, false), pExpr.Offset, pExpr.Assignment);
+                            var dataPointerExpression = new ASTPointerExpression(pExpr.Trace, new ASTMemberExpression(pExpr.Trace, pExpr.Pointer, (StringRef)"data", null, false), pExpr.Offset, pExpr.Assignment);
                             EmitExpression(builder, dataPointerExpression, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             return;
                         }
@@ -3787,7 +3790,7 @@ namespace T12
                             else if (fromType is ASTArrayType && (toType is ASTPointerType || toType == ASTBaseType.DoubleWord))
                             {
                                 // We get the data member from the array
-                                var dataMember = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
+                                var dataMember = new ASTMemberExpression(cast.From.Trace, cast.From, (StringRef)"data", null, false);
                                 EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTArrayType fromArrType && toType is ASTArrayType toArrType)
@@ -3801,7 +3804,7 @@ namespace T12
                             else if (fromType is ASTFixedArrayType && (toType is ASTPointerType || toType == ASTBaseType.DoubleWord))
                             {
                                 // We get the data member from the array
-                                var dataMember = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
+                                var dataMember = new ASTMemberExpression(cast.From.Trace, cast.From, (StringRef)"data", null, false);
                                 EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType is ASTTypeRef typeRef && typeMap.TryGetValue(typeRef.Name, out var actType) && actType == ASTBaseType.DoubleWord && toType == ASTPointerType.Of(ASTBaseType.Void))
@@ -3952,7 +3955,7 @@ namespace T12
                             else if (fromType is ASTFixedArrayType fixedArrayType && (toType == ASTPointerType.Of(fixedArrayType.BaseType) || toType == ASTPointerType.Of(ASTBaseType.Void)))
                             {
                                 // We take the "data" pointer of the fixed array and use that
-                                var data_member = new ASTMemberExpression(cast.From.Trace, cast.From, "data", null, false);
+                                var data_member = new ASTMemberExpression(cast.From.Trace, cast.From, (StringRef)"data", null, false);
                                 EmitExpression(builder, data_member, scope, varList, typeMap, context, functionMap, constMap, globalMap, produceResult);
                             }
                             else if (fromType == ASTBaseType.Bool && toType == ASTBaseType.Word)
@@ -3995,7 +3998,7 @@ namespace T12
                                 Fail(memberExpression.Trace, $"We don't support assignments to fixed array type members! (yet?)");
 
                             // All of these branches should end here!
-                            switch (memberExpression.MemberName)
+                            switch (memberExpression.MemberName.ToString())
                             {
                                 case "length":
                                     {
@@ -4063,7 +4066,7 @@ namespace T12
                         if (structType is ASTArrayType arrayType)
                         {
                             // We fix our own members....
-                            switch (memberExpression.MemberName)
+                            switch (memberExpression.MemberName.ToString())
                             {
                                 case "length":
                                     // Hmmm, what should we do here... (for now we leave it empty)
@@ -4499,7 +4502,7 @@ namespace T12
                             // I don't know if it would actually work without this.... yikes
                             if (pointerType is ASTFixedArrayType || pointerType is ASTArrayType)
                             {
-                                var dataMember = new ASTMemberExpression(addressOfExpression.Trace, pointerExpression.Pointer, "data", null, false);
+                                var dataMember = new ASTMemberExpression(addressOfExpression.Trace, pointerExpression.Pointer, (StringRef)"data", null, false);
                                 EmitExpression(builder, dataMember, scope, varList, typeMap, context, functionMap, constMap, globalMap, true);
                             }
                             else

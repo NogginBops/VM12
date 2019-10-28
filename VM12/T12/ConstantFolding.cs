@@ -4,16 +4,17 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using VM12Util;
 
 namespace T12
 {
-    using ConstMap = Dictionary<string, ASTConstDirective>;
-    using FunctionMap = Dictionary<string, List<ASTFunction>>;
-    using GlobalMap = Dictionary<string, ASTGlobalDirective>;
-    using ImportMap = Dictionary<string, ASTFile>;
-    using TypeMap = Dictionary<string, ASTType>;
-    using VarList = List<(string Name, int Offset, ASTType Type)>;
-    using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
+    using ConstMap = Dictionary<StringRef, ASTConstDirective>;
+    using FunctionMap = Dictionary<StringRef, List<ASTFunction>>;
+    using GlobalMap = Dictionary<StringRef, ASTGlobalDirective>;
+    using ImportMap = Dictionary<StringRef, ASTFile>;
+    using TypeMap = Dictionary<StringRef, ASTType>;
+    using VarList = List<(StringRef Name, int Offset, ASTType Type)>;
+    using VarMap = Dictionary<StringRef, (int Offset, ASTType Type)>;
 
     using static Emitter;
 
@@ -137,7 +138,7 @@ namespace T12
                         {
                             // TODO: More formally handle "raw" string litterals!!!
                             return new ASTInternalCompoundExpression(stringToArrayCast.Trace, stringToArrayCast.To, new List<ASTExpression> {
-                                new ASTStringLitteral(stringToArrayCast.Trace, $"@{stringLitteral.Value}"),
+                                new ASTStringLitteral(stringToArrayCast.Trace, (StringRef)$"@{stringLitteral.Value}"),
                                 ASTDoubleWordLitteral.From(stringToArrayCast.Trace, stringLitteral.Contents.Length, ASTNumericLitteral.NumberFormat.Decimal),
                             },
                             $"Constant folded string '{stringLitteral.Contents}' to []char");
@@ -521,7 +522,7 @@ namespace T12
                         }
                     case VariableType.Function:
                         // We kind of want the thing to actually have a new type when we return here...
-                        return new ASTDoubleWordLitteral(explicitCast.Trace, $":{variable.FunctionName}", -1, ASTNumericLitteral.NumberFormat.Hexadecimal);
+                        return new ASTDoubleWordLitteral(explicitCast.Trace, (StringRef)$":{variable.FunctionName}", -1, ASTNumericLitteral.NumberFormat.Hexadecimal);
                     // NOTE: We should maybe error of the options that should not
                     // be a result of TryResolveVariable (pointer...)
                     case VariableType.Local:

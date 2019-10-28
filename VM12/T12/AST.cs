@@ -11,14 +11,14 @@ namespace T12
 {
     public class AST
     {
-        public readonly Dictionary<string, (ASTFile File, FileInfo FileInfo)> Files;
+        public readonly Dictionary<StringRef, (ASTFile File, FileInfo FileInfo)> Files;
         
-        public AST(Dictionary<string, (ASTFile File, FileInfo FileInfo)> files)
+        public AST(Dictionary<StringRef, (ASTFile File, FileInfo FileInfo)> files)
         {
             this.Files = files;
         }
 
-        public static AST Parse(FileInfo inFile, Dictionary<string, FileInfo> dirFiles)
+        public static AST Parse(FileInfo inFile, Dictionary<StringRef, FileInfo> dirFiles)
         {
             Compiler.Watch.Restart();
             string fileData = File.ReadAllText(inFile.FullName);
@@ -35,12 +35,12 @@ namespace T12
             Compiler.Watch.Stop();
             Compiler.TokenizerTime += Compiler.Watch.ElapsedTicks;
             
-            Dictionary<string, (ASTFile File, FileInfo FileInfo)> files = new Dictionary<string, (ASTFile File, FileInfo FileInfo)>(Compiler.CurrentAST.Files);
+            Dictionary<StringRef, (ASTFile File, FileInfo FileInfo)> files = new Dictionary<StringRef, (ASTFile File, FileInfo FileInfo)>(Compiler.CurrentAST.Files);
             
             Compiler.Watch.Restart();
             Queue<Token> Tokens = new Queue<Token>(TokenList.Where(tok => tok.Type != TokenType.Comment));
             var file = ASTFile.Parse(Tokens);
-            files.Add(inFile.Name, (file, inFile));
+            files.Add((StringRef)inFile.Name, (file, inFile));
             Compiler.Watch.Stop();
             Compiler.ParserTime += Compiler.Watch.ElapsedTicks;
             
@@ -74,9 +74,9 @@ namespace T12
                     Compiler.Watch.Stop();
                     Compiler.ParserTime += Compiler.Watch.ElapsedTicks;
 
-                    files.Add(importFile.Name, (importAST, importFile));
-                    
-                    imports.AddRange(files[importFile.Name].File.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>());
+                    StringRef importNameRef = (StringRef)importFile.Name;
+                    files.Add(importNameRef, (importAST, importFile));
+                    imports.AddRange(files[importNameRef].File.Directives.Where(d => d is ASTImportDirective).Cast<ASTImportDirective>());
 
                     Compiler.CompiledFiles += 1;
                     Compiler.CompiledLines += importedFileData.CountLines();
@@ -294,9 +294,9 @@ namespace T12
    
     public class ASTUseDirective : ASTDirective
     {
-        public readonly string FileName;
+        public readonly StringRef FileName;
 
-        public ASTUseDirective(TraceData trace, string filename) : base(trace)
+        public ASTUseDirective(TraceData trace, StringRef filename) : base(trace)
         {
             FileName = filename;
         }
@@ -306,18 +306,20 @@ namespace T12
             var useTok = Tokens.Dequeue();
             if (useTok.Type != TokenType.Keyword_Use) Fail(useTok, "Exptected 'use'!");
 
-            string name = "";
             var peek = Tokens.Peek();
+            StringRef name = peek.Value;
+            name.Length = 0;
             while (peek.Type != TokenType.Semicolon)
             {
                 var tok = Tokens.Dequeue();
-                name += tok.Value;
+                name.Length += tok.Value.Length;
 
                 peek = Tokens.Peek();
             }
 
             // Dequeue semicolon
             var semicolonTok = Tokens.Dequeue();
+            if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected ';'!");
 
             var trace = new TraceData
             {
@@ -332,9 +334,9 @@ namespace T12
 
     public class ASTImportDirective : ASTDirective, IEquatable<ASTImportDirective>
     {
-        public readonly string File;
+        public readonly StringRef File;
 
-        public ASTImportDirective(TraceData trace, string file) : base(trace)
+        public ASTImportDirective(TraceData trace, StringRef file) : base(trace)
         {
             File = file;
         }
@@ -344,17 +346,17 @@ namespace T12
             var importTok = Tokens.Dequeue();
             if (importTok.Type != TokenType.Keyword_Import) Fail(importTok, "Expected 'import'!");
 
-            // FIXME: Move over to StringRef
-            // It will be easy to get a ref of the complete name then.
-            StringBuilder file = new StringBuilder();
-
             // NOTE: This is not great tbh, because it will
             // eat the entire file before it knows it's wrong.
             // We could really like a more robust way to parse filenames.
             var peek = Tokens.Peek();
+            StringRef file = peek.Value;
+            file.Length = 0;
             while (peek.Type != TokenType.Semicolon)
             {
-                file.Append(Tokens.Dequeue().Value);
+                var tok = Tokens.Dequeue();
+                file.Length += tok.Value.Length;
+
                 peek = Tokens.Peek();
             }
             
@@ -368,7 +370,7 @@ namespace T12
                 EndLine = endTok.Line,
             };
 
-            return new ASTImportDirective(trace, file.ToString());
+            return new ASTImportDirective(trace, file);
         }
 
         public override bool Equals(object obj)
@@ -385,7 +387,7 @@ namespace T12
         public override int GetHashCode()
         {
             var hashCode = 780891818;
-            hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(File);
+            hashCode = hashCode * -1521134295 + EqualityComparer<StringRef>.Default.GetHashCode(File);
             return hashCode;
         }
 
@@ -402,11 +404,11 @@ namespace T12
 
     public class ASTExternFunctionDirective : ASTDirective
     {
-        public readonly string FunctionName;
-        public readonly List<(ASTType Type, string Name)> Parameters;
+        public readonly StringRef FunctionName;
+        public readonly List<(ASTType Type, StringRef Name)> Parameters;
         public readonly ASTType ReturnType;
 
-        public ASTExternFunctionDirective(TraceData trace, string functionName, List<(ASTType, string)> parameters, ASTType returnType) : base(trace)
+        public ASTExternFunctionDirective(TraceData trace, StringRef functionName, List<(ASTType, StringRef)> parameters, ASTType returnType) : base(trace)
         {
             FunctionName = functionName;
             Parameters = parameters;
@@ -422,9 +424,9 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, $"Expected external function name (identifier)! Got {nameTok}");
-            string funcName = (string)nameTok.Value;
+            StringRef funcName = nameTok.Value;
 
-            List<(ASTType, string)> parameters = new List<(ASTType, string)>();
+            List<(ASTType, StringRef)> parameters = new List<(ASTType, StringRef)>();
 
             // Confirm that we have a opening parenthesis
             var openParenTok = Tokens.Dequeue();
@@ -436,9 +438,10 @@ namespace T12
             {
                 ASTType type = ASTType.Parse(Tokens);
 
-                string name = "";
+                // FIXME: if there is no name this will result in weird behaviour...
+                StringRef name = default;
                 if (Tokens.Peek().IsIdentifier)
-                    name = (string)Tokens.Dequeue().Value;
+                    name = Tokens.Dequeue().Value;
 
                 parameters.Add((type, name));
 
@@ -471,9 +474,9 @@ namespace T12
     public class ASTExternConstantDirective : ASTDirective
     {
         public readonly ASTType Type;
-        public readonly string Name;
+        public readonly StringRef Name;
 
-        public ASTExternConstantDirective(TraceData trace, ASTType type, string name) : base(trace)
+        public ASTExternConstantDirective(TraceData trace, ASTType type, StringRef name) : base(trace)
         {
             Type = type;
             Name = name;
@@ -491,7 +494,7 @@ namespace T12
             
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
-            string name = (string)nameTok.Value;
+            StringRef name = nameTok.Value;
 
             var semicolonTok = Tokens.Dequeue();
             if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
@@ -511,10 +514,10 @@ namespace T12
     {
         // There is only constants of base types
         public readonly ASTType Type;
-        public readonly string Name;
+        public readonly StringRef Name;
         public readonly ASTExpression Value;
 
-        public ASTConstDirective(TraceData trace, ASTType type, string name, ASTExpression value) : base(trace)
+        public ASTConstDirective(TraceData trace, ASTType type, StringRef name, ASTExpression value) : base(trace)
         {
             Type = type;
             Name = name;
@@ -530,7 +533,7 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.Type != TokenType.Identifier) Fail(nameTok, $"Expected constant name!");
-            string name = (string)nameTok.Value;
+            StringRef name = nameTok.Value;
 
             var equalsTok = Tokens.Dequeue();
             if (equalsTok.Type != TokenType.Equal) Fail(equalsTok, $"Expected equals!");
@@ -559,9 +562,9 @@ namespace T12
     public class ASTGlobalDirective : ASTDirective
     {
         public readonly ASTType Type;
-        public readonly string Name;
+        public readonly StringRef Name;
 
-        public ASTGlobalDirective(TraceData trace, ASTType type, string name) : base(trace)
+        public ASTGlobalDirective(TraceData trace, ASTType type, StringRef name) : base(trace)
         {
             Type = type;
             Name = name;
@@ -576,7 +579,7 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected global name!");
-            string name = (string)nameTok.Value;
+            StringRef name = nameTok.Value;
             
             var semicolonTok = Tokens.Dequeue();
             if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
@@ -594,12 +597,10 @@ namespace T12
 
     public class ASTExternGlobalDirective : ASTGlobalDirective
     {
-        public readonly string Namespace;
         public readonly ASTGlobalDirective GlobalDirective;
 
-        public ASTExternGlobalDirective(TraceData trace, string @namespace, ASTType type, string name, ASTGlobalDirective globalDirective) : base(trace, type, $"{@namespace}::{name}")
+        public ASTExternGlobalDirective(TraceData trace, ASTType type, StringRef name, ASTGlobalDirective globalDirective) : base(trace, type, name)
         {
-            Namespace = @namespace;
             GlobalDirective = globalDirective;
         }
     }
@@ -608,12 +609,10 @@ namespace T12
     // But that is somewhat hard to implement
     public class ASTStructDeclarationDirective : ASTDirective
     {
-        // NOTE: Is this really needed. There is probably a way to make this a lot cleaner!
-
-        public readonly string Name;
+        public readonly StringRef Name;
         public readonly ASTType DeclaredType;
         
-        public ASTStructDeclarationDirective(TraceData trace, string name, ASTType type) : base(trace)
+        public ASTStructDeclarationDirective(TraceData trace, StringRef name, ASTType type) : base(trace)
         {
             Name = name;
             DeclaredType = type;
@@ -626,22 +625,22 @@ namespace T12
 
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, $"Expected struct name! Got '{nameTok}'!");
-            string name = (string)nameTok.Value;
+            StringRef name = nameTok.Value;
 
-            List<string> genericNames = null;
+            List<StringRef> genericNames = null;
             if (Tokens.Peek().Type == TokenType.LessThan)
             {
                 Tokens.Dequeue();
 
-                genericNames = new List<string>();
+                genericNames = new List<StringRef>();
 
                 // Parse the generic names list
                 while (Tokens.Peek().Type != TokenType.GreaterThan)
                 {
                     var genNameTok = Tokens.Dequeue();
                     if (genNameTok.Type != TokenType.Identifier) Fail(genNameTok, $"Expected generic name! Got '{genNameTok}'");
-                    if (genericNames.Contains((string)genNameTok.Value)) Fail(genNameTok, $"There is already a generic parameter called '{genNameTok.Value}'");
-                    genericNames.Add((string)genNameTok.Value);
+                    if (genericNames.Contains(genNameTok.Value)) Fail(genNameTok, $"There is already a generic parameter called '{genNameTok.Value}'");
+                    genericNames.Add(genNameTok.Value);
 
                     var contToken = Tokens.Peek();
                     if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.GreaterThan) break;
@@ -685,7 +684,7 @@ namespace T12
                     }
                 case TokenType.Open_brace:
                     {
-                        List<(ASTType Type, string Name)> members = new List<(ASTType Type, string Name)>();
+                        List<(ASTType Type, StringRef Name)> members = new List<(ASTType Type, StringRef Name)>();
 
                         var peek = Tokens.Peek();
                         while (peek.Type != TokenType.Close_brace)
@@ -693,7 +692,7 @@ namespace T12
                             var type = ASTType.Parse(Tokens);
                             var memberNameTok = Tokens.Dequeue();
                             if (memberNameTok.IsIdentifier == false) Fail(memberNameTok, $"Expected member name! Got {memberNameTok}!");
-                            string memberName = (string)memberNameTok.Value;
+                            StringRef memberName = memberNameTok.Value;
 
                             var semicolonTok = Tokens.Dequeue();
                             if (semicolonTok.Type != TokenType.Semicolon) Fail(semicolonTok, "Expected semicolon!");
@@ -732,13 +731,13 @@ namespace T12
 
     public class ASTFunction : ASTNode
     {
-        public readonly string Name;
+        public readonly StringRef Name;
         public readonly ASTType ReturnType;
-        public readonly List <(ASTType Type, string Name)> Parameters;
+        public readonly List <(ASTType Type, StringRef Name)> Parameters;
         
         public readonly List<ASTBlockItem> Body;
 
-        public ASTFunction(TraceData trace, string Name, ASTType ReturnType, List<(ASTType, string)> Parameters, List<ASTBlockItem> Body) : base(trace)
+        public ASTFunction(TraceData trace, StringRef Name, ASTType ReturnType, List<(ASTType, StringRef)> Parameters, List<ASTBlockItem> Body) : base(trace)
         {
             this.Name = Name;
             this.ReturnType = ReturnType;
@@ -754,22 +753,22 @@ namespace T12
             
             var identTok = Tokens.Dequeue();
             if (identTok.Type != TokenType.Identifier) Fail(identTok, "Expected an identifier!");
-            string name = (string)identTok.Value;
+            StringRef name = identTok.Value;
 
-            List<string> genericNames = null;
+            List<StringRef> genericNames = null;
             if (Tokens.Peek().Type == TokenType.LessThan)
             {
                 Tokens.Dequeue();
 
-                genericNames = new List<string>();
+                genericNames = new List<StringRef>();
 
                 // Parse the generic names list
                 while (Tokens.Peek().Type != TokenType.GreaterThan)
                 {
                     var nameTok = Tokens.Dequeue();
                     if (nameTok.Type != TokenType.Identifier) Fail(nameTok, $"Expected generic name! Got '{nameTok}'");
-                    if (genericNames.Contains((string)nameTok.Value)) Fail(nameTok, $"There is already a generic parameter called '{nameTok.Value}'");
-                    genericNames.Add((string)nameTok.Value);
+                    if (genericNames.Contains(nameTok.Value)) Fail(nameTok, $"There is already a generic parameter called '{nameTok.Value}'");
+                    genericNames.Add(nameTok.Value);
 
                     var contToken = Tokens.Peek();
                     if (contToken.Type != TokenType.Comma && contToken.Type == TokenType.GreaterThan) break;
@@ -784,7 +783,7 @@ namespace T12
                 if (closeAngleTok.Type != TokenType.GreaterThan) Fail(closeAngleTok, "Expected '>'");
             }
 
-            List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
+            List<(ASTType Type, StringRef Name)> parameters = new List<(ASTType Type, StringRef Name)>();
 
             // Confirm that we have a opening parenthesis
             var openParenTok = Tokens.Dequeue();
@@ -797,7 +796,7 @@ namespace T12
                 
                 var paramIdentTok = Tokens.Dequeue();
                 if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
-                string param_name = (string)paramIdentTok.Value;
+                StringRef param_name = paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
 
@@ -845,7 +844,7 @@ namespace T12
     {
         public readonly InterruptType Type;
         
-        public ASTInterrupt(TraceData trace, InterruptType type, List<(ASTType Type, string Name)> parameters, List<ASTBlockItem> body) : base(trace, InterruptTypeToName(type), ASTBaseType.Void, parameters, body)
+        public ASTInterrupt(TraceData trace, InterruptType type, List<(ASTType Type, StringRef Name)> parameters, List<ASTBlockItem> body) : base(trace, (StringRef)InterruptTypeToName(type), ASTBaseType.Void, parameters, body)
         {
             if (type == InterruptType.stop)
                 throw new ArgumentException("Cannot define a interupt procedure for the interrupt stop");
@@ -902,7 +901,8 @@ namespace T12
 
             var interruptTypeTok = Tokens.Dequeue();
             if (interruptTypeTok.IsIdentifier == false) Fail(interruptTypeTok, "Expected interrupt type!");
-            if (Enum.TryParse((string)interruptTypeTok.Value, out InterruptType interruptType) == false) Fail(interruptTypeTok, $"'{interruptTypeTok.Value}' is not a valid interrupt type!");
+            // FIXME: Here we might want to roll our own parsing to avoid the ToString() call, but it's fine for now. - 2019-10-28
+            if (Enum.TryParse(interruptTypeTok.Value.ToString(), out InterruptType interruptType) == false) Fail(interruptTypeTok, $"'{interruptTypeTok.Value}' is not a valid interrupt type!");
 
             if (interruptType == InterruptType.stop)
                 Fail(interruptTypeTok, "Cannot define a interupt procedure for the interrupt stop");
@@ -911,7 +911,7 @@ namespace T12
             var openParenthesis = Tokens.Dequeue();
             if (openParenthesis.Type != TokenType.Open_parenthesis) Fail(openParenthesis, "Expected '('!");
 
-            List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
+            List<(ASTType Type, StringRef Name)> parameters = new List<(ASTType Type, StringRef Name)>();
 
             // This is to provide accurate debug info
             List<Token> paramTokens = new List<Token>();
@@ -924,7 +924,7 @@ namespace T12
 
                 var paramIdentTok = Tokens.Dequeue();
                 if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
-                string param_name = (string)paramIdentTok.Value;
+                StringRef param_name = paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
                 paramTokens.Add(paramIdentTok);
@@ -985,7 +985,7 @@ namespace T12
     {
         public new readonly List<ASTStringLitteral> Body;
 
-        public ASTIntrinsicFunction(TraceData data, string name, ASTType returnType, List<(ASTType, string)> parameters, List<ASTStringLitteral> body) : base(data, name, returnType, parameters, null)
+        public ASTIntrinsicFunction(TraceData data, StringRef name, ASTType returnType, List<(ASTType, StringRef)> parameters, List<ASTStringLitteral> body) : base(data, name, returnType, parameters, null)
         {
             Body = body;
         }
@@ -1001,9 +1001,9 @@ namespace T12
 
             var identTok = Tokens.Dequeue();
             if (identTok.Type != TokenType.Identifier) Fail(identTok, "Expected an identifier!");
-            string name = (string)identTok.Value;
+            StringRef name = identTok.Value;
 
-            List<(ASTType Type, string Name)> parameters = new List<(ASTType Type, string Name)>();
+            List<(ASTType Type, StringRef Name)> parameters = new List<(ASTType Type, StringRef Name)>();
 
             // Confirm that we have a opening parenthesis
             var openParenTok = Tokens.Dequeue();
@@ -1017,7 +1017,7 @@ namespace T12
 
                 var paramIdentTok = Tokens.Dequeue();
                 if (paramIdentTok.IsIdentifier == false) Fail(paramIdentTok, "Expected identifier!");
-                string param_name = (string)paramIdentTok.Value;
+                StringRef param_name = paramIdentTok.Value;
 
                 parameters.Add((type, param_name));
 
@@ -1064,9 +1064,9 @@ namespace T12
     {
         // NOTE: We might want to be able to match: T somefunc<*T>()
         // Where we could then do: somefunc<*Thing>() and we would get back a Thing
-        public readonly List<string> GenericNames;
+        public readonly List<StringRef> GenericNames;
 
-        public ASTGenericFunction(TraceData trace, string name, ASTType returnType, List<string> genericNames, List<(ASTType, string)> parameters, List<ASTBlockItem> body) : base(trace, name, returnType, parameters, body)
+        public ASTGenericFunction(TraceData trace, StringRef name, ASTType returnType, List<StringRef> genericNames, List<(ASTType, StringRef)> parameters, List<ASTBlockItem> body) : base(trace, name, returnType, parameters, body)
         {
             GenericNames = genericNames;
         }
@@ -1130,10 +1130,10 @@ namespace T12
     public class ASTVariableDeclaration : ASTDeclaration
     {
         public readonly ASTType Type;
-        public readonly string VariableName;
+        public readonly StringRef VariableName;
         public readonly ASTExpression Initializer;
 
-        public ASTVariableDeclaration(TraceData trace, ASTType Type, string VariableName, ASTExpression Initializer) : base(trace)
+        public ASTVariableDeclaration(TraceData trace, ASTType Type, StringRef VariableName, ASTExpression Initializer) : base(trace)
         {
             this.Type = Type;
             this.VariableName = VariableName;
@@ -1148,7 +1148,7 @@ namespace T12
 
             var identTok = Tokens.Dequeue();
             if (identTok.Type != TokenType.Identifier) Fail(identTok, $"Invalid identifier in variable declareation. '{identTok}'");
-            string name = (string)identTok.Value;
+            StringRef name = identTok.Value;
 
             ASTExpression init = null;
 
@@ -1189,13 +1189,10 @@ namespace T12
             var peek = Tokens.Peek();
             
             // We switch on the token trying to find what kind of statement this is.
-            // TODO: Add more kinds of statements
             switch (peek.Type)
             {
                 case TokenType.Semicolon:
                     return ASTEmptyStatement.Parse(Tokens);
-                //case TokenType.Identifier:
-                //    return ASTAssignmentStatement.Parse(Tokens);
                 case TokenType.Keyword_Return:
                     return ASTReturnStatement.Parse(Tokens);
                 case TokenType.Keyword_If:
@@ -1267,22 +1264,22 @@ namespace T12
 
     public class ASTAssignmentStatement : ASTStatement
     {
-        public readonly ReadOnlyCollection<string> VariableNames;
+        public readonly List<StringRef> VariableNames;
         public readonly ASTExpression AssignmentExpression;
 
-        public ASTAssignmentStatement(TraceData trace, List<string> VariableNames, ASTExpression AssignmentExpression) : base(trace)
+        public ASTAssignmentStatement(TraceData trace, List<StringRef> VariableNames, ASTExpression AssignmentExpression) : base(trace)
         {
-            this.VariableNames = new ReadOnlyCollection<string>(VariableNames);
+            this.VariableNames = VariableNames;
             this.AssignmentExpression = AssignmentExpression;
         }
 
         public static new ASTAssignmentStatement Parse(Queue<Token> Tokens)
         {
-            List<string> ids = new List<string>();
+            List<StringRef> ids = new List<StringRef>();
 
             var identTok = Tokens.Dequeue();
             if (identTok.IsIdentifier == false) Fail(identTok, "Expected identifier!");
-            ids.Add((string)identTok.Value);
+            ids.Add(identTok.Value);
 
             ASTExpression expr = null;
 
@@ -1296,7 +1293,7 @@ namespace T12
                 if (contIdentTok.IsIdentifier)
                 {
                     // Here we add another value to assign to.
-                    ids.Add((string)contIdentTok.Value);
+                    ids.Add(contIdentTok.Value);
                     Tokens.Dequeue();
                 }
                 else
@@ -1323,8 +1320,6 @@ namespace T12
 
             return new ASTAssignmentStatement(trace, ids, expr);
         }
-
-        
     }
     
     public class ASTReturnStatement : ASTStatement
@@ -1956,21 +1951,7 @@ namespace T12
 
                 ASTExpression expr;
                 var peekActionTok = Tokens.ElementAt(1);
-                if (peekActionTok.Type == TokenType.DoubleColon)
-                {
-                    // NOTE: This is not the most beautiful solution, but for now it works
-
-                    peekActionTok = Tokens.ElementAt(3);
-                    if (peekActionTok.Type == TokenType.Open_parenthesis)
-                    {
-                        expr = ASTExternFunctionCall.Parse(Tokens);
-                    }
-                    else
-                    {
-                        expr = ASTExternVariableExpression.Parse(Tokens);
-                    }
-                }
-                else if(peekActionTok.Type == TokenType.Open_parenthesis)
+                if(peekActionTok.Type == TokenType.Open_parenthesis)
                 {
                     expr = ASTFunctionCall.Parse(Tokens);
                 }
@@ -2123,18 +2104,12 @@ namespace T12
     public abstract class ASTLitteral : ASTExpression
     {
         public ASTType Type;
-
-        public readonly string Value;
+        public StringRef Value;
         
-        public ASTLitteral(TraceData trace, ASTType type, string value) : base(trace)
+        public ASTLitteral(TraceData trace, ASTType type, StringRef value) : base(trace)
         {
             Type = type;
             Value = value;
-        }
-
-        public override string ToString()
-        {
-            return Value;
         }
 
         public static new ASTLitteral Parse(Queue<Token> Tokens)
@@ -2167,6 +2142,11 @@ namespace T12
                     return default;
             }
         }
+        
+        public override string ToString()
+        {
+            return Value.ToString();
+        }
     }
 
     public abstract class ASTNumericLitteral : ASTLitteral
@@ -2182,7 +2162,7 @@ namespace T12
         public readonly int IntValue;
         public readonly NumberFormat NumberFromat;
 
-        public ASTNumericLitteral(TraceData trace, ASTBaseType type, string value, int intValue, NumberFormat numFormat) : base(trace, type, value)
+        public ASTNumericLitteral(TraceData trace, ASTBaseType type, StringRef value, int intValue, NumberFormat numFormat) : base(trace, type, value)
         {
             IntValue = intValue;
             NumberFromat = numFormat;
@@ -2201,8 +2181,9 @@ namespace T12
             if (peek.Type != TokenType.Numeric_Litteral)
                 Fail(peek, $"Expected numeric litteral! Got {peek}");
 
+            // FIXME: Make parsing that does not need the underscores removed!!
             // Remove any underscores
-            string number = ((string)peek.Value).Replace("_", "");
+            string number = peek.Value.ToString().Replace("_", "");
 
             bool forceDouble = false;
             int value;
@@ -2242,6 +2223,7 @@ namespace T12
 
             TraceData trace = TraceData.From(peek);
 
+            // FIXME: Simplify this logic as it look much too complicated... idk - 2019-10-28
             if (negate)
             {
                 if (-value < ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE)
@@ -2251,17 +2233,17 @@ namespace T12
                 }
                 else if (-value < ASTWordLitteral.WORD_MIN_SIGNED_VALUE || forceDouble)
                 {
-                    if (((string)peek.Value).EndsWith("w") || ((string)peek.Value).EndsWith("W"))
+                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
                     {
                         Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
                         return default;
                     }
 
-                    return new ASTDoubleWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
+                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
                 }
                 else
                 {
-                    return new ASTWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
+                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
                 }
             }
             else
@@ -2273,17 +2255,17 @@ namespace T12
                 }
                 else if (value > ASTWordLitteral.WORD_MAX_VALUE || forceDouble)
                 {
-                    if (((string)peek.Value).EndsWith("w") || ((string)peek.Value).EndsWith("W"))
+                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
                     {
                         Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
                         return default;
                     }
 
-                    return new ASTDoubleWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
+                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
                 }
                 else
                 {
-                    return new ASTWordLitteral(trace, (string)peek.Value, value, GetFormat((string)peek.Value));
+                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
                 }
             }
         }
@@ -2293,15 +2275,15 @@ namespace T12
             // FIXME!!! What if it's larger than max dword
             if (value > ASTWordLitteral.WORD_MAX_VALUE)
             {
-                return new ASTDoubleWordLitteral(trace, FormatNumber(value, format), value, format);
+                return new ASTDoubleWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
             }
             else
             {
-                return new ASTWordLitteral(trace, FormatNumber(value, format), value, format);
+                return new ASTWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
             }
         }
 
-        public static NumberFormat GetFormat(string number)
+        public static NumberFormat GetFormat(StringRef number)
         {
             if (number.StartsWith("0x"))
                 return NumberFormat.Hexadecimal;
@@ -2364,22 +2346,23 @@ namespace T12
         public const int WORD_MAX_VALUE = 0xFFF;
         public const int WORD_MIN_SIGNED_VALUE = -2048; // -2^11
 
-        public ASTWordLitteral(TraceData trace, string value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.Word, value, intValue, numFormat) { }
+        public ASTWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.Word, value, intValue, numFormat) { }
         
         public static new ASTWordLitteral Parse(Queue<Token> Tokens)
         {
             var tok = Tokens.Dequeue();
             if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
             
-            if (int.TryParse((string)tok.Value, out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
+            // FIXME: Here we want int parsing for StringRef, but it is fine for now. - 2019-10-28
+            if (int.TryParse(tok.Value.ToString(), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
             
             if (value > WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is to big for a word litteral!");
 
             var trace = TraceData.From(tok);
 
-            NumberFormat format = GetFormat((string)tok.Value);
+            NumberFormat format = GetFormat(tok.Value);
 
-            return new ASTWordLitteral(trace, (string)tok.Value, value, format);
+            return new ASTWordLitteral(trace, tok.Value, value, format);
         }
 
         public new static ASTWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
@@ -2391,7 +2374,7 @@ namespace T12
             }
             else
             {
-                return new ASTWordLitteral(trace, FormatNumber(value, format), value, format);
+                return new ASTWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
             }
         }
     }
@@ -2401,7 +2384,7 @@ namespace T12
         public const int DOUBLE_WORD_MAX_VALUE = 0xFFF_FFF;
         public const int DOUBLE_WORD_MIN_SIGNED_VALUE = -8_388_608; // -2^23
 
-        public ASTDoubleWordLitteral(TraceData trace, string value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.DoubleWord, value, intValue, numFormat) { }
+        public ASTDoubleWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.DoubleWord, value, intValue, numFormat) { }
 
         public static new ASTDoubleWordLitteral Parse(Queue<Token> Tokens)
         {
@@ -2409,15 +2392,16 @@ namespace T12
             if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
 
             // Parse without the end letter!
-            if (int.TryParse((string)tok.Value.Substring(0, tok.Value.Length - 1), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
+            // FIXME: We want int parsing in StringRef! But this is fine for now. - 2019-10-28
+            if (int.TryParse(tok.Value.Substring(0, tok.Value.Length - 1).ToString(), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
 
             if (value > DOUBLE_WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is too big for a double word!");
 
             var trace = TraceData.From(tok);
 
-            NumberFormat format = GetFormat((string)tok.Value);
+            NumberFormat format = GetFormat(tok.Value);
 
-            return new ASTDoubleWordLitteral(trace, (string)tok.Value, value, format);
+            return new ASTDoubleWordLitteral(trace, tok.Value, value, format);
         }
 
         public new static ASTDoubleWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
@@ -2429,7 +2413,7 @@ namespace T12
             }
             else
             {
-                return new ASTDoubleWordLitteral(trace, FormatNumber(value, format), value, format);
+                return new ASTDoubleWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
             }
         }
 
@@ -2438,7 +2422,7 @@ namespace T12
         {
             if (Value.EndsWith("d"))
             {
-                return Value.Substring(0, Value.Length - 1);
+                return Value.Substring(0, Value.Length - 1).ToString();
             }
             else
             {
@@ -2449,12 +2433,13 @@ namespace T12
 
     public class ASTBoolLitteral : ASTLitteral
     {
-        //public static readonly ASTBoolLitteral True = new ASTBoolLitteral("true");
-        //public static readonly ASTBoolLitteral False = new ASTBoolLitteral("false");
+        // This is so we don't need to allocate these every time
+        public static readonly StringRef TrueStrRef = (StringRef)"True";
+        public static readonly StringRef FalseStrRef = (StringRef)"False";
 
         public readonly bool BoolValue;
 
-        public ASTBoolLitteral(TraceData trace, bool value) : base(trace, ASTBaseType.Bool, value.ToString())
+        public ASTBoolLitteral(TraceData trace, bool value) : base(trace, ASTBaseType.Bool, value ? TrueStrRef : FalseStrRef)
         {
             BoolValue = value;
         }
@@ -2464,7 +2449,7 @@ namespace T12
     {
         public readonly char CharValue;
 
-        public ASTCharLitteral(TraceData trace, string value, char charValue) : base(trace, ASTBaseType.Char, value)
+        public ASTCharLitteral(TraceData trace, StringRef value, char charValue) : base(trace, ASTBaseType.Char, value)
         {
             CharValue = charValue;
         }
@@ -2480,15 +2465,15 @@ namespace T12
 
             var trace = TraceData.From(tok);
 
-            return new ASTCharLitteral(trace, (string)tok.Value, value);
+            return new ASTCharLitteral(trace, tok.Value, value);
         }
     }
 
     public class ASTStringLitteral : ASTLitteral
     {
-        public readonly string Contents;
+        public readonly StringRef Contents;
 
-        public ASTStringLitteral(TraceData trace, string value) : base(trace, ASTBaseType.String, value)
+        public ASTStringLitteral(TraceData trace, StringRef value) : base(trace, ASTBaseType.String, value)
         {
             Contents = value.Substring(1, value.Length - 2);
         }
@@ -2500,13 +2485,15 @@ namespace T12
 
             var trace = TraceData.From(stringTok);
 
-            return new ASTStringLitteral(trace, (string)stringTok.Value);
+            return new ASTStringLitteral(trace, stringTok.Value);
         }
     }
 
     public class ASTNullLitteral : ASTLitteral
     {
-        public ASTNullLitteral(TraceData trace) : base(trace, ASTPointerType.Of(ASTBaseType.Void), "null") { }
+        public static readonly StringRef NullStrRef = (StringRef)"null";
+
+        public ASTNullLitteral(TraceData trace) : base(trace, ASTPointerType.Of(ASTBaseType.Void), NullStrRef) { }
     }
 
     // FIXME: Atm we don't support array litterals with non-litteral elements...
@@ -2515,9 +2502,11 @@ namespace T12
     // So we will probably want to change this to support that
     public class ASTArrayLitteral : ASTLitteral
     {
+        public static readonly StringRef ArrayLitteralStrRef = (StringRef)"ARRAY LITTERAL";
+
         public List<ASTExpression> Values;
 
-        public ASTArrayLitteral(TraceData trace, ASTType baseType, List<ASTExpression> values) : base(trace, new ASTFixedArrayType(trace, baseType, ASTNumericLitteral.From(trace, values.Count)), "ARRAY LITTERAL")
+        public ASTArrayLitteral(TraceData trace, ASTType baseType, List<ASTExpression> values) : base(trace, new ASTFixedArrayType(trace, baseType, ASTNumericLitteral.From(trace, values.Count)), ArrayLitteralStrRef)
         {
             Values = values;
         }
@@ -2568,7 +2557,7 @@ namespace T12
     {
         public readonly ASTPointerType PType;
 
-        public ASTPointerLitteral(TraceData trace, string value, int intValue, ASTPointerType pType) : base(trace, value, intValue, NumberFormat.Hexadecimal)
+        public ASTPointerLitteral(TraceData trace, StringRef value, int intValue, ASTPointerType pType) : base(trace, value, intValue, NumberFormat.Hexadecimal)
         {
             PType = pType;
             this.Type = pType;
@@ -2655,10 +2644,10 @@ namespace T12
             Botwise_Xor,
         }
 
-        public readonly string Name;
+        public readonly StringRef Name;
         public readonly ASTExpression AssignmentExpression;
 
-        public ASTVariableExpression(TraceData trace, string variableName, ASTExpression assignmentExpression) : base(trace)
+        public ASTVariableExpression(TraceData trace, StringRef variableName, ASTExpression assignmentExpression) : base(trace)
         {
             this.Name = variableName;
             this.AssignmentExpression = assignmentExpression;
@@ -2666,14 +2655,14 @@ namespace T12
 
         public override string ToString()
         {
-            return Name;
+            return Name.ToString();
         }
 
         public static new ASTVariableExpression Parse(Queue<Token> Tokens)
         {
             var identTok = Tokens.Dequeue();
             if (identTok.IsIdentifier == false) Fail(identTok, "Expected an identifier!");
-            string name = (string)identTok.Value;
+            StringRef name = identTok.Value;
 
             ASTExpression expr = null;
 
@@ -2737,39 +2726,6 @@ namespace T12
         }
     }
     
-    public class ASTExternVariableExpression : ASTVariableExpression
-    {
-        public readonly string Namespace;
-        public readonly ASTVariableExpression VariableExpr;
-
-        public ASTExternVariableExpression(TraceData trace, string @namespace, ASTVariableExpression variableExpr) : base(trace, $"{@namespace}::{variableExpr.Name}", variableExpr.AssignmentExpression)
-        {
-            Namespace = @namespace;
-            VariableExpr = variableExpr;
-        }
-
-        public static new ASTExternVariableExpression Parse(Queue<Token> Tokens)
-        {
-            var namespaceTok = Tokens.Dequeue();
-            if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected namespace identifier!");
-            string @namespace = (string)namespaceTok.Value;
-
-            var doubleColonTok = Tokens.Dequeue();
-            if (doubleColonTok.Type != TokenType.DoubleColon) Fail(doubleColonTok, "Expected '::'!");
-
-            ASTVariableExpression varExpr = ASTVariableExpression.Parse(Tokens);
-
-            var trace = new TraceData
-            {
-                File = namespaceTok.FilePath,
-                StartLine = namespaceTok.Line,
-                EndLine = varExpr.Trace.EndLine,
-            };
-
-            return new ASTExternVariableExpression(trace, @namespace, varExpr);
-        }
-    }
-
     public class ASTPointerExpression : ASTExpression
     {
         public readonly ASTExpression Pointer;
@@ -3164,10 +3120,10 @@ namespace T12
 
     public class ASTFunctionCall : ASTExpression
     {
-        public readonly string FunctionName;
+        public readonly StringRef FunctionName;
         public readonly List<ASTExpression> Arguments;
 
-        public ASTFunctionCall(TraceData trace, string functionName, List<ASTExpression> arguments) : base(trace)
+        public ASTFunctionCall(TraceData trace, StringRef functionName, List<ASTExpression> arguments) : base(trace)
         {
             FunctionName = functionName;
             Arguments = arguments;
@@ -3177,7 +3133,7 @@ namespace T12
         {
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
-            string funcName = (string)nameTok.Value;
+            StringRef funcName = nameTok.Value;
             
             var openParenTok = Tokens.Dequeue();
             if (openParenTok.Type != TokenType.Open_parenthesis) Fail(openParenTok, "Expected '('");
@@ -3269,7 +3225,7 @@ namespace T12
     {
         public readonly List<ASTType> GenericTypes;
 
-        public ASTGenericFunctionCall(TraceData trace, string functionName, List<ASTType> genericTypes, List<ASTExpression> arguments) : base(trace, functionName, arguments)
+        public ASTGenericFunctionCall(TraceData trace, StringRef functionName, List<ASTType> genericTypes, List<ASTExpression> arguments) : base(trace, functionName, arguments)
         {
             GenericTypes = genericTypes;
         }
@@ -3279,14 +3235,12 @@ namespace T12
         {
             var nameTok = Tokens.Dequeue();
             if (nameTok.IsIdentifier == false) Fail(nameTok, "Expected identifier!");
-            string funcName = (string)nameTok.Value;
-
-            List<ASTType> genericTypes = null;
+            StringRef funcName = nameTok.Value;
 
             var openAngleTok = Tokens.Dequeue();
             if (openAngleTok.Type != TokenType.LessThan) Fail(openAngleTok, "Expected '<'");
 
-            genericTypes = new List<ASTType>();
+            List<ASTType> genericTypes = new List<ASTType>();
 
             while (Tokens.Peek().Type != TokenType.GreaterThan)
             {
@@ -3343,47 +3297,14 @@ namespace T12
         }
     }
 
-    public class ASTExternFunctionCall : ASTFunctionCall
-    {
-        public readonly string Namespace;
-        public readonly ASTFunctionCall FunctionCall;
-
-        public ASTExternFunctionCall(TraceData trace, string @namespace, ASTFunctionCall functionCall) : base(trace, $"{@namespace}::{functionCall.FunctionName}", functionCall.Arguments)
-        {
-            Namespace = @namespace;
-            FunctionCall = functionCall;
-        }
-
-        public static new ASTExternFunctionCall Parse(Queue<Token> Tokens)
-        {
-            var namespaceTok = Tokens.Dequeue();
-            if (namespaceTok.IsIdentifier == false) Fail(namespaceTok, "Expected namespace identifier!");
-            string @namespace = (string)namespaceTok.Value;
-
-            var doubleColonTok = Tokens.Dequeue();
-            if (doubleColonTok.Type != TokenType.DoubleColon) Fail(doubleColonTok, "Expected '::'!");
-
-            ASTFunctionCall funcCall = ASTFunctionCall.Parse(Tokens);
-
-            var trace = new TraceData
-            {
-                File = namespaceTok.FilePath,
-                StartLine = namespaceTok.Line,
-                EndLine = funcCall.Trace.EndLine,
-            };
-
-            return new ASTExternFunctionCall(trace, @namespace, funcCall);
-        }
-    }
-
     public class ASTMemberExpression : ASTExpression
     {
         public readonly ASTExpression TargetExpr;
-        public readonly string MemberName;
+        public readonly StringRef MemberName;
         public readonly ASTExpression Assignment;
         public readonly bool Dereference;
 
-        public ASTMemberExpression(TraceData trace, ASTExpression targetExpr, string memberName, ASTExpression assignment, bool dereference) : base(trace)
+        public ASTMemberExpression(TraceData trace, ASTExpression targetExpr, StringRef memberName, ASTExpression assignment, bool dereference) : base(trace)
         {
             TargetExpr = targetExpr;
             MemberName = memberName;
@@ -3402,7 +3323,7 @@ namespace T12
 
             var memberTok = Tokens.Dequeue();
             if (memberTok.IsIdentifier == false) Fail(memberTok, "Expected member name!");
-            string memberName = (string)memberTok.Value;
+            StringRef memberName = memberTok.Value;
             
             ASTExpression assignment = null;
             
@@ -3641,6 +3562,7 @@ namespace T12
     {
         public readonly ASTType ResultType;
         public readonly List<ASTExpression> Expressions;
+        // This doesn't come from the parsed file so it's ok that this is a normal string
         public readonly string Comment;
 
         public ASTInternalCompoundExpression(TraceData trace, ASTType result, List<ASTExpression> expressions, string comment = null) : base(trace)
@@ -3668,6 +3590,8 @@ namespace T12
     public class ASTImplicitCast : ASTCastExpression
     {
         public readonly ASTBaseType FromType;
+
+        // This is fine because these AST nodes will only ever be generated by the compiler.
         public ASTBaseType ToType => To as ASTBaseType;
 
         // There will be no way for the parser to generate implicit casts
@@ -3755,16 +3679,16 @@ namespace T12
 
     public abstract class ASTType : ASTNode, IEquatable<ASTType>
     {
-        public readonly string TypeName;
+        public readonly StringRef TypeName;
         
-        public ASTType(TraceData trace, string type) : base(trace)
+        public ASTType(TraceData trace, StringRef type) : base(trace)
         {
             this.TypeName = type;
         }
 
         public override string ToString()
         {
-            return TypeName;
+            return TypeName.ToString();
         }
         
         public override bool Equals(object obj)
@@ -3782,7 +3706,7 @@ namespace T12
 
         public override int GetHashCode()
         {
-            return -448171650 + EqualityComparer<string>.Default.GetHashCode(TypeName);
+            return -448171650 + EqualityComparer<StringRef>.Default.GetHashCode(TypeName);
         }
 
         public static bool operator ==(ASTType type1, ASTType type2)
@@ -3928,7 +3852,7 @@ namespace T12
 
                         // TODO: Fix traces for base types?
                         ASTType type;
-                        if (ASTBaseType.BaseTypeMap.TryGetValue((string)tok.Value, out ASTBaseType baseType))
+                        if (ASTBaseType.BaseTypeMap.TryGetValue(tok.Value, out ASTBaseType baseType))
                         {
                             // FIXME: We could create somekind of copy here that contains an actual trace!
                             type = baseType.WithTrace(TraceData.From(tok));
@@ -3968,12 +3892,12 @@ namespace T12
                                     EndLine = closeAngle.Line,
                                 };
 
-                                type = new ASTGenericTypeRef(trace, (string)tok.Value, genericTypes);
+                                type = new ASTGenericTypeRef(trace, tok.Value, genericTypes);
                             }
                             else
                             {
                                 var trace = TraceData.From(tok);
-                                type = new ASTTypeRef(trace, (string)tok.Value);
+                                type = new ASTTypeRef(trace, tok.Value);
                             }
                         }
 
@@ -3985,33 +3909,40 @@ namespace T12
 
     public class ASTBaseType : ASTType
     {
-        public static readonly Dictionary<string, ASTBaseType> BaseTypeMap = new Dictionary<string, ASTBaseType>()
+        public static readonly StringRef VoidStr = (StringRef)"void";
+        public static readonly StringRef WordStr = (StringRef)"word";
+        public static readonly StringRef DWordStr = (StringRef)"dword";
+        public static readonly StringRef BoolStr = (StringRef)"bool";
+        public static readonly StringRef CharStr = (StringRef)"char";
+        public static readonly StringRef StringStr = (StringRef)"string";
+
+        public static readonly Dictionary<StringRef, ASTBaseType> BaseTypeMap = new Dictionary<StringRef, ASTBaseType>()
         {
-            { "void", new ASTBaseType("void", 0) },
-            { "word", new ASTBaseType("word", 1) },
-            { "dword", new ASTBaseType("dword", 2) },
-            { "bool", new ASTBaseType("bool", 1) },
-            { "char", new ASTBaseType("char", 1) },
+            { VoidStr, new ASTBaseType(VoidStr, 0) },
+            { WordStr, new ASTBaseType(WordStr, 1) },
+            { DWordStr, new ASTBaseType(DWordStr, 2) },
+            { BoolStr, new ASTBaseType(BoolStr, 1) },
+            { CharStr, new ASTBaseType(CharStr, 1) },
             // TODO? Move over to the 4 word strings with length and data pointer?
-            { "string", new ASTBaseType("string", 2) },
+            { StringStr, new ASTBaseType(StringStr, 2) },
         };
 
-        public static ASTBaseType Void => BaseTypeMap["void"];
-        public static ASTBaseType Word => BaseTypeMap["word"];
-        public static ASTBaseType DoubleWord => BaseTypeMap["dword"];
-        public static ASTBaseType Bool => BaseTypeMap["bool"];
-        public static ASTBaseType Char => BaseTypeMap["char"];
-        public static ASTBaseType String => BaseTypeMap["string"];
+        public static ASTBaseType Void => BaseTypeMap[VoidStr];
+        public static ASTBaseType Word => BaseTypeMap[WordStr];
+        public static ASTBaseType DoubleWord => BaseTypeMap[DWordStr];
+        public static ASTBaseType Bool => BaseTypeMap[BoolStr];
+        public static ASTBaseType Char => BaseTypeMap[CharStr];
+        public static ASTBaseType String => BaseTypeMap[StringStr];
 
         public readonly int Size;
         
         // FIXME: Trace data for internal types?
-        private ASTBaseType(string name, int size) : base(TraceData.Internal, name)
+        private ASTBaseType(StringRef name, int size) : base(TraceData.Internal, name)
         {
             Size = size;
         }
 
-        private ASTBaseType(string name, int size, TraceData trace) : base(trace, name)
+        private ASTBaseType(StringRef name, int size, TraceData trace) : base(trace, name)
         {
             Size = size;
         }
@@ -4051,7 +3982,7 @@ namespace T12
         /// </summary>
         public abstract ASTType DerefType { get; }
 
-        public ASTDereferenceableType(TraceData trace, string type) : base(trace, type) { }
+        public ASTDereferenceableType(TraceData trace, StringRef type) : base(trace, type) { }
     }
 
     public class ASTPointerType : ASTDereferenceableType
@@ -4063,7 +3994,7 @@ namespace T12
 
         public static ASTPointerType Of(ASTType type) => new ASTPointerType(type.Trace, type);
 
-        public ASTPointerType(TraceData trace, ASTType baseType) : base(trace, $"*{baseType.TypeName}")
+        public ASTPointerType(TraceData trace, ASTType baseType) : base(trace, (StringRef)$"*{baseType.TypeName}")
         {
             BaseType = baseType;
         }
@@ -4096,9 +4027,9 @@ namespace T12
 
         public static ASTArrayType Of(ASTType type) => new ASTArrayType(type.Trace, type);
 
-        public ASTArrayType(TraceData trace, ASTType baseType) : this(trace, baseType, $"[]{baseType.TypeName}") { }
+        public ASTArrayType(TraceData trace, ASTType baseType) : this(trace, baseType, (StringRef)$"[]{baseType.TypeName}") { }
 
-        protected ASTArrayType(TraceData trace, ASTType baseType, string name) : base(trace, name)
+        protected ASTArrayType(TraceData trace, ASTType baseType, StringRef name) : base(trace, name)
         {
             BaseType = baseType;
         }
@@ -4111,7 +4042,7 @@ namespace T12
 
         public override ASTType DerefType => BaseType;
 
-        public ASTFixedArrayType(TraceData trace, ASTType baseType, ASTNumericLitteral size) : base(trace, $"[{size}]{baseType.TypeName}")
+        public ASTFixedArrayType(TraceData trace, ASTType baseType, ASTNumericLitteral size) : base(trace, (StringRef)$"[{size}]{baseType.TypeName}")
         {
             BaseType = baseType;
             Size = size;
@@ -4123,9 +4054,9 @@ namespace T12
     /// </summary>
     public class ASTTypeRef : ASTType
     {
-        public readonly string Name;
+        public readonly StringRef Name;
         
-        public ASTTypeRef(TraceData trace, string name) : base(trace, name)
+        public ASTTypeRef(TraceData trace, StringRef name) : base(trace, name)
         {
             Name = name;
         }
@@ -4135,7 +4066,7 @@ namespace T12
     {
         public readonly List<ASTType> GenericTypes;
 
-        public ASTGenericTypeRef(TraceData trace, string name, List<ASTType> genericTypes) : base (trace, name)
+        public ASTGenericTypeRef(TraceData trace, StringRef name, List<ASTType> genericTypes) : base (trace, name)
         {
             GenericTypes = genericTypes;
         }
@@ -4148,16 +4079,16 @@ namespace T12
 
     public class ASTAliasedType : ASTType
     {
-        public readonly string Alias;
+        public readonly StringRef Alias;
         public readonly ASTType RealType;
 
-        public ASTAliasedType(TraceData trace, string alias, ASTType real) : base(trace, alias)
+        public ASTAliasedType(TraceData trace, StringRef alias, ASTType real) : base(trace, alias)
         {
             Alias = alias;
             RealType = real;
         }
 
-        internal static ASTType Of(string name, ASTType type)
+        internal static ASTType Of(StringRef name, ASTType type)
         {
             return new ASTAliasedType(type.Trace, name, type);
         }
@@ -4165,9 +4096,9 @@ namespace T12
 
     public class ASTStructType : ASTType
     {
-        public readonly List<(ASTType Type, string Name)> Members;
+        public readonly List<(ASTType Type, StringRef Name)> Members;
 
-        public ASTStructType(TraceData trace, string name, List<(ASTType, string)> members) : base(trace, name)
+        public ASTStructType(TraceData trace, StringRef name, List<(ASTType, StringRef)> members) : base(trace, name)
         {
             Members = members;
         }
@@ -4177,9 +4108,9 @@ namespace T12
     public class ASTGenericType : ASTType
     {
         public readonly ASTType Type;
-        public readonly List<string> GenericNames;
+        public readonly List<StringRef> GenericNames;
 
-        public ASTGenericType(TraceData trace, ASTType type, List<string> genericNames) : base(trace, $"{type.TypeName}<...>")
+        public ASTGenericType(TraceData trace, ASTType type, List<StringRef> genericNames) : base(trace, (StringRef)$"{type.TypeName}<...>")
         {
             Type = type;
             GenericNames = genericNames;
@@ -4203,7 +4134,7 @@ namespace T12
         public readonly List<ASTType> ParamTypes;
         public readonly ASTType ReturnType;
 
-        public ASTFunctionPointerType(TraceData trace, List<ASTType> paramTypes, ASTType returnType) : base(trace, $"$({string.Join(", ", paramTypes)}) -> {returnType}")
+        public ASTFunctionPointerType(TraceData trace, List<ASTType> paramTypes, ASTType returnType) : base(trace, (StringRef)$"$({string.Join(", ", paramTypes)}) -> {returnType}")
         {
             ParamTypes = paramTypes;
             ReturnType = returnType;

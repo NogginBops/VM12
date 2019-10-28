@@ -34,6 +34,34 @@ namespace VM12Util
             return true;
         }
 
+        public bool EndsWith(string str)
+        {
+            if (str.Length > Length) return false;
+
+            int endOffset = Index + Length - 1;
+            for (int i = 0; i < str.Length; i++)
+            {
+                if (Data[endOffset - i] != str[i]) return false;
+            }
+
+            return true;
+        }
+
+        public StringRef TrimEnd(params char[] trimChars)
+        {
+            int newLength = Length;
+            for (int i = Length - 1; i >= 0; i--)
+            {
+                for (int c = 0; c < trimChars.Length; c++)
+                {
+                    if (Data[Index + i] == c) newLength--;
+                    else return new StringRef(Data, Index, newLength);
+                }
+            }
+
+            return new StringRef(Data, Index, newLength);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StringRef Substring(int start)
         {
@@ -54,6 +82,17 @@ namespace VM12Util
         public override bool Equals(object obj)
         {
             return obj is StringRef @ref && Equals(@ref);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Equals(string other)
+        {
+            if (Length != other.Length) return false;
+            for (int i = 0; i < Length; i++)
+            {
+                if (Data[Index + i] != other[i]) return false;
+            }
+            return true;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -86,7 +125,31 @@ namespace VM12Util
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool operator ==(StringRef left, string right)
+        {
+            return left.Equals(right);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool operator ==(string left, StringRef right)
+        {
+            return right.Equals(left);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool operator !=(StringRef left, StringRef right)
+        {
+            return !(left == right);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool operator !=(StringRef left, string right)
+        {
+            return !(left == right);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool operator !=(string left, StringRef right)
         {
             return !(left == right);
         }

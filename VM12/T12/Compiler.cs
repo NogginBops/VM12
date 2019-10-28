@@ -102,7 +102,7 @@ namespace T12
         public static bool Compiling { get; private set; }
         static StringBuilder FuncDebug = new StringBuilder();
         static DirectoryInfo BaseDirectory;
-        static Dictionary<string, FileInfo> DirectoryFiles;
+        static Dictionary<StringRef, FileInfo> DirectoryFiles;
         public static int CompiledFiles = 0;
         public static int CompiledLines = 0;
         public static int AppendageLines = 0;
@@ -135,13 +135,13 @@ namespace T12
             Compiling = true;
             FuncDebug = new StringBuilder();
             BaseDirectory = baseDirectory;
-            DirectoryFiles = baseDirectory.GetFilesByExtensions(".t12").ToDictionary(f => f.Name);
+            DirectoryFiles = baseDirectory.GetFilesByExtensions(".t12").ToDictionary(f => (StringRef)f.Name);
 
             CompiledFiles = 0;
             CompiledLines = 0;
             AppendageLines = 0;
             ResultLines = 0;
-            CurrentAST = new AST(new Dictionary<string, (ASTFile File, FileInfo FileInfo)>());
+            CurrentAST = new AST(new Dictionary<StringRef, (ASTFile File, FileInfo FileInfo)>());
 
             CurrentErrorHandler = errorHandler;
 
@@ -217,7 +217,7 @@ namespace T12
             var indexList = new List<ASTType>(ReferencedTypes);
 
             // FIXME: We don't want to have a special case for generic structs!
-            Dictionary<string, ASTType> TypeDict = ReferencedTypes.ToDictionary(type => (type is ASTGenericType genType) ? genType.Type.TypeName : type.TypeName);
+            Dictionary<StringRef, ASTType> TypeDict = ReferencedTypes.ToDictionary(type => (type is ASTGenericType genType) ? genType.Type.TypeName : type.TypeName);
 
             List<(string Name, ASTType Type)> AdditionalTypes = new List<(string, ASTType)>();
             
@@ -304,7 +304,7 @@ namespace T12
             }
             else
             {
-                return type.TypeName.Replace("<...>", ".G");
+                return type.TypeName.ToString().Replace("<...>", ".G");
             }
         }
 
@@ -323,7 +323,7 @@ namespace T12
 
         public static void Compile(FileInfo infile)
         {
-            if (CurrentAST.Files.ContainsKey(infile.Name))
+            if (CurrentAST.Files.ContainsKey((StringRef)infile.Name))
             {
                 // We don't need to worry about this file as it is already compiled
                 return;
@@ -386,7 +386,7 @@ namespace T12
                     ResultLines += lines;
                     AppendageLines += lines;
                 }
-                File.AppendAllText(Path.ChangeExtension(fileAppendage.Key, ".12asm"), sb.ToString());
+                File.AppendAllText(Path.ChangeExtension(fileAppendage.Key.ToString(), ".12asm"), sb.ToString());
             }
             Watch.Stop();
             MiscTime += Watch.ElapsedTicks;
@@ -394,9 +394,9 @@ namespace T12
             return;
         }
 
-        internal static (StringBuilder File, StringBuilder Debug) AppendToFile(TraceData trace, string functionName, string file)
+        internal static (StringBuilder File, StringBuilder Debug) AppendToFile(TraceData trace, StringRef functionName, string file)
         {
-            if (WorkingAST.Files.ContainsKey(Path.GetFileName(file)) == false)
+            if (WorkingAST.Files.ContainsKey((StringRef)Path.GetFileName(file)) == false)
                 Emitter.Fail(trace, $"Tried to add appendage to unknown file '{file}'");
 
             if (Appendages.TryGetValue(file, out var appendageList) == false)

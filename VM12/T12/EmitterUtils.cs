@@ -3,17 +3,18 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using VM12Util;
 
 namespace T12
 {
-    using ConstMap = Dictionary<string, ASTConstDirective>;
-    using FunctionMap = Dictionary<string, List<ASTFunction>>;
-    using GlobalMap = Dictionary<string, ASTGlobalDirective>;
-    using ImportMap = Dictionary<string, ASTFile>;
-    using TypeMap = Dictionary<string, ASTType>;
-    using VarList = List<(string Name, int Offset, ASTType Type)>;
-    using VarMap = Dictionary<string, (int Offset, ASTType Type)>;
-    using GenericMap = Dictionary<string, ASTType>;
+    using ConstMap = Dictionary<StringRef, ASTConstDirective>;
+    using FunctionMap = Dictionary<StringRef, List<ASTFunction>>;
+    using GlobalMap = Dictionary<StringRef, ASTGlobalDirective>;
+    using ImportMap = Dictionary<StringRef, ASTFile>;
+    using TypeMap = Dictionary<StringRef, ASTType>;
+    using VarList = List<(StringRef Name, int Offset, ASTType Type)>;
+    using VarMap = Dictionary<StringRef, (int Offset, ASTType Type)>;
+    using GenericMap = Dictionary<StringRef, ASTType>;
 
     static partial class Emitter
     {
@@ -408,7 +409,7 @@ namespace T12
         {
             GenericMap GenericMap = GenerateGenericMap(trace, GenericFunction.GenericNames, GenericTypes);
 
-            List<(ASTType type, string name)> parameters = new List<(ASTType type, string name)>(GenericFunction.Parameters.Count);
+            List<(ASTType type, StringRef name)> parameters = new List<(ASTType type, StringRef name)>(GenericFunction.Parameters.Count);
             foreach (var param in GenericFunction.Parameters)
             {
                 ASTType type = SpecializeType(trace, param.Type, GenericMap);
@@ -423,7 +424,7 @@ namespace T12
 
             ASTType returnType = SpecializeType(trace, GenericFunction.ReturnType, GenericMap);
 
-            string label = GetGenericFunctionLabel(trace, GenericFunction, GenericTypes, typeMap, functionMap);
+            StringRef label = (StringRef)GetGenericFunctionLabel(trace, GenericFunction, GenericTypes, typeMap, functionMap);
 
             return new ASTFunction(GenericFunction.Trace, label, returnType, parameters, body);
         }
@@ -653,7 +654,7 @@ namespace T12
                     return structType;
                 case ASTGenericType genericType:
                     {
-                        List<string> genericNamesLeft = new List<string>();
+                        List<StringRef> genericNamesLeft = new List<StringRef>();
                         foreach (var name in genericType.GenericNames)
                         {
                             if (genericMap.ContainsKey(name) == false)
@@ -664,7 +665,7 @@ namespace T12
                         {
                             case ASTStructType structType:
                                 {
-                                    List<(ASTType Type, string Name) > members = new List<(ASTType, string)>(structType.Members.Count);
+                                    List<(ASTType Type, StringRef Name) > members = new List<(ASTType, StringRef)>(structType.Members.Count);
                                     foreach (var member in structType.Members)
                                     {
                                         members.Add((SpecializeType(trace, member.Type, genericMap), member.Name));
@@ -674,7 +675,7 @@ namespace T12
                                     if (genericNamesLeft.Count > 0)
                                         return new ASTGenericType(trace, new ASTStructType(structType.Trace, structType.TypeName, members), genericNamesLeft);
                                     else
-                                        return new ASTStructType(structType.Trace, $"{structType.TypeName}<...>", members);
+                                        return new ASTStructType(structType.Trace, (StringRef)$"{structType.TypeName}<...>", members);
                                 }
                             default:
                                 Fail(genericType.Trace, $"We don't handle generic types where the underlying type is '{genericType.Type.GetType()}'");
@@ -746,7 +747,7 @@ namespace T12
             }
         }
 
-        private static GenericMap GenerateGenericMap(TraceData trace, List<string> names, List<ASTType> types)
+        private static GenericMap GenerateGenericMap(TraceData trace, List<StringRef> names, List<ASTType> types)
         {
             if (names.Count != types.Count)
                 Fail(trace, $"Missmatching number of generic arguments! Got '{types.Count}' Expected '{types.Count}'");
