@@ -2149,6 +2149,9 @@ namespace T12
         }
     }
 
+    // FIXME: An idea here would be to refactor this so that a litteral is just a value with an associated numeric type.
+    // This would mean that we don't need four different types to represent numeric litterals.
+    // It would also make it easier to have "fuzzy" litteral types that can match whatever it needs to be.
     public abstract class ASTNumericLitteral : ASTLitteral
     {
         public enum NumberFormat
@@ -2160,11 +2163,13 @@ namespace T12
         }
 
         public readonly int IntValue;
+        public readonly bool Signed;
         public readonly NumberFormat NumberFromat;
 
-        public ASTNumericLitteral(TraceData trace, ASTBaseType type, StringRef value, int intValue, NumberFormat numFormat) : base(trace, type, value)
+        public ASTNumericLitteral(TraceData trace, ASTBaseType type, StringRef value, int intValue, bool signed, NumberFormat numFormat) : base(trace, type, value)
         {
             IntValue = intValue;
+            Signed = signed;
             NumberFromat = numFormat;
         }
 
@@ -2185,6 +2190,7 @@ namespace T12
             // Remove any underscores
             string number = peek.Value.ToString().Replace("_", "");
 
+            bool unsigned = false;
             bool forceDouble = false;
             int value;
             try
@@ -2207,7 +2213,9 @@ namespace T12
                 else
                 {
                     forceDouble = number.EndsWith("D", true, System.Globalization.CultureInfo.InvariantCulture);
-                    number = number.TrimEnd('d', 'D', 'w', 'W');
+                    unsigned = number.EndsWith("U", true, System.Globalization.CultureInfo.InvariantCulture);
+
+                    number = number.TrimEnd('d', 'D', 'w', 'W', 'u', 'U');
                     // Try normal parsing!
                     value = Convert.ToInt32(number, 10);
                 }
@@ -2223,57 +2231,48 @@ namespace T12
 
             TraceData trace = TraceData.From(peek);
 
-            // FIXME: Simplify this logic as it look much too complicated... idk - 2019-10-28
-            if (negate)
-            {
-                if (-value < ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE)
-                {
-                    Fail(peek, $"Numeric litteral is less than '{ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE}' and does not fit in a double word!");
-                    return default;
-                }
-                else if (-value < ASTWordLitteral.WORD_MIN_SIGNED_VALUE || forceDouble)
-                {
-                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
-                    {
-                        Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
-                        return default;
-                    }
+            NumberFormat format = GetFormat(peek.Value);
 
-                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                }
-                else
-                {
-                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                }
+            // Negate if needed.
+            if (negate) value = -value;
+
+            // First figure out what type of thing we are creating.
+            bool dword_type = forceDouble;
+
+            // If we aren't forcing this to be a double we check to see what type it fits into
+            if (forceDouble == false)
+            {
+                if (value < ASTWordLitteral.WORD_MIN_SIGNED_VALUE)
+                    dword_type = true;
+                else if (value > ASTWordLitteral.WORD_MAX_SIGNED_VALUE)
+                    if (format != NumberFormat.Decimal && value <= ASTUWordLitteral.U_WORD_MAX_VALUE) ;
+                    else dword_type = true;
+            }
+            
+            // Check for overflow
+            if (value < ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE)
+                Fail(peek, $"Numeric litteral is less than '{ASTDoubleWordLitteral.DOUBLE_WORD_MIN_SIGNED_VALUE}' and does not fit in a double word!");
+            else if (value > ASTDoubleWordLitteral.DOUBLE_WORD_MAX_SIGNED_VALUE)
+                // Here we automatically promote this type
+                if (format != NumberFormat.Decimal && value <= ASTUDoubleWordLitteral.U_DOUBLE_WORD_MAX_VALUE) ;
+                else Fail(peek, $"Numeric litteral is larger than '{ASTDoubleWordLitteral.DOUBLE_WORD_MAX_SIGNED_VALUE}' and does not fit in a double word!");
+
+            if (unsigned)
+            {
+                if (dword_type) return new ASTUDoubleWordLitteral(trace, peek.Value, value, format);
+                else return new ASTUWordLitteral(trace, peek.Value, value, format);
             }
             else
             {
-                if (value > ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE)
-                {
-                    Fail(peek, $"Numeric litteral is larger than '{ASTDoubleWordLitteral.DOUBLE_WORD_MAX_VALUE}' and does not fit in a double word!");
-                    return default;
-                }
-                else if (value > ASTWordLitteral.WORD_MAX_VALUE || forceDouble)
-                {
-                    if (peek.Value.EndsWith("w") || peek.Value.EndsWith("W"))
-                    {
-                        Fail(peek, $"Numeric litteral '{peek.Value}' is bigger than '{ASTWordLitteral.WORD_MAX_VALUE}' and does not fit in a word!");
-                        return default;
-                    }
-
-                    return new ASTDoubleWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                }
-                else
-                {
-                    return new ASTWordLitteral(trace, peek.Value, value, GetFormat(peek.Value));
-                }
+                if (dword_type) return new ASTDoubleWordLitteral(trace, peek.Value, value, format);
+                else return new ASTWordLitteral(trace, peek.Value, value, format);
             }
         }
 
         public static ASTNumericLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
         {
             // FIXME!!! What if it's larger than max dword
-            if (value > ASTWordLitteral.WORD_MAX_VALUE)
+            if (value > ASTWordLitteral.WORD_MAX_SIGNED_VALUE)
             {
                 return new ASTDoubleWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
             }
@@ -2343,78 +2342,56 @@ namespace T12
 
     public class ASTWordLitteral : ASTNumericLitteral
     {
-        public const int WORD_MAX_VALUE = 0xFFF;
+        public const int WORD_MAX_SIGNED_VALUE = 0x7FF;
         public const int WORD_MIN_SIGNED_VALUE = -2048; // -2^11
 
-        public ASTWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.Word, value, intValue, numFormat) { }
+        public ASTWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.Word, value, intValue, true, numFormat) { }
         
-        public static new ASTWordLitteral Parse(Queue<Token> Tokens)
-        {
-            var tok = Tokens.Dequeue();
-            if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
-            
-            // FIXME: Here we want int parsing for StringRef, but it is fine for now. - 2019-10-28
-            if (int.TryParse(tok.Value.ToString(), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
-            
-            if (value > WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is to big for a word litteral!");
-
-            var trace = TraceData.From(tok);
-
-            NumberFormat format = GetFormat(tok.Value);
-
-            return new ASTWordLitteral(trace, tok.Value, value, format);
-        }
-
         public new static ASTWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
         {
-            if (value > WORD_MAX_VALUE)
+            // FIXME!!! Check negative values too!!
+            // FIXME!!!! Make a proper check here!!!
+            Console.WriteLine("FIXME!!!! Make a proper ASTWordLitteral.From overflow check here!!!");
+            /*if (value > WORD_MAX_SIGNED_VALUE)
             {
                 Emitter.Fail(trace, $"The value '{value}' does not fit in a word!");
                 return default;
             }
             else
-            {
+            {*/
                 return new ASTWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
-            }
+            //}
         }
     }
 
     public class ASTDoubleWordLitteral : ASTNumericLitteral
     {
-        public const int DOUBLE_WORD_MAX_VALUE = 0xFFF_FFF;
+        public const int DOUBLE_WORD_MAX_SIGNED_VALUE = 0x7FF_FFF;
         public const int DOUBLE_WORD_MIN_SIGNED_VALUE = -8_388_608; // -2^23
 
-        public ASTDoubleWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.DoubleWord, value, intValue, numFormat) { }
+        public ASTDoubleWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.DoubleWord, value, intValue, true, numFormat) { }
 
-        public static new ASTDoubleWordLitteral Parse(Queue<Token> Tokens)
-        {
-            var tok = Tokens.Dequeue();
-            if (tok.Type != TokenType.Numeric_Litteral) Fail(tok, "Expected numeric litteral!");
-
-            // Parse without the end letter!
-            // FIXME: We want int parsing in StringRef! But this is fine for now. - 2019-10-28
-            if (int.TryParse(tok.Value.Substring(0, tok.Value.Length - 1).ToString(), out int value) == false) Fail(tok, $"Could not parse int '{tok.Value}'");
-
-            if (value > DOUBLE_WORD_MAX_VALUE) Fail(tok, $"Litteral '{value}' is too big for a double word!");
-
-            var trace = TraceData.From(tok);
-
-            NumberFormat format = GetFormat(tok.Value);
-
-            return new ASTDoubleWordLitteral(trace, tok.Value, value, format);
-        }
-
+        // FIXME:!!!!! We really need to fix this unsigned stuff!
         public new static ASTDoubleWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
         {
-            if (value > DOUBLE_WORD_MAX_VALUE)
+            // Check for overflow
+            if (value < DOUBLE_WORD_MIN_SIGNED_VALUE)
             {
-                Emitter.Fail(trace, $"The value '{value}' does not fit in a dword!");
+                Emitter.Fail(trace, $"Numeric litteral value '{FormatNumber(value, format)}' is less than '{DOUBLE_WORD_MIN_SIGNED_VALUE}' and does not fit in a double word!");
                 return default;
             }
-            else
+            else if (value > DOUBLE_WORD_MAX_SIGNED_VALUE)
             {
-                return new ASTDoubleWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
+                // Here we automatically promote this type
+                if (format != NumberFormat.Decimal && value <= ASTUDoubleWordLitteral.U_DOUBLE_WORD_MAX_VALUE) ;
+                else
+                {
+                    Emitter.Fail(trace, $"Numeric litteral value '{FormatNumber(value, format)}' is larger than '{DOUBLE_WORD_MAX_SIGNED_VALUE}' and does not fit in a double word!");
+                    return default;
+                }
             }
+
+            return new ASTDoubleWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
         }
 
         // FIXME: General tostring for numlit which does consideres format
@@ -2423,6 +2400,77 @@ namespace T12
             if (Value.EndsWith("d"))
             {
                 return Value.Substring(0, Value.Length - 1).ToString();
+            }
+            else
+            {
+                return base.ToString();
+            }
+        }
+    }
+
+    public class ASTUWordLitteral : ASTNumericLitteral
+    {
+        public const int U_WORD_MAX_VALUE = 0xFFF;
+
+        public ASTUWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.UWord, value, intValue, false, numFormat) { }
+
+        public new static ASTUWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
+        {
+            if (value < 0) {
+                Emitter.Fail(trace, $"The unsigned value '{value}' cannot be negative!");
+                return default;
+            }
+            else if (value > U_WORD_MAX_VALUE)
+            {
+                Emitter.Fail(trace, $"The value '{value}' does not fit in a word!");
+                return default;
+            }
+            else
+            {
+                return new ASTUWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
+            }
+        }
+
+        // FIXME: Proper ToString() that trims the end so we output this correctly!!!
+        public override string ToString()
+        {
+            if (Value.EndsWith("u") || Value.EndsWith("U"))
+                return Value.Substring(0, Value.Length - 1).ToString();
+            else
+                return base.ToString();
+        }
+    }
+
+    public class ASTUDoubleWordLitteral : ASTNumericLitteral
+    {
+        public const int U_DOUBLE_WORD_MAX_VALUE = 0xFFF_FFF;
+
+        public ASTUDoubleWordLitteral(TraceData trace, StringRef value, int intValue, NumberFormat numFormat) : base(trace, ASTBaseType.UWord, value, intValue, false, numFormat) { }
+
+        public new static ASTUDoubleWordLitteral From(TraceData trace, int value, NumberFormat format = NumberFormat.Decimal)
+        {
+            if (value < 0)
+            {
+                Emitter.Fail(trace, $"The unsigned value '{value}' cannot be negative!");
+                return default;
+            }
+            else if (value > U_DOUBLE_WORD_MAX_VALUE)
+            {
+                Emitter.Fail(trace, $"The value '{value}' does not fit in a word!");
+                return default;
+            }
+            else
+            {
+                return new ASTUDoubleWordLitteral(trace, (StringRef)FormatNumber(value, format), value, format);
+            }
+        }
+
+        public override string ToString()
+        {
+            // FIXME: Better use of StringRef!!
+            if (Value.EndsWithAny('d', 'D', 'u', 'U'))
+            {
+                return Value.ToString().TrimEnd('d', 'D', 'u', 'U');
             }
             else
             {
@@ -3912,6 +3960,8 @@ namespace T12
         public static readonly StringRef VoidStr = (StringRef)"void";
         public static readonly StringRef WordStr = (StringRef)"word";
         public static readonly StringRef DWordStr = (StringRef)"dword";
+        public static readonly StringRef UWordStr = (StringRef)"uword";
+        public static readonly StringRef UDWordStr = (StringRef)"udword";
         public static readonly StringRef BoolStr = (StringRef)"bool";
         public static readonly StringRef CharStr = (StringRef)"char";
         public static readonly StringRef StringStr = (StringRef)"string";
@@ -3921,6 +3971,8 @@ namespace T12
             { VoidStr, new ASTBaseType(VoidStr, 0) },
             { WordStr, new ASTBaseType(WordStr, 1) },
             { DWordStr, new ASTBaseType(DWordStr, 2) },
+            { UWordStr, new ASTBaseType(UWordStr, 1) },
+            { UDWordStr, new ASTBaseType(UDWordStr, 2) },
             { BoolStr, new ASTBaseType(BoolStr, 1) },
             { CharStr, new ASTBaseType(CharStr, 1) },
             // TODO? Move over to the 4 word strings with length and data pointer?
@@ -3930,6 +3982,8 @@ namespace T12
         public static ASTBaseType Void => BaseTypeMap[VoidStr];
         public static ASTBaseType Word => BaseTypeMap[WordStr];
         public static ASTBaseType DoubleWord => BaseTypeMap[DWordStr];
+        public static ASTBaseType UWord => BaseTypeMap[UWordStr];
+        public static ASTBaseType UDoubleWord => BaseTypeMap[UDWordStr];
         public static ASTBaseType Bool => BaseTypeMap[BoolStr];
         public static ASTBaseType Char => BaseTypeMap[CharStr];
         public static ASTBaseType String => BaseTypeMap[StringStr];

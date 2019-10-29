@@ -249,7 +249,7 @@ namespace T12
                         if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
                         {
                             int value = leftWord.IntValue + rightWord.IntValue;
-                            return ASTWordLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftWord.NumberFromat, rightWord.NumberFromat));
+                            return ASTNumericLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftWord.NumberFromat, rightWord.NumberFromat));
                         }
                         else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
                         {
@@ -274,7 +274,7 @@ namespace T12
                         if (foldedLeft is ASTWordLitteral leftWord && foldedRight is ASTWordLitteral rightWord)
                         {
                             int value = leftWord.IntValue - rightWord.IntValue;
-                            return ASTWordLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftWord.NumberFromat, rightWord.NumberFromat));
+                            return ASTNumericLitteral.From(binaryOp.Trace, value, ASTNumericLitteral.CombineFormats(leftWord.NumberFromat, rightWord.NumberFromat));
                         }
                         else if (foldedLeft is ASTDoubleWordLitteral leftDWord && foldedRight is ASTDoubleWordLitteral rightDWord)
                         {
@@ -450,7 +450,8 @@ namespace T12
         {
             int typeSize = SizeOfType(sizeofTypeExpression.Type, typeMap);
 
-            if (typeSize > ASTWordLitteral.WORD_MAX_VALUE)
+            // FIXME: Consider sign here!!!!!
+            if (typeSize > ASTWordLitteral.WORD_MAX_SIGNED_VALUE)
             {
                 return ASTDoubleWordLitteral.From(sizeofTypeExpression.Trace, typeSize, ASTNumericLitteral.NumberFormat.Decimal);
             }
@@ -485,6 +486,11 @@ namespace T12
                 {
                     return new ASTCharLitteral(wordLitteral.Trace, wordLitteral.Value, (char)wordLitteral.IntValue);
                 }
+            }
+            else if (foldedFrom is ASTDoubleWordLitteral dwordLitteral)
+            {
+                if (implicitCast.To == ASTBaseType.DoubleWord)
+                    return foldedFrom;
             }
 
             // Here we have nothing smart to do and need the emitter to actaully do the cast

@@ -148,5 +148,11 @@ namespace VM12Util
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static StringRef ToRef(this string str) => new StringRef(str, 0, str.Length);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool InRangeInclusive(int value, int min, int max)
+        {
+            return (value >= min) && (value <= max);
+        }
     }
 }

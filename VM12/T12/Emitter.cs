@@ -360,7 +360,7 @@ namespace T12
                     return cast.To;
                 case ASTSizeofTypeExpression sizeExpr:
                     int size = SizeOfType(sizeExpr.Type, typeMap);
-                    return size > ASTWordLitteral.WORD_MAX_VALUE ? ASTBaseType.DoubleWord : ASTBaseType.Word;
+                    return size > ASTWordLitteral.WORD_MAX_SIGNED_VALUE ? ASTBaseType.DoubleWord : ASTBaseType.Word;
                 case ASTAddressOfExpression addressOfExpression:
                     // Address of resturns a pointer to the type of the expression.
                     return ASTPointerType.Of(CalcReturnType(addressOfExpression.Expr, scope, typeMap, functionMap, constMap, globalMap));
@@ -4666,6 +4666,12 @@ namespace T12
                     builder.AppendLineWithComment($"\tload #{litteral}", comment);
                     break;
                 case ASTDoubleWordLitteral dwordLitteral:
+                    builder.AppendLineWithComment($"\tloadl #{litteral}", comment);
+                    break;
+                case ASTUWordLitteral uwordLitteral:
+                    builder.AppendLineWithComment($"\tload #{litteral}", comment);
+                    break;
+                case ASTUDoubleWordLitteral udwordLitteral:
                     builder.AppendLineWithComment($"\tloadl #{litteral}", comment);
                     break;
                 case ASTCharLitteral charLitteral:

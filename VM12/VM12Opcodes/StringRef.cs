@@ -47,6 +47,16 @@ namespace VM12Util
             return true;
         }
 
+        public bool EndsWithAny(params char[] chars)
+        {
+            for (int i = 0; i < chars.Length; i++)
+            {
+                if (Data[Index + Length - 1] == chars[i]) return true;
+            }
+
+            return false;
+        }
+
         public StringRef TrimEnd(params char[] trimChars)
         {
             int newLength = Length;

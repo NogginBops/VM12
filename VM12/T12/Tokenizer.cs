@@ -805,7 +805,7 @@ namespace T12
 
                 // Optionally consume the trailing type specifier
                 char p = Peek();
-                if (p == 'W' || p == 'w' || p == 'd' || p == 'D') Next();
+                if (p == 'W' || p == 'w' || p == 'd' || p == 'D' || p == 'u' || p == 'U') Next();
             }
         }
 
