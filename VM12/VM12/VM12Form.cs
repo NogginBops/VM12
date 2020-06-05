@@ -78,7 +78,7 @@ namespace VM12
 
             GenerateLUT();
 
-            SetSize(VM12.SCREEN_HEIGHT, InterpolationMode.NearestNeighbor);
+            SetSize(VM12.SCREEN_HEIGHT * 2, InterpolationMode.NearestNeighbor);
 
 #if !DEBUG
             MainMenuStrip.Items.RemoveAt(1);
@@ -409,6 +409,18 @@ namespace VM12
             {
                 Frequency_dialog<VM12Opcode.Opcode> instructionFreq = new Frequency_dialog<VM12Opcode.Opcode>(vm12.instructionFreq, "Opcode Frequencies", "Opcode", op => (int) op);
                 
+                instructionFreq.Show();
+            }
+#endif
+        }
+
+        private void gpuInstructionFrequencyToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+#if DEBUG
+            if (vm12 != null)
+            {
+                Frequency_dialog<GrapicOps> instructionFreq = new Frequency_dialog<GrapicOps>(vm12.gpuInstructionFreq, "Gpu Opcode Frequencies", "Opcode", op => (int)op);
+
                 instructionFreq.Show();
             }
 #endif

@@ -371,7 +371,7 @@ namespace FastVM12Asm
 
                     // Parse
                     watch.Restart();
-                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var parser = new Parser(tokenizer.CurrentFile, toks.FlipToQueue());
                     var res = parser.Parse();
                     ParsedFiles.Add(res);
                     watch.Stop();
@@ -454,7 +454,7 @@ namespace FastVM12Asm
 
                     // Parse
                     watch.Restart();
-                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var parser = new Parser(tokenizer.CurrentFile, toks.FlipToQueue());
                     var res = parser.Parse();
                     ParsedFiles.Add(res);
                     watch.Stop();
@@ -521,7 +521,7 @@ namespace FastVM12Asm
 
                     // Parse
                     watch.Restart();
-                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var parser = new Parser(tokenizer.CurrentFile, toks.FlipToQueue());
                     var res = parser.Parse();
                     ParsedFiles.Add(res);
                     watch.Stop();
@@ -550,7 +550,7 @@ namespace FastVM12Asm
 
                     // Parse
                     watch.Restart();
-                    var parser = new Parser(tokenizer.CurrentFile, toks);
+                    var parser = new Parser(tokenizer.CurrentFile, toks.FlipToQueue());
                     var res = parser.Parse();
                     ParsedFiles.Add(res);
                     watch.Stop();

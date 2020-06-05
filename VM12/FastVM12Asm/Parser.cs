@@ -28,7 +28,7 @@ namespace FastVM12Asm
             TraceString = traceString;
         }
         
-        public static Trace FromToken(Token tok)
+        public static Trace FromToken(ref Token tok)
         {
             Trace trace;
             trace.FileData = tok.Data.Data;
@@ -38,7 +38,7 @@ namespace FastVM12Asm
             trace.TraceString = tok.Data;
             return trace;
         }
-        public static Trace FromToken(Token start, Token end)
+        public static Trace FromToken(ref Token start, ref Token end)
         {
             Trace trace;
             trace.FileData = start.Data.Data;
@@ -414,16 +414,15 @@ namespace FastVM12Asm
         };
 
         private readonly FileData File;
-        private readonly TokenQueue Tokens;
+        private readonly RefQueue<Token> Tokens;
         
-        public Parser(FileData file, List<Token> tokens)
+        public Parser(FileData file, RefQueue<Token> tokens)
         {
             File = file;
-            // FIXME: Custom Queue that doesn't copy the memory!
-            Tokens = new TokenQueue(tokens);
+            Tokens = tokens;
         }
 
-        public void Error(Token tok, string error)
+        public void Error(ref Token tok, string error)
         {
             Console.ForegroundColor = ConsoleColor.White;
             Console.WriteLine($"In file {Path.GetFileName(File.Path)} on line {tok.Line} character {tok.LineCharIndex}: '{tok.GetContents()}'");
@@ -452,7 +451,7 @@ namespace FastVM12Asm
             // While there are tokens left
             while (Tokens.Count > 0)
             {
-                var tok = Tokens.Dequeue();
+                ref var tok = ref Tokens.Dequeue();
                 switch (tok.Type)
                 {
                     case TokenType.Flag:
@@ -473,31 +472,31 @@ namespace FastVM12Asm
                             {
                                 Flags.Add(tok.Data);
                             }
-                            else Error(tok, "Unknown flag!");
+                            else Error(ref tok, "Unknown flag!");
                             break;
                         }
                     case TokenType.Open_angle:
                         {
-                            var identTok = Tokens.Dequeue();
-                            if (identTok.Type != TokenType.Identifier) Error(identTok, "Expected constant name!");
+                            ref var identTok = ref Tokens.Dequeue();
+                            if (identTok.Type != TokenType.Identifier) Error(ref identTok, "Expected constant name!");
 
-                            var equalsTok = Tokens.Dequeue();
-                            if (equalsTok.Type != TokenType.Equals) Error(equalsTok, "Expected equals!");
+                            ref var equalsTok = ref Tokens.Dequeue();
+                            if (equalsTok.Type != TokenType.Equals) Error(ref equalsTok, "Expected equals!");
 
                             var constExpr = ParseConstExpr(Tokens);
                             constExpr.IsGlobal = isGlobal;
 
                             // Dequeue close angle
-                            var closeAngleTok = Tokens.Dequeue();
-                            if (closeAngleTok.Type != TokenType.Close_angle) Error(closeAngleTok, "Expected '>'!");
+                            ref var closeAngleTok = ref Tokens.Dequeue();
+                            if (closeAngleTok.Type != TokenType.Close_angle) Error(ref closeAngleTok, "Expected '>'!");
 
                             // FIXME: We might want to do flag validation here so that e.g. an extern const is not global
 
-                            constExpr.Trace = Trace.FromToken(tok, closeAngleTok);
+                            constExpr.Trace = Trace.FromToken(ref tok, ref closeAngleTok);
 
                             StringRef constName = identTok.Data;
                             if (ConstExprs.TryGetValue(constName, out _) == true)
-                                Error(identTok, "A constant with the same name already exists!");
+                                Error(ref identTok, "A constant with the same name already exists!");
 
                             ConstExprs.Add(constName, constExpr);
 
@@ -508,12 +507,12 @@ namespace FastVM12Asm
                         }
                     case TokenType.And:
                         {
-                            var nameTok = Tokens.Dequeue();
-                            if (nameTok.Type != TokenType.Identifier) Error(nameTok, "Expected identifier!");
+                            ref var nameTok = ref Tokens.Dequeue();
+                            if (nameTok.Type != TokenType.Identifier) Error(ref nameTok, "Expected identifier!");
 
-                            var fileNameTok = Tokens.Dequeue();
-                            if (fileNameTok.Type != TokenType.Identifier) Error(fileNameTok, "Expected file name!");
-                            if (fileNameTok.EndsWith(".12asm") == false)  Error(fileNameTok, "Expected file name!");
+                            ref var fileNameTok = ref Tokens.Dequeue();
+                            if (fileNameTok.Type != TokenType.Identifier) Error(ref fileNameTok, "Expected file name!");
+                            if (fileNameTok.EndsWith(".12asm") == false)  Error(ref fileNameTok, "Expected file name!");
 
                             IncludeFiles.Add(fileNameTok);
 
@@ -528,9 +527,9 @@ namespace FastVM12Asm
                             int? location = null;
                             if (Tokens.Peek().Type == TokenType.ProcLocation)
                             {
-                                var locationTok = Tokens.Dequeue();
+                                ref var locationTok = ref Tokens.Dequeue();
                                 var res = locationTok.Data.Substring(1).ParseNumber();
-                                if (res.Size > 2) Error(locationTok, "Specified location is too big!");
+                                if (res.Size > 2) Error(ref locationTok, "Specified location is too big!");
                                 location = res.Number;
                             }
 
@@ -551,14 +550,14 @@ namespace FastVM12Asm
                                 Instruction inst = default;
 
                                 // Here we get a stream of tokens that we should parse!
-                                var instTok = Tokens.Dequeue();
+                                ref var instTok = ref Tokens.Dequeue();
                                 if (instTok.Type == TokenType.Identifier)
                                 {
                                     // Here we want to figure out what kind of instruction this is
                                     if (instTok.ContentsMatch("load") || instTok.ContentsMatch("loadl"))
                                     {
                                         // Here we look at the next character and figure out what that should be!
-                                        var loadTok = Tokens.Dequeue();
+                                        ref var loadTok = ref Tokens.Dequeue();
                                         if (loadTok.Type == TokenType.Number_litteral)
                                         {
                                             // Here we are loading a local!
@@ -567,16 +566,16 @@ namespace FastVM12Asm
                                             else inst.Opcode = Opcode.Load_local;
 
                                             var (num, size) = loadTok.ParseNumber();
-                                            if (size > 1) Error(loadTok, "Local index too big!");
+                                            if (size > 1) Error(ref loadTok, "Local index too big!");
 
                                             inst.Type = InstructionType.WordArgOpcode;
                                             inst.Arg = num;
-                                            inst.Trace = Trace.FromToken(instTok, loadTok);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref loadTok);
                                         }
                                         else if (loadTok.Type == TokenType.Numbersign)
                                         {
                                             // FIXME! This will not work for constant expressions!
-                                            var litTok = Tokens.Dequeue();
+                                            ref var litTok = ref Tokens.Dequeue();
                                             if (litTok.Type == TokenType.Number_litteral)
                                             {
                                                 var (num, size) = litTok.ParseNumber();
@@ -584,13 +583,13 @@ namespace FastVM12Asm
 
                                                 if (instTok.GetLastChar() == 'l')
                                                 {
-                                                    if (size > 2) Error(litTok, "Number too big!");
+                                                    if (size > 2) Error(ref litTok, "Number too big!");
                                                     inst.Type = InstructionType.DwordArgOpcode;
                                                     inst.Opcode = Opcode.Load_lit_l;
                                                 }
                                                 else
                                                 {
-                                                    if (size > 1) Error(litTok, "Number too big!");
+                                                    if (size > 1) Error(ref litTok, "Number too big!");
                                                     inst.Type = InstructionType.WordArgOpcode;
                                                     inst.Opcode = Opcode.Load_lit;
                                                 }
@@ -617,16 +616,16 @@ namespace FastVM12Asm
                                                 else inst.Opcode = Opcode.Load_lit;
                                                 inst.VarSizeArgSize = inst.Opcode == Opcode.Load_lit_l ? 2 : 1;
                                             }
-                                            else Error(litTok, $"Unknown load token!");
+                                            else Error(ref litTok, $"Unknown load token!");
 
-                                            inst.Trace = Trace.FromToken(instTok, litTok);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref litTok);
                                         }
                                         else if (loadTok.Type == TokenType.Label)
                                         {
                                             inst.Opcode = Opcode.Load_lit_l;
                                             inst.Type = InstructionType.LabelArgOpcode;
                                             inst.StrArg = loadTok.Data;
-                                            inst.Trace = Trace.FromToken(instTok, loadTok);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref loadTok);
                                         }
                                         else if (loadTok.Type == TokenType.Register)
                                         {
@@ -636,17 +635,17 @@ namespace FastVM12Asm
                                                 if (instTok.GetLastChar() == 'l')
                                                     inst.Opcode = Opcode.Load_sp_l;
                                                 else inst.Opcode = Opcode.Load_sp;
-                                                inst.Trace = Trace.FromToken(instTok, loadTok);
+                                                inst.Trace = Trace.FromToken(ref instTok, ref loadTok);
                                             }
-                                            else Error(loadTok, "Can only load using the address at [SP]!");
+                                            else Error(ref loadTok, "Can only load using the address at [SP]!");
                                         }
                                         else if (loadTok.Type == TokenType.Char_litteral)
                                         {
-                                            if (instTok.GetLastChar() == 'l') Error(loadTok, "Cannot loadl a char litteral!");
+                                            if (instTok.GetLastChar() == 'l') Error(ref loadTok, "Cannot loadl a char litteral!");
                                             inst.Opcode = Opcode.Load_lit;
                                             inst.Type = InstructionType.WordArgOpcode;
                                             inst.Arg = loadTok.GetChar(1);
-                                            inst.Trace = Trace.FromToken(instTok, loadTok);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref loadTok);
                                         }
                                         else if (loadTok.Type == TokenType.String_litteral)
                                         {
@@ -656,13 +655,13 @@ namespace FastVM12Asm
                                             // We put the string ref here so that we can later get the label from a de-duplicated map
                                             inst.StrArg = loadTok.Data;
                                             inst.Opcode = Opcode.Load_lit_l;
-                                            inst.Trace = Trace.FromToken(instTok, loadTok);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref loadTok);
                                         }
-                                        else Error(loadTok, "Cannot load this!");
+                                        else Error(ref loadTok, "Cannot load this!");
                                     }
                                     else if (instTok.ContentsMatch("store") || instTok.ContentsMatch("storel"))
                                     {
-                                        var storeTok = Tokens.Dequeue();
+                                        ref var storeTok = ref Tokens.Dequeue();
                                         if (storeTok.Type == TokenType.Number_litteral)
                                         {
                                             // Here we are storing a local!
@@ -673,20 +672,20 @@ namespace FastVM12Asm
                                             inst.Type = InstructionType.WordArgOpcode;
 
                                             var (num, size) = storeTok.ParseNumber();
-                                            if (size > 1) Error(storeTok, "Local index too big!");
+                                            if (size > 1) Error(ref storeTok, "Local index too big!");
 
                                             inst.Arg = num;
-                                            inst.Trace = Trace.FromToken(instTok, storeTok);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref storeTok);
                                         }
                                         else if (storeTok.Type == TokenType.Numbersign)
                                         {
                                             // FIXME: This requires this loop to be able to output more than one instructions at the time!
                                             // Or that we implement a Store_lit and Store_lit_l instruction
-                                            Error(instTok, "Not implemented yet!");
+                                            Error(ref instTok, "Not implemented yet!");
 
                                             /**
                                             // FIXME! This will not work for constant expressions!
-                                            var litTok = Tokens.Dequeue();
+                                            var litTok = ref Tokens.Dequeue();
                                             if (litTok.Type == TokenType.Number_litteral)
                                             {
                                                 var (num, size) = litTok.ParseNumber();
@@ -694,13 +693,13 @@ namespace FastVM12Asm
 
                                                 if (instTok.GetLastChar() == 'l')
                                                 {
-                                                    if (size > 2) Error(litTok, "Number too big!");
+                                                    if (size > 2) Error(ref litTok, "Number too big!");
                                                     inst.Type = InstructionType.DwordArgOpcode;
                                                     //inst.Opcode = Opcode.Store_lit_l;
                                                 }
                                                 else
                                                 {
-                                                    if (size > 1) Error(litTok, "Number too big!");
+                                                    if (size > 1) Error(ref litTok, "Number too big!");
                                                     inst.Type = InstructionType.WordArgOpcode;
                                                     //inst.Opcode = Opcode.Store_lit;
                                                 }
@@ -708,9 +707,9 @@ namespace FastVM12Asm
                                             else if (litTok.Type == TokenType.Identifier)
                                             {
                                                 // FIXME
-                                                Error(instTok, "Not implemented yet!");
+                                                Error(ref instTok, "Not implemented yet!");
                                             }
-                                            else Error(litTok, "Unknown store token!");
+                                            else Error(ref litTok, "Unknown store token!");
 
                                             inst.Trace = Trace.FromToken(instTok, litTok);
                                             */
@@ -724,19 +723,19 @@ namespace FastVM12Asm
                                                     inst.Opcode = Opcode.Store_sp_l;
                                                 else inst.Opcode = Opcode.Store_sp;
 
-                                                inst.Trace = Trace.FromToken(instTok, storeTok);
+                                                inst.Trace = Trace.FromToken(ref instTok, ref storeTok);
                                             }
-                                            else Error(storeTok, "Can only store using the address at [SP]!");
+                                            else Error(ref storeTok, "Can only store using the address at [SP]!");
                                         }
-                                        else Error(storeTok, "Cannot store this!");
+                                        else Error(ref storeTok, "Cannot store this!");
                                     }
                                     else if (instTok.StartsWith("set") || instTok.StartsWith("lset"))
                                     {
                                         if (instTok.ContentsMatch("set"))
                                         {
                                             // Here we handle the 'set [SP]' and 'set [FP]' instructions
-                                            var regTok = Tokens.Dequeue();
-                                            if (regTok.Type != TokenType.Register) Error(regTok, "Must be either [SP] or [FP]!");
+                                            ref var regTok = ref Tokens.Dequeue();
+                                            if (regTok.Type != TokenType.Register) Error(ref regTok, "Must be either [SP] or [FP]!");
 
                                             if (regTok.ContentsMatch("[SP]"))
                                             {
@@ -748,9 +747,9 @@ namespace FastVM12Asm
                                                 inst.Type = InstructionType.RawOpcode;
                                                 inst.Opcode = Opcode.Set_fp;
                                             }
-                                            else Error(regTok, "Must be either [SP] or [FP]!");
+                                            else Error(ref regTok, "Must be either [SP] or [FP]!");
 
-                                            inst.Trace = Trace.FromToken(instTok, regTok);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref regTok);
                                         }
                                         else
                                         {
@@ -764,12 +763,12 @@ namespace FastVM12Asm
                                                     inst.Type = InstructionType.WordArgOpcode;
                                                     inst.Arg = (int)setarg.Value;
                                                     inst.Opcode = Opcode.Set;
-                                                    inst.Trace = Trace.FromToken(instTok);
+                                                    inst.Trace = Trace.FromToken(ref instTok);
                                                     break;
                                                 }
                                             }
 
-                                            if (found == false) Error(instTok, "Unknown set mode!");
+                                            if (found == false) Error(ref instTok, "Unknown set mode!");
                                         }
                                     }
                                     else if (instTok.StartsWith("j"))
@@ -786,29 +785,29 @@ namespace FastVM12Asm
                                                 inst.Opcode = Opcode.Jmp;
 
                                                 // Parse the jmp label
-                                                var labelTok = Tokens.Dequeue();
-                                                if (labelTok.Type != TokenType.Label) Error(labelTok, "Can only jump to labels!");
+                                                ref var labelTok = ref Tokens.Dequeue();
+                                                if (labelTok.Type != TokenType.Label) Error(ref labelTok, "Can only jump to labels!");
 
                                                 inst.StrArg = labelTok.Data;
 
-                                                inst.Trace = Trace.FromToken(instTok, labelTok);
+                                                inst.Trace = Trace.FromToken(ref instTok, ref labelTok);
                                                 break;
                                             }
                                         }
 
-                                        if (found == false) Error(instTok, "Unknown jump mode!");
+                                        if (found == false) Error(ref instTok, "Unknown jump mode!");
                                     }
                                     else if (instTok.ContentsMatch("inc") || instTok.ContentsMatch("linc") ||
                                         instTok.ContentsMatch("dec") || instTok.ContentsMatch("ldec"))
                                     {
-                                        var incPeek = Tokens.Peek();
+                                        ref var incPeek = ref Tokens.Peek();
                                         if (incPeek.Type == TokenType.Number_litteral)
                                         {
                                             // This is a inc_local inst
                                             Tokens.Dequeue();
 
                                             var (num, size) = incPeek.ParseNumber();
-                                            if (size > 1) Error(incPeek, "Local index too big!");
+                                            if (size > 1) Error(ref incPeek, "Local index too big!");
 
                                             inst.Type = InstructionType.WordArgOpcode;
                                             inst.Arg = num;
@@ -822,7 +821,7 @@ namespace FastVM12Asm
                                                     inst.Opcode = Opcode.Inc_local;
                                                 else inst.Opcode = Opcode.Dec_local;
                                             
-                                            inst.Trace = Trace.FromToken(instTok, incPeek);
+                                            inst.Trace = Trace.FromToken(ref instTok, ref incPeek);
                                         }
                                         else
                                         {
@@ -837,40 +836,40 @@ namespace FastVM12Asm
                                                     inst.Opcode = Opcode.Inc;
                                                 else inst.Opcode = Opcode.Dec;
 
-                                            inst.Trace = Trace.FromToken(instTok);
+                                            inst.Trace = Trace.FromToken(ref instTok);
                                         }
                                     }
                                     else if (instTok.ContentsMatch("ladd") && Tokens.Count > 0 && Tokens.Peek().Type == TokenType.Register)
                                     {
                                         // FIXME: Change the inst name so we don't have to do this!
-                                        var regTok = Tokens.Dequeue();
-                                        var constTok = Tokens.Dequeue();
+                                        ref var regTok = ref Tokens.Dequeue();
+                                        ref var constTok = ref Tokens.Dequeue();
                                         if (regTok.ContentsMatch("[SP]") == false || constTok.Type != TokenType.Numbersign)
                                         {
                                             // This is not the right thing...
                                             Tokens.Revert(2);
                                             inst.Type = InstructionType.RawOpcode;
                                             inst.Opcode = Opcode.Add_l;
-                                            inst.Trace = Trace.FromToken(instTok);
+                                            inst.Trace = Trace.FromToken(ref instTok);
                                         }
                                         else
                                         {
                                             // Here we parse an add_sp_lit_l instruction!
-                                            var litTok = Tokens.Dequeue();
+                                            ref var litTok = ref Tokens.Dequeue();
                                             if (litTok.Type == TokenType.Number_litteral)
                                             {
                                                 var (num, size) = litTok.ParseNumber();
                                                 inst.Arg = num;
 
-                                                if (size > 2) Error(litTok, "Number too big!");
+                                                if (size > 2) Error(ref litTok, "Number too big!");
                                                 inst.Type = InstructionType.DwordArgOpcode;
                                                 inst.Opcode = Opcode.Add_sp_lit_l;
 
-                                                inst.Trace = Trace.FromToken(instTok, litTok);
+                                                inst.Trace = Trace.FromToken(ref instTok, ref litTok);
                                             }
-                                            else if (litTok.Type == TokenType.Identifier) Error(litTok, "We don't do static analasys for this yet");
-                                            else if (litTok.Type == TokenType.Open_paren) Error(litTok, "We don't do static analasys for this yet");
-                                            else Error(litTok, "Must add a constant to the stack pointer!");
+                                            else if (litTok.Type == TokenType.Identifier) Error(ref litTok, "We don't do static analasys for this yet");
+                                            else if (litTok.Type == TokenType.Open_paren) Error(ref litTok, "We don't do static analasys for this yet");
+                                            else Error(ref litTok, "Must add a constant to the stack pointer!");
                                         }
                                     }
                                     else
@@ -883,7 +882,7 @@ namespace FastVM12Asm
                                                 found = true;
                                                 inst.Type = InstructionType.RawOpcode;
                                                 inst.Opcode = rawop.Value;
-                                                inst.Trace = Trace.FromToken(instTok);
+                                                inst.Trace = Trace.FromToken(ref instTok);
                                                 break;
                                             }
                                         }
@@ -895,9 +894,9 @@ namespace FastVM12Asm
                                                 // Here we guess that this is a constant that we want to resolve!
                                                 inst.Type = InstructionType.Identifier;
                                                 inst.StrArg = instTok.Data;
-                                                inst.Trace = Trace.FromToken(instTok);
+                                                inst.Trace = Trace.FromToken(ref instTok);
                                             }
-                                            else Error(instTok, "Unknown instruction!");
+                                            else Error(ref instTok, "Unknown instruction!");
                                         }
                                     }
                                 }
@@ -906,7 +905,7 @@ namespace FastVM12Asm
                                     // Here we assume we just want to output the number raw
                                     inst.Type = InstructionType.Number;
                                     inst.StrArg = instTok.Data;
-                                    inst.Trace = Trace.FromToken(instTok);
+                                    inst.Trace = Trace.FromToken(ref instTok);
                                 }
                                 else if (instTok.Type == TokenType.Register)
                                 {
@@ -919,8 +918,8 @@ namespace FastVM12Asm
                                         inst.Opcode = Opcode.Pt;
                                     else if (instTok.ContentsMatch("[SP]"))
                                         inst.Opcode = Opcode.Sp;
-                                    else Error(instTok, "Unknown register!");
-                                    inst.Trace = Trace.FromToken(instTok);
+                                    else Error(ref instTok, "Unknown register!");
+                                    inst.Trace = Trace.FromToken(ref instTok);
                                 }
                                 else if (instTok.Type == TokenType.Call)
                                 {
@@ -936,7 +935,7 @@ namespace FastVM12Asm
                                         inst.StrArg = instTok.Data.Substring(1);
                                     }
 
-                                    inst.Trace = Trace.FromToken(instTok);
+                                    inst.Trace = Trace.FromToken(ref instTok);
                                 }
                                 else if (instTok.Type == TokenType.Label)
                                 {
@@ -945,24 +944,24 @@ namespace FastVM12Asm
                                         inst.Type = InstructionType.LabelRef;
                                         // Remove the '*' at the end
                                         inst.StrArg = instTok.Data;
-                                        inst.Trace = Trace.FromToken(instTok);
+                                        inst.Trace = Trace.FromToken(ref instTok);
                                     }
                                     else
                                     {
                                         inst.Type = InstructionType.Label;
                                         inst.StrArg = instTok.Data;
-                                        inst.Trace = Trace.FromToken(instTok);
+                                        inst.Trace = Trace.FromToken(ref instTok);
                                     }
                                 }
                                 else if (instTok.Type == TokenType.String_litteral)
                                 {
-                                    if (ProcContent.Count > 0) Error(instTok, "A string label can only contain a string!");
+                                    if (ProcContent.Count > 0) Error(ref instTok, "A string label can only contain a string!");
 
                                     if (instTok.GetFirstChar() == '@')
                                         inst.Type = InstructionType.RawString;
                                     else inst.Type = InstructionType.String;
                                     inst.StrArg = instTok.Data;
-                                    inst.Trace = Trace.FromToken(instTok);
+                                    inst.Trace = Trace.FromToken(ref instTok);
 
                                     // FIXME: Generate an error if there are more things to add to this label!!!
                                 }
@@ -971,16 +970,16 @@ namespace FastVM12Asm
                                     inst.Type = InstructionType.RawWord;
                                     // FIXME: Char escapes!!
                                     inst.Arg = instTok.GetChar(1);
-                                    inst.Trace = Trace.FromToken(instTok);
+                                    inst.Trace = Trace.FromToken(ref instTok);
                                 }
                                 else if (instTok.Type == TokenType.Numbersign)
                                 {
                                     // This is a constant that we should eval!
-                                    var litTok = Tokens.Dequeue();
+                                    ref var litTok = ref Tokens.Dequeue();
                                     if (litTok.Type == TokenType.Identifier)
                                     {
                                         // This is just a const that we want to eval!
-                                        Error(litTok, "We don't support raw constants yet!");
+                                        Error(ref litTok, "We don't support raw constants yet!");
                                     }
                                     else if (litTok.Type == TokenType.Open_paren)
                                     {
@@ -991,11 +990,11 @@ namespace FastVM12Asm
                                         inst.Type = InstructionType.ConstExpr;
                                         inst.ConstantArg = expr;
 
-                                        inst.Trace = Trace.FromToken(instTok, litTok);
+                                        inst.Trace = Trace.FromToken(ref instTok, ref litTok);
                                     }
-                                    else Error(litTok, $"Unknown constant type {litTok.Type}!! ");
+                                    else Error(ref litTok, $"Unknown constant type {litTok.Type}!! ");
                                 }
-                                else Error(instTok, "Unknown instruction type!");
+                                else Error(ref instTok, "Unknown instruction type!");
 
                                 if (inst.Trace.FilePath == null || inst.Trace.FileData == null) Debugger.Break();
 
@@ -1015,7 +1014,7 @@ namespace FastVM12Asm
                             break;
                         }
                     default:
-                        Error(tok, "Unknown token!");
+                        Error(ref tok, "Unknown token!");
                         break;
                 }
             }
@@ -1023,7 +1022,7 @@ namespace FastVM12Asm
             return new ParsedFile(File, Flags, IncludeFiles, ConstExprs, Procs, ProcLocations, AutoStrings);
         }
 
-        private ConstantExpression ParseConstExpr(TokenQueue Tokens)
+        private ConstantExpression ParseConstExpr(RefQueue<Token> Tokens)
         {
             // This will only parse the expression part of the constant
             ConstantExpression constExpr = new ConstantExpression();
@@ -1071,20 +1070,20 @@ namespace FastVM12Asm
                 constExpr.Type = ConstantExprType.Auto;
 
                 var openParenPeek = Tokens.Peek();
-                if (openParenPeek.Type != TokenType.Open_paren) Error(openParenPeek, "Expected '('!");
+                if (openParenPeek.Type != TokenType.Open_paren) Error(ref openParenPeek, "Expected '('!");
 
                 ConstantExpression autoExpr = ParseConstExpr(Tokens);
                 constExpr.AutoExpr = autoExpr;
             }
-            else Error(peek, "Unknown constant type!");
+            else Error(ref peek, "Unknown constant type!");
 
             return constExpr;
         }
 
-        private ConstantExpression ParseCompoundConst(TokenQueue Tokens)
+        private ConstantExpression ParseCompoundConst(RefQueue<Token> Tokens)
         {
-            var openTok = Tokens.Dequeue();
-            if (openTok.Type != TokenType.Open_paren) Error(openTok, "Exprected '('!");
+            ref var openTok = ref Tokens.Dequeue();
+            if (openTok.Type != TokenType.Open_paren) Error(ref openTok, "Exprected '('!");
 
             ConstantExpression expr = new ConstantExpression();
             expr.Type = ConstantExprType.Compound;
@@ -1098,50 +1097,50 @@ namespace FastVM12Asm
                 delayed |= element.Type == CompoundType.Sizeof || element.Type == CompoundType.LabelRef;
             }
             
-            var closeTok = Tokens.Dequeue();
+            ref var closeTok = ref Tokens.Dequeue();
 
             expr.Delayed = delayed;
-            expr.Trace = Trace.FromToken(openTok, closeTok);
+            expr.Trace = Trace.FromToken(ref openTok, ref closeTok);
 
             return expr;
         }
 
-        private CompoundElement ParseCompoundElement(TokenQueue Tokens)
+        private CompoundElement ParseCompoundElement(RefQueue<Token> Tokens)
         {
             CompoundElement element = default;
-            var tok = Tokens.Dequeue();
+            ref var tok = ref Tokens.Dequeue();
             switch (tok.Type)
             {
                 case TokenType.Numbersign:
                     // We just ignore the numbersing and try parsing again
                     element = ParseCompoundElement(Tokens);
                     // FIXME: This is ugly
-                    element.Trace = Trace.FromTrace(Trace.FromToken(tok), element.Trace);
+                    element.Trace = Trace.FromTrace(Trace.FromToken(ref tok), element.Trace);
                     break;
                 case TokenType.Asterisk:
                     element.Type = CompoundType.Operation;
                     element.Operation = ConstOperation.Multiplication;
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 case TokenType.Plus:
                     element.Type = CompoundType.Operation;
                     element.Operation = ConstOperation.Addition;
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 case TokenType.Minus:
                     element.Type = CompoundType.Operation;
                     element.Operation = ConstOperation.Subtraction;
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 case TokenType.Slash:
                     element.Type = CompoundType.Operation;
                     element.Operation = ConstOperation.Division;
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 case TokenType.Percent:
                     element.Type = CompoundType.Operation;
                     element.Operation = ConstOperation.Modulo;
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 case TokenType.Identifier:
                     // Identifier here can be special things like sizeof
@@ -1149,42 +1148,42 @@ namespace FastVM12Asm
                     {
                         element.Type = CompoundType.Sizeof;
 
-                        var openTok = Tokens.Dequeue();
-                        if (openTok.Type != TokenType.Open_paren) Error(openTok, "Expected '(' after sizeof");
+                        ref var openTok = ref Tokens.Dequeue();
+                        if (openTok.Type != TokenType.Open_paren) Error(ref openTok, "Expected '(' after sizeof");
 
-                        var labelTok = Tokens.Dequeue();
-                        if (labelTok.Type != TokenType.Label) Error(labelTok, "Expected label in sizeof!");
+                        ref var labelTok = ref Tokens.Dequeue();
+                        if (labelTok.Type != TokenType.Label) Error(ref labelTok, "Expected label in sizeof!");
                         element.StringRef = labelTok.Data;
 
-                        var closeTok = Tokens.Dequeue();
-                        if (closeTok.Type != TokenType.Close_paren) Error(closeTok, "Expected ')'");
+                        ref var closeTok = ref Tokens.Dequeue();
+                        if (closeTok.Type != TokenType.Close_paren) Error(ref closeTok, "Expected ')'");
 
-                        element.Trace = Trace.FromToken(tok, closeTok);
+                        element.Trace = Trace.FromToken(ref tok, ref closeTok);
                     }
                     else
                     {
                         element.Type = CompoundType.Ident;
                         element.StringRef = tok.Data;
-                        element.Trace = Trace.FromToken(tok);
+                        element.Trace = Trace.FromToken(ref tok);
                     }
                     break;
                 case TokenType.Label:
                     element.Type = CompoundType.LabelRef;
                     element.StringRef = tok.Data;
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 case TokenType.Number_litteral:
                     element.Type = CompoundType.NumberLitteral;
                     element.NumberLit = tok.ParseNumber();
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 case TokenType.Char_litteral:
                     element.Type = CompoundType.CharLitteral;
                     element.CharLit = tok.GetChar(1);
-                    element.Trace = Trace.FromToken(tok);
+                    element.Trace = Trace.FromToken(ref tok);
                     break;
                 default:
-                    Error(tok, $"Unknown compound constant token: '{tok}'");
+                    Error(ref tok, $"Unknown compound constant token: '{tok}'");
                     break;
             }
 

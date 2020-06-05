@@ -42,9 +42,10 @@
             this.debuggerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.profilerToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.memoryToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.soundDebugToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.refreshTimer = new System.Windows.Forms.Timer(this.components);
             this.pbxMain = new Util.ExtendedPictureBox();
-            this.soundDebugToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.gpuInstructionFrequencyToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbxMain)).BeginInit();
             this.SuspendLayout();
@@ -72,14 +73,14 @@
             // openToolStripMenuItem
             // 
             this.openToolStripMenuItem.Name = "openToolStripMenuItem";
-            this.openToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
+            this.openToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
             this.openToolStripMenuItem.Text = "Open";
             this.openToolStripMenuItem.Click += new System.EventHandler(this.openToolStripMenuItem_Click);
             // 
             // stopToolStripMenuItem
             // 
             this.stopToolStripMenuItem.Name = "stopToolStripMenuItem";
-            this.stopToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
+            this.stopToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
             this.stopToolStripMenuItem.Text = "Stop";
             this.stopToolStripMenuItem.Click += new System.EventHandler(this.stopToolStripMenuItem_Click);
             // 
@@ -94,7 +95,8 @@
             this.debuggerToolStripMenuItem,
             this.profilerToolStripMenuItem,
             this.memoryToolStripMenuItem,
-            this.soundDebugToolStripMenuItem});
+            this.soundDebugToolStripMenuItem,
+            this.gpuInstructionFrequencyToolStripMenuItem});
             this.developerToolStripMenuItem.Name = "developerToolStripMenuItem";
             this.developerToolStripMenuItem.Size = new System.Drawing.Size(72, 20);
             this.developerToolStripMenuItem.Text = "Developer";
@@ -155,6 +157,13 @@
             this.memoryToolStripMenuItem.Text = "Memory";
             this.memoryToolStripMenuItem.Click += new System.EventHandler(this.memoryToolStripMenuItem_Click);
             // 
+            // soundDebugToolStripMenuItem
+            // 
+            this.soundDebugToolStripMenuItem.Name = "soundDebugToolStripMenuItem";
+            this.soundDebugToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.soundDebugToolStripMenuItem.Text = "Sound Debug";
+            this.soundDebugToolStripMenuItem.Click += new System.EventHandler(this.soundDebugToolStripMenuItem_Click);
+            // 
             // refreshTimer
             // 
             this.refreshTimer.Enabled = true;
@@ -179,12 +188,12 @@
             this.pbxMain.MouseMove += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseMove);
             this.pbxMain.MouseUp += new System.Windows.Forms.MouseEventHandler(this.pbxMain_MouseUp);
             // 
-            // soundDebugToolStripMenuItem
+            // gpuInstructionFrequencyToolStripMenuItem
             // 
-            this.soundDebugToolStripMenuItem.Name = "soundDebugToolStripMenuItem";
-            this.soundDebugToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
-            this.soundDebugToolStripMenuItem.Text = "Sound Debug";
-            this.soundDebugToolStripMenuItem.Click += new System.EventHandler(this.soundDebugToolStripMenuItem_Click);
+            this.gpuInstructionFrequencyToolStripMenuItem.Name = "gpuInstructionFrequencyToolStripMenuItem";
+            this.gpuInstructionFrequencyToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.gpuInstructionFrequencyToolStripMenuItem.Text = "Gpu Instruction Frequency";
+            this.gpuInstructionFrequencyToolStripMenuItem.Click += new System.EventHandler(this.gpuInstructionFrequencyToolStripMenuItem_Click);
             // 
             // VM12Form
             // 
@@ -230,6 +239,7 @@
         private System.Windows.Forms.ToolStripMenuItem profilerToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem memoryToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem soundDebugToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem gpuInstructionFrequencyToolStripMenuItem;
     }
 }
 

@@ -150,7 +150,7 @@ namespace FastVM12Asm
             Console.ForegroundColor = ConsoleColor.White;
             // FIXME:
             //Console.WriteLine($"In file {Path.GetFileName(File.Path)} on line {tok.Line} character {tok.LineCharIndex}: '{tok.GetContents()}'");
-            Console.WriteLine($"Inst: {inst}, Type: {inst.Type} {inst.Opcode} '{inst.StrArg.ToString()}'");
+            Console.WriteLine($"Inst: {inst}, Type: {inst.Type} {inst.Opcode} '{inst.StrArg}'");
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"    {error}");
             //Debugger.Break();
@@ -382,7 +382,7 @@ namespace FastVM12Asm
                         else if (inst.Type == InstructionType.Identifier)
                         {
                             if (LocalEvaluatedConstants.TryGetValue(inst.StrArg, out var evalConst) == false)
-                                Error(inst, $"Could not find constant '{inst.StrArg.ToString()}'!");
+                                Error(inst, $"Could not find constant '{inst.StrArg}'!");
 
                             if (evalConst.IsString) Error(inst, "Cannot load a string here!!");
 

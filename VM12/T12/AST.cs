@@ -2351,7 +2351,7 @@ namespace T12
         {
             // FIXME!!! Check negative values too!!
             // FIXME!!!! Make a proper check here!!!
-            Console.WriteLine("FIXME!!!! Make a proper ASTWordLitteral.From overflow check here!!!");
+            //Console.WriteLine("FIXME!!!! Make a proper ASTWordLitteral.From overflow check here!!!");
             /*if (value > WORD_MAX_SIGNED_VALUE)
             {
                 Emitter.Fail(trace, $"The value '{value}' does not fit in a word!");
@@ -4127,7 +4127,7 @@ namespace T12
 
         public override string ToString()
         {
-            return $"{base.ToString()}<...>";
+            return $"{base}<...>";
         }
     }
 

@@ -761,7 +761,7 @@ namespace VM12Asm
 
                 if (Path.GetExtension(fi.FullName) == ".t12")
                 {
-                    void HandleMessage(T12.Compiler.MessageData data)
+                    static void HandleMessage(T12.Compiler.MessageData data)
                     {
                         switch (data.Level)
                         {
@@ -1288,7 +1288,7 @@ namespace VM12Asm
         public static string[] PreProcess(string[] lines, string fileName)
         {
             // FIXME: This feels very slow and does a lot of allocations!!!
-            string RemoveCommnents(string removeCommentLine)
+            static string RemoveCommnents(string removeCommentLine)
             {
                 string noCommentLine;
 
@@ -1598,7 +1598,7 @@ namespace VM12Asm
                 {
                     if (char.IsWhiteSpace(line, 0))
                     {
-                        string[] SplitNotStringsOrLitterals(string input, char[] chars)
+                        static string[] SplitNotStringsOrLitterals(string input, char[] chars)
                         {
                             return Regex.Matches(input, @"(@?[\""].*?[\""]|'.'|#?\(.*\))|[^ ]+")
                                 .Cast<Match>()
@@ -1734,7 +1734,7 @@ namespace VM12Asm
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine("An executable needs to contain a :start proc!");
                 success = false;
-                return default(LibFile);
+                return default;
             }
 
             Dictionary<string, Dictionary<string, Constant>> fileConstants = files.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Constants);

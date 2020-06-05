@@ -21,7 +21,7 @@ namespace FastVM12Asm
         public override string ToString() => $"FileData{{{Path}}}";
     }
     
-    public enum TokenType
+    public enum TokenType : byte
     {
         Invalid,
         // This means that there was a tab at the start of the line!
@@ -63,7 +63,7 @@ namespace FastVM12Asm
     // But it might be faster to flag it here
     // But in reality this is C# and this kindof wont matter here
     [Flags]
-    public enum TokenFlag
+    public enum TokenFlag : byte
     {
         None = 0,
         Hexadecimal = 1 << 1,
@@ -74,9 +74,9 @@ namespace FastVM12Asm
 
     public struct Token : IEquatable<Token>
     {
+        public StringRef Data;
         public TokenType Type;
         public TokenFlag Flags;
-        public StringRef Data;
 
         public string Path;
         public int Line;
@@ -281,26 +281,27 @@ namespace FastVM12Asm
 
         private bool DisableStartTabInsertion = false;
 
-        public List<Token> Tokens = new List<Token>();
+        public RefList<Token> Tokens = new RefList<Token>();
 
         public Tokenizer(string path)
         {
             CurrentFile = new FileData
             {
                 Path = path,
-                Data = System.IO.File.ReadAllText(path)
+                Data = File.ReadAllText(path)
             };
             Data = CurrentFile.Data;
             Index = 0;
             Line = 1;
-            Tokens = new List<Token>(10000);
+            Tokens = new RefList<Token>(1000);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int GetLines() => Line;
 
-        public List<Token> Tokenize()
+        public RefList<Token> Tokenize(bool includeComments = false)
         {
+            Token DummyToken = new Token();
             while (HasNext())
             {
                 // First we eat all whitespace
@@ -314,59 +315,59 @@ namespace FastVM12Asm
                 switch (Peek())
                 {
                     case '<':
-                        Tokens.Add(CreateToken(TokenType.Open_angle, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Open_angle, Index, 1);
                         Next();
                         break;
                     case '>':
-                        Tokens.Add(CreateToken(TokenType.Close_angle, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Close_angle, Index, 1);
                         Next();
                         break;
                     case '(':
-                        Tokens.Add(CreateToken(TokenType.Open_paren, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Open_paren, Index, 1);
                         Next();
                         break;
                     case ')':
-                        Tokens.Add(CreateToken(TokenType.Close_paren, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Close_paren, Index, 1);
                         Next();
                         break;
                     case '=':
-                        Tokens.Add(CreateToken(TokenType.Equals, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Equals, Index, 1);
                         Next();
                         break;
                     case '&':
-                        Tokens.Add(CreateToken(TokenType.And, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.And, Index, 1);
                         Next();
                         break;
                     case ',':
-                        Tokens.Add(CreateToken(TokenType.Comma, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Comma, Index, 1);
                         Next();
                         break;
                     case '#':
-                        Tokens.Add(CreateToken(TokenType.Numbersign, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Numbersign, Index, 1);
                         Next();
                         break;
                     case '*':
-                        Tokens.Add(CreateToken(TokenType.Asterisk, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Asterisk, Index, 1);
                         Next();
                         break;
                     case '/':
-                        Tokens.Add(CreateToken(TokenType.Slash, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Slash, Index, 1);
                         Next();
                         break;
                     case '%':
-                        Tokens.Add(CreateToken(TokenType.Percent, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Percent, Index, 1);
                         Next();
                         break;
                     case '+':
-                        Tokens.Add(CreateToken(TokenType.Plus, Index, 1));
+                        CreateToken(ref Tokens.Add(), TokenType.Plus, Index, 1);
                         Next();
                         break;
                     case '-':
                         if (IsInCharCategory(Peek(2), Number))
-                            Tokens.Add(ReadNumber());
+                            ReadNumber(ref Tokens.Add());
                         else
                         {
-                            Tokens.Add(CreateToken(TokenType.Minus, Index, 1));
+                            CreateToken(ref Tokens.Add(), TokenType.Minus, Index, 1);
                             Next();
                         }
                         break;
@@ -374,11 +375,11 @@ namespace FastVM12Asm
                         // We know this must be a label or a function call!
                         if (Peek(2) == ':')
                             // This is a call
-                            Tokens.Add(ReadCall());
+                            ReadCall(ref Tokens.Add());
                         else
                         {
                             // This is a label
-                            Tokens.Add(ReadLabel());
+                            ReadLabel(ref Tokens.Add());
                             // FIXME: Lookahead and see if there is a '@' for specially placed procs!
 
                             if (Tokens.Count > 2 && Tokens[Tokens.Count - 2].Type != TokenType.StartOfLineTab)
@@ -386,35 +387,35 @@ namespace FastVM12Asm
                                 // If this is doesn't have a tab at the start we check if we need to parse a location
                                 ConsumeWhitespaceNoNewline();
                                 if (Peek() == '@')
-                                    Tokens.Add(ReadLabelLocation());
+                                    ReadLabelLocation(ref Tokens.Add());
                             }
                         }
                         break;
                     case '!':
-                        Tokens.Add(ReadFlag());
+                        ReadFlag(ref Tokens.Add());
                         break;
                     case '@': // We currently use @ to prefix a raw string
                     case '"':
                         // This is a string lit!
-                        Tokens.Add(ReadString());
+                        ReadString(ref Tokens.Add());
                         break;
                     case '\'':
                         // This is a char lit
-                        Tokens.Add(ReadChar());
+                        ReadChar(ref Tokens.Add());
                         break;
                     case ';':
                         // This is a comment!
-                        Tokens.Add(ReadComment());
+                        ReadComment(ref includeComments ? ref Tokens.Add() : ref DummyToken);
                         break;
                     case '[':
-                        Tokens.Add(ReadRegister());
+                        ReadRegister(ref Tokens.Add());
                         break;
                     default:
                         // Here we need to do idents, instructions and numbers!
                         if (IsValidFirstIdentChar(Peek()))
-                            Tokens.Add(ReadIdent());
+                            ReadIdent(ref Tokens.Add());
                         else if (IsNext(Number))
-                            Tokens.Add(ReadNumber());
+                            ReadNumber(ref Tokens.Add());
                         else
                             Error($"Got unknown char '{Peek()}'");
                         break;
@@ -429,34 +430,28 @@ namespace FastVM12Asm
         }
 
         // This is used for multi-line tokens...
-        private Token CreateToken(TokenType type, int start, int length, int line, TokenFlag flags = TokenFlag.None)
+        private void CreateToken(ref Token tok, TokenType type, int start, int length, int line, TokenFlag flags = TokenFlag.None)
         {
-            return new Token
-            {
-                Type = type,
-                Flags = flags,
-                Data = new StringRef(CurrentFile.Data, start, length),
-                Path = CurrentFile.Path,
-                Line = line,
-                // FIXME!!!
-                LineCharIndex = start - LineStart,
-            };
+            tok.Type = type;
+            tok.Flags = flags;
+            tok.Data = new StringRef(CurrentFile.Data, start, length);
+            tok.Path = CurrentFile.Path;
+            tok.Line = line;
+            // FIXME!!!
+            tok.LineCharIndex = start - LineStart;
         }
 
-        private Token CreateToken(TokenType type, int start, int length, TokenFlag flags = TokenFlag.None)
+        private void CreateToken(ref Token tok, TokenType type, int start, int length, TokenFlag flags = TokenFlag.None)
         {
-            return new Token
-            {
-                Type = type,
-                Flags = flags,
-                Data = new StringRef(CurrentFile.Data, start, length),
-                Path = CurrentFile.Path,
-                Line = Line,
-                LineCharIndex = start - LineStart,
-            };
+            tok.Type = type;
+            tok.Flags = flags;
+            tok.Data = new StringRef(CurrentFile.Data, start, length);
+            tok.Path = CurrentFile.Path;
+            tok.Line = Line;
+            tok.LineCharIndex = start - LineStart;
         }
 
-        private Token ReadRegister()
+        private void ReadRegister(ref Token tok)
         {
             int start = Index;
 
@@ -467,10 +462,10 @@ namespace FastVM12Asm
 
             if (Expect(']') == false) Error("Expected ']'!");
 
-            return CreateToken(TokenType.Register, start, Index - start);
+            CreateToken(ref tok, TokenType.Register, start, Index - start);
         }
 
-        private Token ReadChar()
+        private void ReadChar(ref Token tok)
         {
             int start = Index;
 
@@ -482,10 +477,10 @@ namespace FastVM12Asm
 
             if (Expect('\'') == false) Error("Expected '\''");
 
-            return CreateToken(TokenType.Char_litteral, start, Index - start);
+            CreateToken(ref tok, TokenType.Char_litteral, start, Index - start);
         }
 
-        private Token ReadString()
+        private void ReadString(ref Token tok)
         {
             int start = Index;
 
@@ -507,20 +502,20 @@ namespace FastVM12Asm
 
             if (Expect('"') == false) Error("Expected '\"' at the end of the string!");
 
-            return CreateToken(TokenType.String_litteral, start, Index - start);
+            CreateToken(ref tok, TokenType.String_litteral, start, Index - start);
         }
 
-        private Token ReadFlag()
+        private void ReadFlag(ref Token tok)
         {
             int start = Index;
             if (Expect('!') == false) Error("Expected '!'");
 
             ExpectName();
 
-            return CreateToken(TokenType.Flag, start, Index - start);
+            CreateToken(ref tok, TokenType.Flag, start, Index - start);
         }
 
-        private Token ReadCall()
+        private void ReadCall(ref Token tok)
         {
             int start = Index;
 
@@ -529,10 +524,10 @@ namespace FastVM12Asm
             if (Peek() == '[') Expect("[SP]");
             else ExpectName();
 
-            return CreateToken(TokenType.Call, start, Index - start);
+            CreateToken(ref tok, TokenType.Call, start, Index - start);
         }
 
-        private Token ReadLabel()
+        private void ReadLabel(ref Token tok)
         {
             int start = Index;
 
@@ -543,10 +538,10 @@ namespace FastVM12Asm
             // This is for label references
             Expect('*');
 
-            return CreateToken(TokenType.Label, start, Index - start);
+            CreateToken(ref tok, TokenType.Label, start, Index - start);
         }
 
-        private Token ReadLabelLocation()
+        private void ReadLabelLocation(ref Token tok)
         {
             int start = Index;
 
@@ -557,10 +552,10 @@ namespace FastVM12Asm
 
             if (char.IsLetterOrDigit(Peek())) Error($"Could not parse number! '{CurrentFile.Data.Substring(start, (Index + 1) - start)}'");
 
-            return CreateToken(TokenType.ProcLocation, start, Index - start, flags);
+            CreateToken(ref tok, TokenType.ProcLocation, start, Index - start, flags);
         }
 
-        private Token ReadComment()
+        private void ReadComment(ref Token tok)
         {
             int start = Index;
 
@@ -570,19 +565,19 @@ namespace FastVM12Asm
             // We could have something like ExpectNotNewLine() or something
             while (IsNextNewLine() == false) Next();
 
-            return CreateToken(TokenType.Comment, start, Index - start);
+            CreateToken(ref tok, TokenType.Comment, start, Index - start);
         }
 
-        private Token ReadIdent()
+        private void ReadIdent(ref Token tok)
         {
             int Start = Index;
 
             ExpectName();
 
-            return CreateToken(TokenType.Identifier, Start, Index - Start);
+            CreateToken(ref tok, TokenType.Identifier, Start, Index - Start);
         }
         
-        private Token ReadNumber()
+        private void ReadNumber(ref Token tok)
         {
             int start = Index;
             int startLine = Line;
@@ -591,7 +586,7 @@ namespace FastVM12Asm
 
             if (char.IsLetterOrDigit(Peek())) Error($"Could not parse number! '{CurrentFile.Data.Substring(start, (Index + 1) - start)}'");
 
-            return CreateToken(TokenType.Number_litteral, start, Index - start, startLine, flags);
+            CreateToken(ref tok, TokenType.Number_litteral, start, Index - start, startLine, flags);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -633,7 +628,7 @@ namespace FastVM12Asm
 
             // If we haven't disabled it and the new line is followed by a tab we insert a start of line tab token
             if (DisableStartTabInsertion == false && HasNext() && Peek() == '\t')
-                Tokens.Add(CreateToken(TokenType.StartOfLineTab, Index, 1));
+                CreateToken(ref Tokens.Add(), TokenType.StartOfLineTab, Index, 1);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

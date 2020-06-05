@@ -2,9 +2,9 @@
 {
     public static class Constants
     {
-        public const int RAM_SIZE = 10_479_616; // before gram: 10_485_760 before sndram: 10_483_712
+        public const int RAM_SIZE = 10_416_128; // before gram: 10_485_760 before sndram: 10_483_712 before gram extension: 10_479_616
         public const int SNDRAM_SIZE = 4096;
-        public const int GRAM_SIZE = 2048;
+        public const int GRAM_SIZE = 65_536;
         public const int VRAM_SIZE = 307_200;
         public const int ROM_SIZE = 5_984_256;
 
@@ -87,14 +87,18 @@
         Line = 10,
         Rectangle = 11,
         Ellipse = 12,
-        Fontchar = 13,
-        TrueColorSprite = 14,
-        PalettedSprite = 15,
-        Fontchar_Mask = 16,
-        TrueColorSprite_Mask = 17,
-        PalettedSprite_Mask = 18,
-        FontcharBuffer = 19,
-        FontcharBufferColor = 20,
+
+        Fontchar = 20,
+        FontcharBg = 21,
+        FontcharMask = 22,
+        FontcharBuffer = 23,
+        FontcharBufferColor = 24,
+        FontcharBufferColorBg = 25,
+
+        TrueColorSprite = 30,
+        PalettedSprite = 31,
+        TrueColorSprite_Mask = 32,
+        PalettedSprite_Mask = 33,
     }
 
     public enum Opcode : int

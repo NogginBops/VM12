@@ -213,7 +213,23 @@ namespace T12
             */
 
             // FIXME!! We need to be able to get the index of a specific type!
-            
+
+            // FIXME: This is needed to allow fast12asm run without the need for the t12 compiler to run too.
+            if (ReferencedTypes == null)
+                return @"!noprintout
+!global
+
+<type_map_entries = 0>
+<type_map_strings_length = 0>
+<type_map_length = 0>
+
+:__types__
+    0
+
+:__type_names__
+	@""""
+";
+
             var indexList = new List<ASTType>(ReferencedTypes);
 
             // FIXME: We don't want to have a special case for generic structs!

@@ -9,6 +9,9 @@ using VM12Opcode;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
+using System.Reflection.Emit;
+using System.Numerics;
+using System.Windows.Forms;
 
 namespace VM12
 {
@@ -287,7 +290,7 @@ namespace VM12
 
         public long[] instructionFreq = new long[Enum.GetValues(typeof(Opcode)).Length];
 
-        public long[] instructionTimes = new long[Enum.GetValues(typeof(Opcode)).Length];
+        public long[] gpuInstructionFreq = new long[Enum.GetValues(typeof(GrapicOps)).Cast<int>().Max() + 1];
 
         public long[] romInstructionCounter = new long[MEM_SIZE];
 
@@ -2040,7 +2043,7 @@ namespace VM12
 
         public const int CHAR_WIDTH = 8;
         public const int CHAR_HEIGHT = 12;
-        
+
         public void StartGraphicsCoProssessor()
         {
             // We start executing instructions
@@ -2059,7 +2062,11 @@ namespace VM12
                     }
 
                     GrapicOps gOp = (GrapicOps) mem[GP];
-                    
+
+#if DEBUG
+                    gpuInstructionFreq[(int)gOp]++;
+#endif
+
                     switch (gOp)
                     {
                         case GrapicOps.Nop:
@@ -2112,6 +2119,7 @@ namespace VM12
                             }
                         case GrapicOps.Ellipse:
                             throw new NotImplementedException();
+
                         case GrapicOps.Fontchar:
                             {
                                 int color = mem[GP + 1];
@@ -2152,111 +2160,45 @@ namespace VM12
                                 GP += 6;
                                 break;
                             }
-                        case GrapicOps.TrueColorSprite:
-                            throw new NotImplementedException();
-                        case GrapicOps.PalettedSprite:
+                        case GrapicOps.FontcharBg:
                             {
-                                int vram_addr = mem[GP + 1] << 12 | mem[GP + 2];
-                                int sprite = mem[GP + 3] << 12 | mem[GP + 4];
-                                int palette = mem[GP + 5] << 12 | mem[GP + 6];
-                                int stride = mem[GP + 7];
-                                int width = mem[GP + 8];
-                                int height = mem[GP + 9];
+                                int color = mem[GP + 1];
+                                int bg_color = mem[GP + 2];
+                                int char_addr = mem[GP + 3] << 12 | mem[GP + 4];
+                                int vram_addr = mem[GP + 5] << 12 | mem[GP + 6];
                                 
-                                // stride must be a multiple of 3
-                                if (stride % 3 != 0)
+                                if (vram_addr < VRAM_START || vram_addr >= ROM_START)
                                 {
-                                    throw new InvalidOperationException();
-                                }
-                                
-                                for (int y = 0; y < height; y++)
-                                {
-                                    int sprite_data;
-                                    for (int x = 0; x < width / 3; x++)
-                                    {
-                                        sprite_data = mem[sprite++];
-
-                                        mem[vram_addr++] = mem[palette + ((sprite_data >> 8) & 0xF)];
-                                        mem[vram_addr++] = mem[palette + ((sprite_data >> 4) & 0xF)];
-                                        mem[vram_addr++] = mem[palette + (sprite_data & 0xF)];
-                                    }
-
-                                    // Draw the horizontal pixels not on a 3 multiple boundrary
-                                    for (int i = 0; i < width % 3; i++)
-                                    {
-                                        sprite_data = mem[sprite++];
-                                        mem[vram_addr++] = mem[palette + ((sprite_data >> ((1 - i) * 4)) & 0xFF)];
-                                    }
-                                    
-                                    // The the rest of the stride
-                                    sprite += (stride / 3) - ((width + 2) / 3);
-                                    vram_addr += SCREEN_WIDTH - width;
+                                    Debugger.Break();
                                 }
 
-                                GP += 10;
+                                
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    char_data[i] = mem[char_addr + i];
+                                }
+
+                                int mask = 0x800;
+                                for (int i = 0; i < 12; i++)
+                                {
+                                    mem[vram_addr + 0] = (char_data[0] & mask) != 0 ? color : bg_color;
+                                    mem[vram_addr + 1] = (char_data[1] & mask) != 0 ? color : bg_color;
+                                    mem[vram_addr + 2] = (char_data[2] & mask) != 0 ? color : bg_color;
+                                    mem[vram_addr + 3] = (char_data[3] & mask) != 0 ? color : bg_color;
+                                    mem[vram_addr + 4] = (char_data[4] & mask) != 0 ? color : bg_color;
+                                    mem[vram_addr + 5] = (char_data[5] & mask) != 0 ? color : bg_color;
+                                    mem[vram_addr + 6] = (char_data[6] & mask) != 0 ? color : bg_color;
+                                    mem[vram_addr + 7] = (char_data[7] & mask) != 0 ? color : bg_color;
+
+                                    vram_addr += SCREEN_WIDTH;
+                                    mask >>= 1;
+                                }
+
+                                GP += 7;
                                 break;
                             }
-                        case GrapicOps.Fontchar_Mask:
+                        case GrapicOps.FontcharMask:
                             throw new NotImplementedException();
-                        case GrapicOps.TrueColorSprite_Mask:
-                            throw new NotImplementedException();
-                        case GrapicOps.PalettedSprite_Mask:
-                            {
-                                int vram_addr = mem[GP + 1] << 12 | mem[GP + 2];
-                                int sprite = mem[GP + 3] << 12 | mem[GP + 4];
-                                int palette = mem[GP + 5] << 12 | mem[GP + 6];
-                                int mask = mem[GP + 7] << 12 | mem[GP + 8];
-                                int stride = mem[GP + 9];
-                                int width = mem[GP + 10];
-                                int height = mem[GP + 11];
-
-                                // stride must be a multiple of 3
-                                if (stride % 3 != 0)
-                                {
-                                    throw new InvalidOperationException();
-                                }
-
-                                int mask_counter = 0;
-                                for (int y = 0; y < height; y++)
-                                {
-                                    int sprite_data;
-                                    for (int x = 0; x < width / 3; x++)
-                                    {
-                                        sprite_data = mem[sprite++];
-
-                                        mem[vram_addr] = 
-                                            ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
-                                            mem[vram_addr] : mem[palette + ((sprite_data >> 8) & 0xF)];
-                                        mask_counter++;
-                                        vram_addr++;
-                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
-                                            mem[vram_addr] : mem[palette + ((sprite_data >> 4) & 0xF)];
-                                        mask_counter++;
-                                        vram_addr++;
-                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
-                                            mem[vram_addr] : mem[palette + (sprite_data & 0xF)];
-                                        mask_counter++;
-                                        vram_addr++;
-                                    }
-
-                                    // Draw the horizontal pixels not on a 3 multiple boundrary
-                                    for (int i = 0; i < width % 3; i++)
-                                    {
-                                        sprite_data = mem[sprite++];
-                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
-                                            mem[vram_addr] : mem[palette + ((sprite_data >> ((1 - i) * 4)) & 0xFF)];
-                                        mask_counter++;
-                                        vram_addr++;
-                                    }
-
-                                    // The the rest of the stride
-                                    sprite += (stride / 3) - ((width + 2) / 3);
-                                    vram_addr += SCREEN_WIDTH - width;
-                                }
-
-                                GP += 12;
-                                break;
-                            }
                         case GrapicOps.FontcharBuffer:
                             {
                                 // FIMXME: Switch to using a color buffer!
@@ -2265,12 +2207,12 @@ namespace VM12
                                 int buffer_length = mem[GP + 4] << 12 | mem[GP + 5];
                                 int vram_addr = mem[GP + 6] << 12 | mem[GP + 7];
                                 int font_addr = mem[GP + 8] << 12 | mem[GP + 9];
-                                
+
                                 for (int i = 0; i < buffer_length; i++)
                                 {
                                     int c = mem[char_buffer_addr++];
                                     int char_addr = font_addr + (c * CHAR_WIDTH);
-                                    
+
                                     bool not_zero = false;
                                     for (int j = 0; j < 8; j++)
                                     {
@@ -2297,7 +2239,7 @@ namespace VM12
                                             mask >>= 1;
                                         }
                                     }
-                                    
+
                                     vram_addr += CHAR_WIDTH;
 
                                     if (vram_addr < VRAM_START || vram_addr >= (VRAM_START + VRAM_SIZE))
@@ -2361,6 +2303,159 @@ namespace VM12
                                 GP += 11;
                                 break;
                             }
+                        case GrapicOps.FontcharBufferColorBg:
+                            {
+                                int char_buffer_addr = mem[GP + 1] << 12 | mem[GP + 2];
+                                int color_buffer_addr = mem[GP + 3] << 12 | mem[GP + 4];
+                                int bg_color_buffer_addr = mem[GP + 5] << 12 | mem[GP + 6];
+                                int buffer_length = mem[GP + 7] << 12 | mem[GP + 8];
+                                int vram_addr = mem[GP + 9] << 12 | mem[GP + 10];
+                                int font_addr = mem[GP + 11] << 12 | mem[GP + 12];
+
+                                for (int i = 0; i < buffer_length; i++)
+                                {
+                                    int color = mem[color_buffer_addr++];
+                                    int bg_color = mem[bg_color_buffer_addr++];
+                                    int c = mem[char_buffer_addr++];
+                                    int char_addr = font_addr + (c * CHAR_WIDTH);
+
+                                    for (int j = 0; j < 8; j++)
+                                    {
+                                        char_data[j] = mem[char_addr + j];
+                                    }
+
+                                    int draw_addr = vram_addr;
+                                    int mask = 0x800;
+                                    for (int j = 0; j < 12; j++)
+                                    {
+                                        mem[draw_addr + 0] = ((char_data[0] & mask) != 0) ? color : bg_color;
+                                        mem[draw_addr + 1] = ((char_data[1] & mask) != 0) ? color : bg_color;
+                                        mem[draw_addr + 2] = ((char_data[2] & mask) != 0) ? color : bg_color;
+                                        mem[draw_addr + 3] = ((char_data[3] & mask) != 0) ? color : bg_color;
+                                        mem[draw_addr + 4] = ((char_data[4] & mask) != 0) ? color : bg_color;
+                                        mem[draw_addr + 5] = ((char_data[5] & mask) != 0) ? color : bg_color;
+                                        mem[draw_addr + 6] = ((char_data[6] & mask) != 0) ? color : bg_color;
+                                        mem[draw_addr + 7] = ((char_data[7] & mask) != 0) ? color : bg_color;
+
+                                        draw_addr += SCREEN_WIDTH;
+                                        mask >>= 1;
+                                    }
+
+                                    vram_addr += CHAR_WIDTH;
+
+                                    if (vram_addr < VRAM_START || vram_addr >= (VRAM_START + VRAM_SIZE))
+                                    {
+                                        Debugger.Break();
+                                    }
+                                }
+
+                                GP += 13;
+                                break;
+                            }
+                        case GrapicOps.TrueColorSprite:
+                            throw new NotImplementedException();
+                        case GrapicOps.PalettedSprite:
+                            {
+                                int vram_addr = mem[GP + 1] << 12 | mem[GP + 2];
+                                int sprite = mem[GP + 3] << 12 | mem[GP + 4];
+                                int palette = mem[GP + 5] << 12 | mem[GP + 6];
+                                int stride = mem[GP + 7];
+                                int width = mem[GP + 8];
+                                int height = mem[GP + 9];
+                                
+                                // stride must be a multiple of 3
+                                if (stride % 3 != 0)
+                                {
+                                    throw new InvalidOperationException();
+                                }
+                                
+                                for (int y = 0; y < height; y++)
+                                {
+                                    int sprite_data;
+                                    for (int x = 0; x < width / 3; x++)
+                                    {
+                                        sprite_data = mem[sprite++];
+
+                                        mem[vram_addr++] = mem[palette + ((sprite_data >> 8) & 0xF)];
+                                        mem[vram_addr++] = mem[palette + ((sprite_data >> 4) & 0xF)];
+                                        mem[vram_addr++] = mem[palette + (sprite_data & 0xF)];
+                                    }
+
+                                    // Draw the horizontal pixels not on a 3 multiple boundrary
+                                    for (int i = 0; i < width % 3; i++)
+                                    {
+                                        sprite_data = mem[sprite++];
+                                        mem[vram_addr++] = mem[palette + ((sprite_data >> ((1 - i) * 4)) & 0xFF)];
+                                    }
+                                    
+                                    // The the rest of the stride
+                                    sprite += (stride / 3) - ((width + 2) / 3);
+                                    vram_addr += SCREEN_WIDTH - width;
+                                }
+
+                                GP += 10;
+                                break;
+                            }
+                        case GrapicOps.TrueColorSprite_Mask:
+                            throw new NotImplementedException();
+                        case GrapicOps.PalettedSprite_Mask:
+                            {
+                                int vram_addr = mem[GP + 1] << 12 | mem[GP + 2];
+                                int sprite = mem[GP + 3] << 12 | mem[GP + 4];
+                                int palette = mem[GP + 5] << 12 | mem[GP + 6];
+                                int mask = mem[GP + 7] << 12 | mem[GP + 8];
+                                int stride = mem[GP + 9];
+                                int width = mem[GP + 10];
+                                int height = mem[GP + 11];
+
+                                // stride must be a multiple of 3
+                                if (stride % 3 != 0)
+                                {
+                                    throw new InvalidOperationException();
+                                }
+
+                                int mask_counter = 0;
+                                for (int y = 0; y < height; y++)
+                                {
+                                    int sprite_data;
+                                    for (int x = 0; x < width / 3; x++)
+                                    {
+                                        sprite_data = mem[sprite++];
+
+                                        mem[vram_addr] = 
+                                            ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + ((sprite_data >> 8) & 0xF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + ((sprite_data >> 4) & 0xF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + (sprite_data & 0xF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                    }
+
+                                    // Draw the horizontal pixels not on a 3 multiple boundrary
+                                    for (int i = 0; i < width % 3; i++)
+                                    {
+                                        sprite_data = mem[sprite++];
+                                        mem[vram_addr] = ((MEM[mask + (mask_counter / 12)] >> (11 - mask_counter % 12)) & 0x01) == 0x00 ?
+                                            mem[vram_addr] : mem[palette + ((sprite_data >> ((1 - i) * 4)) & 0xFF)];
+                                        mask_counter++;
+                                        vram_addr++;
+                                    }
+
+                                    // The the rest of the stride
+                                    sprite += (stride / 3) - ((width + 2) / 3);
+                                    vram_addr += SCREEN_WIDTH - width;
+                                }
+
+                                GP += 12;
+                                break;
+                            }
+                        
                         default:
                             throw new InvalidOperationException();
                     }

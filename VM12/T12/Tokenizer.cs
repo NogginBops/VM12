@@ -9,7 +9,7 @@ using VM12Util;
 
 namespace T12
 {
-    public enum TokenType
+    public enum TokenType : byte
     {
         Comment,
 

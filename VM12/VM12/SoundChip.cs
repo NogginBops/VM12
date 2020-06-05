@@ -12,9 +12,7 @@ using NAudio.Utils;
 using NAudio.MediaFoundation;
 using NAudio.CoreAudioApi;
 using NAudio.Gui;
-using NAudio.Dsp;
 using System.Runtime.CompilerServices;
-using NAudio.Utils;
 
 namespace VM12
 {
