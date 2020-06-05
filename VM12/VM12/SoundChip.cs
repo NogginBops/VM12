@@ -18,7 +18,7 @@ namespace VM12
 {
     public class SoundChip
     {
-        private VM12 vm12;
+        private readonly VM12 vm12;
         public WasapiOut DriverOut;
         
         private const int OscillatorCount = 30;
@@ -201,7 +201,7 @@ namespace VM12
         private readonly ISampleProvider source;
         public ADSREnvelope Envelope { get; }
         private volatile bool triggered;
-        private int Ident;
+        public readonly int Ident;
         
         /// <summary>
         /// Creates a new AdsrSampleProvider with default values
@@ -325,7 +325,7 @@ namespace VM12
         private SmoothingType Smoothing = SmoothingType.Square;
         private int CustomSmoothingLevel = 10;
 
-        private int Ident;
+        public readonly int Ident;
 
         public ADSREnvelope(int ident, int sampleRate, double attack, double decay, double sustain, double release)
         {
