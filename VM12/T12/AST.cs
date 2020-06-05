@@ -4127,7 +4127,7 @@ namespace T12
 
         public override string ToString()
         {
-            return $"{base}<...>";
+            return $"{base.ToString()}<...>";
         }
     }
 
