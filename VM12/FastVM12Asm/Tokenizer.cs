@@ -148,9 +148,11 @@ namespace FastVM12Asm
             }
             else
             {
+                bool negative = false;
                 for (int i = 0; i < Data.Length; i++)
                 {
                     char c = Data[i];
+                    if (c == '-') { negative = true; continue; }
                     if (c == '_') continue;
                     result *= 10;
                     result += (int)char.GetNumericValue(c);
@@ -160,6 +162,8 @@ namespace FastVM12Asm
                 size /= 12;
                 //size = result / (1 << 12);
                 size++;
+
+                if (negative) result = -result;
             }
 
             return new SizedNumber(result, size);
