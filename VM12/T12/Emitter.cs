@@ -1252,6 +1252,7 @@ namespace T12
                 }
                 else if (score == bestScore)
                 {
+                    // FIXME: Better error message where we print out where the function are defined and some more info about them.
                     Warning(trace, $"There where two overloads to '{function.Name}' that fit equally good. F1: '{func}', F2: '{function}'");
                 }
             }

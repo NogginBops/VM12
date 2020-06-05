@@ -1109,6 +1109,51 @@ namespace T12
                         return ASTDeclaration.Parse(Tokens);
                     }
                 }
+                else if (namePeek.Type == TokenType.LessThan)
+                {
+                    // Here we need to figure out if this is a generic variable declaration or if this an expression using generics or just comparing two variables
+
+                    int openAngles = 1;
+                    int index = 2;
+                    while (true)
+                    {
+                        if (Tokens.Count - 1 < index) Fail(namePeek, $"We read the whole file and could not find a matching closing angle bracket...");
+                        var peekGeneric = Tokens.ElementAt(index++);
+
+                        if (peekGeneric.IsType || peekGeneric.Type == TokenType.Comma || peekGeneric.Type == TokenType.LessThan ||
+                            // FIXME: Do proper parsing for fixed arrays!
+                            peekGeneric.Type == TokenType.Close_squre_bracket || peekGeneric.Type == TokenType.Numeric_Litteral)
+                        {
+                            if (peekGeneric.Type == TokenType.LessThan) openAngles++;
+                            continue;
+                        }
+                        else if (peekGeneric.Type == TokenType.GreaterThan || peekGeneric.Type == TokenType.ShiftRight)
+                        {
+                            openAngles -= peekGeneric.Type == TokenType.GreaterThan ? 1 : 2;
+
+                            // FIXME: Better error message?
+                            if (openAngles < 0) Fail(peekGeneric, "Angle bracket missamatch!");
+
+                            // Here we've found all matching angles, so now we can look at what comes after the bracket
+                            if (openAngles == 0)
+                            {
+                                if (Tokens.ElementAt(index).IsIdentifier)
+                                {
+                                    return ASTVariableDeclaration.Parse(Tokens);
+                                }
+                                else
+                                {
+                                    return ASTStatement.Parse(Tokens);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // This cannot be a generic thing, so we just break here and default to parsing the rest as a statement.
+                            break;
+                        }
+                    }
+                }
             }
 
             return ASTStatement.Parse(Tokens);
