@@ -3139,9 +3139,17 @@ namespace T12
                         // Or we try to recognize typlical scenarios like "someArray : someArray.end"
                         // and do fast optimizations for that. Because I don't think that the constant folding 
                         // would get that that is the same as "someArray.lenth" for this size part.
-                        // We could also improve the constnat folding, but that might be very hard...?
+                        // We could also improve the constant folding, but that might be very hard...?
 
                         // FIXME: If the cost of loading min two times is less than 5 instructions we just want to load it twice
+                        // given it doesn't have side effects
+
+                        // FIXME: We want the upper bound to be exlusive.
+                        // We could add syntax for doing this on arrays as that isn't too hard to implement
+                        // eg: if (some_address =><= array) do_something();
+                        // If we do this we need to think if this should be indices or addresses?
+                        // We could also switch behaviour depending on type, so pointer types is an address contains
+                        // and word types would be an index check...
 
                         int typeSize = SizeOfType(valueType, typeMap);
                         switch (typeSize)
