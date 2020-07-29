@@ -2011,16 +2011,17 @@ namespace T12
 
                     // We do a linear seach forward to check if this is a comparison or not
                     IEnumerable<Token> check = Tokens;
-                    int index = 0;
-                    foreach (var peekGeneric in check.Skip(2))
+                    IEnumerator<Token> en = Tokens.Skip(2).GetEnumerator();
+                    while (en.MoveNext())
                     {
+                        var peekGeneric = en.Current;
+
                         if (peekGeneric.IsType || peekGeneric.Type == TokenType.Comma || peekGeneric.Type == TokenType.LessThan ||
                             // FIXME: Do proper parsing for fixed arrays!
                             peekGeneric.Type == TokenType.Close_squre_bracket || peekGeneric.Type == TokenType.Numeric_Litteral)
                         {
                             if (peekGeneric.Type == TokenType.LessThan) openAngles++;
-
-                            index++;
+                            
                             continue;
                         }
                         else if (peekGeneric.Type == TokenType.GreaterThan || peekGeneric.Type == TokenType.ShiftRight)
@@ -2032,12 +2033,21 @@ namespace T12
 
                             if (openAngles == 0)
                             {
-                                // NOTE: We might want to be able to do this, idk? For now we say no
-                                if (index == 0) Fail(peek, "Cannot call a generic function with zero arguments!");
-
-                                // This is actually a generic function call!!
-                                expr = ASTGenericFunctionCall.Parse(Tokens);
-                                break;
+                                if (en.MoveNext())
+                                {
+                                    if (en.Current.Type == TokenType.Open_parenthesis)
+                                    {
+                                        // This is actually a generic function call!!
+                                        expr = ASTGenericFunctionCall.Parse(Tokens);
+                                        break;
+                                    }
+                                    else if (en.Current.Type == TokenType.Open_brace)
+                                    {
+                                        // This is actually a generic struft litteral
+                                        expr = ASTStructLitteral.Parse(Tokens);
+                                        break;
+                                    }
+                                }
                             }
                         }
                         else
@@ -2047,7 +2057,6 @@ namespace T12
                             break;
                         }
                     }
-
                     if (expr == null) Fail(peekActionTok, "THIS SHOULD NOT HAPPEN!!!");
                 }
                 else if (peekActionTok.Type == TokenType.Open_brace)

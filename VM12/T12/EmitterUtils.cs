@@ -558,6 +558,16 @@ namespace T12
                     // But that means that we can't start changing the contents of
                     // ASTLitteral ast nodes
                     return litteral;
+                case ASTStructLitteral structLitteral:
+                    {
+                        var structType = SpecializeType(trace, structLitteral.StructType, genericMap);
+                        Dictionary<StringRef, ASTExpression> memberInits = new Dictionary<StringRef, ASTExpression>();
+                        foreach (var mInit in structLitteral.MemberInitializers)
+                        {
+                            memberInits.Add(mInit.Key, SpecializeExpression(trace, mInit.Value, genericMap));
+                        }
+                        return new ASTStructLitteral(structLitteral.Trace, structType, memberInits);
+                    }
                 case ASTVariableExpression variableExpr:
                     {
                         var assignmentExpr = SpecializeOptionalExpression(trace, variableExpr.AssignmentExpression, genericMap);
@@ -750,7 +760,7 @@ namespace T12
         private static GenericMap GenerateGenericMap(TraceData trace, List<StringRef> names, List<ASTType> types)
         {
             if (names.Count != types.Count)
-                Fail(trace, $"Missmatching number of generic arguments! Got '{types.Count}' Expected '{types.Count}'");
+                Fail(trace, $"Missmatching number of generic arguments! Got '{types.Count}' Expected '{names.Count}'");
 
             return names.Zip(types, (name, type) => (name, type)).ToDictionary(kvp => kvp.name, kvp => kvp.type);
         }
