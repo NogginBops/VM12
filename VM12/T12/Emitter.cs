@@ -1531,6 +1531,9 @@ namespace T12
                                         // NOTE: There could be something weird going on with types
                                         // that this struct uses that get imported only in the second file.
                                         typeMap.Add(structDecl.Name, structDecl.DeclaredType);
+
+                                        // FIXME: Why do we need to reference these types here, when we don't need to on the other computer?
+                                        Compiler.AddReferencedType(structDecl.DeclaredType);
                                         break;
                                     }
                                 default:

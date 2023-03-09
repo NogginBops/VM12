@@ -389,7 +389,7 @@ namespace FastVM12Asm
                             if (dirFiles[i].Name == includeFile) fi = dirFiles[i];
                         }
 
-                        if (fi == null) throw new InvalidOperationException($"Could not find file called: '{file}'");
+                        if (fi == null) throw new InvalidOperationException($"Could not find file called: '{includeFile}'");
 
                         //if (IncludeFiles.Contains(fi) == false)
                         if (ParsedFiles.Any(p => Path.GetFileName(p.File.Path) == includeFile) == false)

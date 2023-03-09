@@ -154,6 +154,27 @@ namespace T12
 
                         return new ASTContainsExpression(containsExpression.Trace, foldedVar, foldedLower, foldedUpper);
                     }
+                case ASTDefaultExpression defaultExpression:
+                    {
+                        if (defaultExpression.Type is ASTBaseType baseType)
+                        {
+                            // FIXME: Indeally we want to keep the ASTDefaultExpression node if we are not going to fold it somewhere.
+                            switch (baseType.TypeName.ToString())
+                            {
+                                //case "word":
+                                    // FIXME: Make the string something else?
+                                //    return new ASTWordLitteral(defaultExpression.Trace, (StringRef)"0", 0, ASTNumericLitteral.NumberFormat.Decimal);
+                                //case "dword":
+                                //    return new ASTDoubleWordLitteral(defaultExpression.Trace, (StringRef)"0", 0, ASTNumericLitteral.NumberFormat.Decimal);
+                                //case "bool":
+                                //    return new ASTBoolLitteral(defaultExpression.Trace, false);
+                                default:
+                                    return defaultExpression;
+                            }
+                        }
+                        // FIXME: We could possibly do something for structs here..?
+                        else return defaultExpression;
+                    }
                 default:
                     Warning(expr.Trace, $"Trying to constant fold unknown expression of type '{expr.GetType()}'");
                     return expr;
